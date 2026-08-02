@@ -197,7 +197,7 @@ generator, which the rest of this README covers).
 
 ## TODO
 
-- [ ] Add schema validation with JSON schema (conan: json-schema-validator/2.3.0)
+- [x] Add schema validation with JSON schema (conan: json-schema-validator/2.3.0)
 - [x] Add configuration variables
 - [ ] Improve documentation and add more examples
 - [ ] Use https://github.com/batterycenter/embed to embed some popular templates into binary
