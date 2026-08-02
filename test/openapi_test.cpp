@@ -259,6 +259,41 @@ components:
     REQUIRE(toString(SchemaKind::Primitive) == "Primitive");
 }
 
+TEST_CASE("Extract schema constraints", "[openapi]")
+{
+    auto doc = parseDoc(R"(
+components:
+  schemas:
+    Constrained:
+      type: string
+      minLength: 1
+      maxLength: 50
+      pattern: "^[a-z]+$"
+    Bounded:
+      type: integer
+      minimum: 1
+      maximum: 100
+    Plain:
+      type: string
+)");
+    const auto& s = doc.components.schemas;
+
+    auto constrained = constraintsOf(*s.at("Constrained"));
+    REQUIRE(constrained.any());
+    REQUIRE(constrained.minLength == 1);
+    REQUIRE(constrained.maxLength == 50);
+    REQUIRE(constrained.pattern == "^[a-z]+$");
+    REQUIRE(constrained.minimum == nullopt);
+
+    auto bounded = constraintsOf(*s.at("Bounded"));
+    REQUIRE(bounded.any());
+    REQUIRE(bounded.minimum->get<Node::Int>() == 1);
+    REQUIRE(bounded.maximum->get<Node::Int>() == 100);
+
+    auto plain = constraintsOf(*s.at("Plain"));
+    REQUIRE_FALSE(plain.any());
+}
+
 TEST_CASE("Collect operations", "[openapi]")
 {
     auto doc = parseDoc(readResource("petstore.yaml"));

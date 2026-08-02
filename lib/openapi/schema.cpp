@@ -131,6 +131,25 @@ string_view toString(SchemaKind kind)
     throw runtime_error("<f0f0f6a7> Unreachable: unknown SchemaKind");
 }
 
+bool Constraints::any() const
+{
+    return minimum || maximum || minLength || maxLength || minItems || maxItems || pattern || uniqueItems;
+}
+
+Constraints constraintsOf(const Schema& schema)
+{
+    return {
+        .minimum = schema.minimum,
+        .maximum = schema.maximum,
+        .minLength = schema.minLength,
+        .maxLength = schema.maxLength,
+        .minItems = schema.minItems,
+        .maxItems = schema.maxItems,
+        .pattern = schema.pattern,
+        .uniqueItems = schema.uniqueItems,
+    };
+}
+
 const Str schemaRefPrefix = "#/components/schemas/";
 
 SchemaPtr resolveSchemaRef(const SchemaMap& schemas, const Str& ref)

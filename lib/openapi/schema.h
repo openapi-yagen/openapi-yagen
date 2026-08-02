@@ -103,6 +103,24 @@ enum class SchemaKind {
 SchemaKind kindOf(const Schema& schema);
 std::string_view toString(SchemaKind kind);
 
+// A flattened bundle of Schema's validation-related keywords, for generators that want to check
+// "does this schema have any constraints at all" (e.g. to decide whether to emit a validate()
+// method) without individually testing every optional field on Schema.
+struct Constraints {
+    std::optional<Node> minimum;
+    std::optional<Node> maximum;
+    std::optional<int64_t> minLength;
+    std::optional<int64_t> maxLength;
+    std::optional<int64_t> minItems;
+    std::optional<int64_t> maxItems;
+    OptStr pattern;
+    std::optional<bool> uniqueItems;
+
+    bool any() const;
+};
+
+Constraints constraintsOf(const Schema& schema);
+
 // Resolves a single `$ref` pointer against `schemas` (as populated in Document::components).
 // Only local refs of the form "#/components/schemas/<Name>" are supported - that's the only
 // place a Schema $ref can point to, since parameters/requestBodies/responses are modeled

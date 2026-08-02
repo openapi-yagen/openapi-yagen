@@ -8,6 +8,36 @@ std::string_view getTypeName<std::string>()
     return "std::string";
 }
 
+template <>
+std::string_view getTypeName<bool>()
+{
+    return "bool";
+}
+
+template <>
+std::string_view getTypeName<std::int64_t>()
+{
+    return "int64_t";
+}
+
+template <>
+std::string_view getTypeName<Node::Null>()
+{
+    return "Node::Null";
+}
+
+template <>
+std::string_view getTypeName<Node::Vec>()
+{
+    return "Node::Vec";
+}
+
+template <>
+std::string_view getTypeName<Node::Map>()
+{
+    return "Node::Map";
+}
+
 std::ostream& operator<<(std::ostream& os, const Node::Null& n)
 {
     os << "null";
