@@ -20,6 +20,15 @@ Node nodeToScreamingSnakeCase(const Node::Vec& args)
     return { toScreamingSnakeCase((args | firstOrThrow()).get<string>()) };
 }
 
+Node nodeIsValidIdentifier(const Node::Vec& args)
+{
+    return { isValidIdentifier((args | firstOrThrow()).get<string>()) };
+}
+Node nodeSanitizeIdentifier(const Node::Vec& args)
+{
+    return { sanitizeIdentifier((args | firstOrThrow()).get<string>()) };
+}
+
 Node dumpNode(const Node::Vec& args)
 {
     bool first = true;
@@ -43,6 +52,8 @@ Functions getCommonFunctions()
     res.push_back({ .name = "toPascalCase", .func = nodeToPascalCase });
     res.push_back({ .name = "toSnakeCase", .func = nodeToSnakeCase });
     res.push_back({ .name = "toScreamingSnakeCase", .func = nodeToScreamingSnakeCase });
+    res.push_back({ .name = "isValidIdentifier", .func = nodeIsValidIdentifier });
+    res.push_back({ .name = "sanitizeIdentifier", .func = nodeSanitizeIdentifier });
     return res;
 }
 

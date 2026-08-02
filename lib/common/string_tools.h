@@ -19,7 +19,7 @@ struct ToNumberParams { };
 template <typename T>
 inline ToNumberParams<T> toNumber()
 {
-    return {};
+    return { };
 }
 
 std::int64_t operator|(const std::string& s, const ToNumberParams<std::int64_t>&);
@@ -27,7 +27,7 @@ int operator|(const std::string& s, const ToNumberParams<int>&);
 unsigned long operator|(const std::string& s, const ToNumberParams<unsigned long>&);
 
 struct ToStringParams { };
-inline ToStringParams toString() { return {}; }
+inline ToStringParams toString() { return { }; }
 
 template <typename T>
 std::string operator|(const T& t, const ToStringParams&)
@@ -128,11 +128,11 @@ std::string operator|(const Iterable& iterable, const JoinToStringParams& params
 }
 
 struct AnsiToLowerParams { };
-inline AnsiToLowerParams ansiToLower() { return {}; }
+inline AnsiToLowerParams ansiToLower() { return { }; }
 std::string operator|(const std::string& s, const AnsiToLowerParams& params);
 
 struct AnsiToUpperParams { };
-inline AnsiToUpperParams ansiToUpper() { return {}; }
+inline AnsiToUpperParams ansiToUpper() { return { }; }
 std::string operator|(const std::string& s, const AnsiToUpperParams& params);
 
 std::vector<std::string> splitToWords(const std::string& s);
@@ -140,3 +140,15 @@ std::string toSnakeCase(const std::string& s);
 std::string toScreamingSnakeCase(const std::string& s);
 std::string toCamelCase(const std::string& s);
 std::string toPascalCase(const std::string& s);
+
+// True if `s` is a valid identifier in any C-like language: starts with a letter or underscore,
+// followed by letters/digits/underscores. Doesn't check against any language's keyword list -
+// that's necessarily language-specific and left to the caller/generator.
+bool isValidIdentifier(const std::string& s);
+
+// Turns an arbitrary string into a valid identifier (see isValidIdentifier) by replacing every
+// character that isn't a letter/digit/underscore with '_', then prefixing '_' if the result is
+// empty or starts with a digit. Doesn't case-convert - callers apply toCamelCase/toPascalCase/...
+// before or after this as needed, and don't escape target-language keywords (e.g. wrapping
+// Kotlin's `class` in backticks) - that's still a per-language generator concern.
+std::string sanitizeIdentifier(const std::string& s);

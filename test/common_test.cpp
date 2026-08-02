@@ -45,3 +45,27 @@ TEST_CASE("Change case", "[common]")
     SECTION("To PascalCase") { REQUIRE((toPascalCase("first_second_third")) == "FirstSecondThird"); }
     SECTION("To camelCase") { REQUIRE((toCamelCase("first_second_third")) == "firstSecondThird"); }
 }
+
+TEST_CASE("Identifier sanitization", "[common]")
+{
+    SECTION("isValidIdentifier")
+    {
+        REQUIRE(isValidIdentifier("foo"));
+        REQUIRE(isValidIdentifier("_foo123"));
+        REQUIRE(isValidIdentifier("Foo_Bar"));
+        REQUIRE_FALSE(isValidIdentifier(""));
+        REQUIRE_FALSE(isValidIdentifier("123foo"));
+        REQUIRE_FALSE(isValidIdentifier("foo-bar"));
+        REQUIRE_FALSE(isValidIdentifier("foo bar"));
+    }
+    SECTION("sanitizeIdentifier")
+    {
+        REQUIRE(sanitizeIdentifier("foo") == "foo");
+        REQUIRE(sanitizeIdentifier("foo-bar") == "foo_bar");
+        REQUIRE(sanitizeIdentifier("x-next") == "x_next");
+        REQUIRE(sanitizeIdentifier("123foo") == "_123foo");
+        REQUIRE(sanitizeIdentifier("") == "_");
+        REQUIRE(isValidIdentifier(sanitizeIdentifier("123foo")));
+        REQUIRE(isValidIdentifier(sanitizeIdentifier("pet/status@2")));
+    }
+}

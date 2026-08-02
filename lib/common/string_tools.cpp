@@ -117,3 +117,24 @@ string toCamelCase(const std::string& s)
            })
         | joinToString("");
 }
+
+bool isValidIdentifier(const string& s)
+{
+    if (s.empty())
+        return false;
+    if (!isalpha(static_cast<unsigned char>(s[0])) && s[0] != '_')
+        return false;
+    return all_of(s.begin() + 1, s.end(), [](char ch) { return isalnum(static_cast<unsigned char>(ch)) || ch == '_'; });
+}
+
+string sanitizeIdentifier(const string& s)
+{
+    string res;
+    res.reserve(s.size());
+    for (char ch : s) {
+        res += (isalnum(static_cast<unsigned char>(ch)) || ch == '_') ? ch : '_';
+    }
+    if (res.empty() || isdigit(static_cast<unsigned char>(res[0])))
+        res = "_" + res;
+    return res;
+}

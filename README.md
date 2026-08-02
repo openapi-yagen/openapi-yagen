@@ -105,6 +105,20 @@ toSnakeCase(s: string): string // -> snake_case
 toScreamingSnakeCase(s: string): string // SCREAMING_SNAKE_CASE
 ```
 
+#### isValidIdentifier, sanitizeIdentifier
+
+`isValidIdentifier` checks whether a string is already a valid identifier in any C-like language
+(starts with a letter/underscore, followed by letters/digits/underscores - no keyword check, since
+that's language-specific). `sanitizeIdentifier` turns an arbitrary string into one by replacing
+every other character with `_` and prefixing `_` if the result would start with a digit or be
+empty. Neither case-converts or escapes target-language keywords - combine with
+`toCamelCase`/`toPascalCase`/... and your own keyword list as needed.
+
+```typescript
+isValidIdentifier(s: string): boolean
+sanitizeIdentifier(s: string): string // e.g. "pet/status" -> "pet_status", "2fa" -> "_2fa"
+```
+
 ## JavaScript reference
 
 The generator core supports all modern JavaScript features from ES2023 (string interpolation, classes, let, const, 
