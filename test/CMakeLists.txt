@@ -10,6 +10,7 @@ set(SOURCES
     common/tools.h
     common_test.cpp
     generator_test.cpp
+    openapi_test.cpp
     parser_test.cpp
     vfs_test.cpp
 )
@@ -22,5 +23,6 @@ target_link_libraries(${TARGET}
   openapi-yagen-lib-fs
   openapi-yagen-lib-js
   openapi-yagen-lib-generator
+  openapi-yagen-lib-openapi
   openapi-yagen-lib-templates
 )

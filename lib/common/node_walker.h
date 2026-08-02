@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -35,6 +36,14 @@ public:
 
     template <typename Mapper, typename T = typename std::invoke_result<Mapper, const NodeWalker&>::type>
     std::optional<std::vector<T>> optionalList(const Mapper& mapper) const;
+
+    // Like requiredList/optionalList, but for an object whose keys are arbitrary (e.g. OpenAPI's
+    // `properties`, `components.schemas`) rather than a fixed set of known field names.
+    template <typename Mapper, typename T = typename std::invoke_result<Mapper, const NodeWalker&>::type>
+    std::map<std::string, T> requiredMap(const Mapper& mapper) const;
+
+    template <typename Mapper, typename T = typename std::invoke_result<Mapper, const NodeWalker&>::type>
+    std::optional<std::map<std::string, T>> optionalMap(const Mapper& mapper) const;
 
     template <typename Mapper, typename T = typename std::invoke_result<Mapper, const NodeWalker&>::type>
     T requiredObj(const Mapper& mapper) const;
@@ -84,6 +93,26 @@ std::vector<T> NodeWalker::requiredList(const Mapper& mapper) const
 {
     requireValue();
     return optionalList(mapper);
+}
+
+template <typename Mapper, typename T>
+inline std::optional<std::map<std::string, T>> NodeWalker::optionalMap(const Mapper& mapper) const
+{
+    if (isEmpty())
+        return std::nullopt;
+    auto m = required<Node::Map>();
+    std::map<std::string, T> res;
+    for (const auto& [key, value] : m) {
+        res.emplace(key, mapper(NodeWalker(value, joinPath(basePath, key))));
+    }
+    return res;
+}
+
+template <typename Mapper, typename T>
+std::map<std::string, T> NodeWalker::requiredMap(const Mapper& mapper) const
+{
+    requireValue();
+    return optionalMap(mapper).value();
 }
 
 template <typename T>
