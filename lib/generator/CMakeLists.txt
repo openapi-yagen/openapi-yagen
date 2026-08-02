@@ -1,6 +1,8 @@
 set(TARGET openapi-yagen-lib-generator)
 
 find_package(quickjs REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(nlohmann_json_schema_validator REQUIRED)
 
 set(SOURCES
   functions.cpp
@@ -13,9 +15,12 @@ set(SOURCES
 
 set(DEPS
   quickjs::quickjs
+  nlohmann_json::nlohmann_json
+  nlohmann_json_schema_validator
   openapi-yagen-lib-common
   openapi-yagen-lib-fs
   openapi-yagen-lib-js
+  openapi-yagen-lib-openapi
   openapi-yagen-lib-templates
 )
 

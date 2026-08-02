@@ -28,7 +28,7 @@ public:
 class MockedFileReaderBackend : public FileReaderBackend {
 public:
     using Files = std::map<std::string, std::string>;
-    MockedFileReaderBackend(const Files& files = {})
+    MockedFileReaderBackend(const Files& files = { })
         : files(files)
     {
     }
@@ -84,4 +84,50 @@ TEST_CASE("Generate", "[generator]")
     gen.generate(getResourcePath("petstore.yaml"));
 
     REQUIRE_THAT(fileWriter->files["outfile"], Catch::Matchers::ContainsSubstring("#/components/schemas/Pet"));
+}
+
+TEST_CASE("Generate validates spec against jsonSchemaPath when declared", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    auto makeGen = [&](const string& jsonSchemaContent) {
+        MockedFileReaderBackend::Files files = {
+            { "main.js", "renderTemplate(\"test_template\", schema, \"outfile\")" },
+            { "generator.yml", "name: test_generator\nmainScriptPath: main.js\njsonSchemaPath: schema.json\n" },
+            { "schema.json", jsonSchemaContent },
+        };
+        auto fileReader
+            = make_shared<FileReader>(FileReader::Opts { .backends = { make_shared<MockedFileReaderBackend>(files) } });
+        auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+        return Generator::OpenApiGenerator(Generator::OpenApiGenerator::Opts {
+            .fileReader = fileReader,
+            .fileWriter = fileWriter,
+            .jsExecutor = jsExecutor,
+            .templateRenderer = templateRenderer,
+            .defaultMainSciptPath = "main.js",
+            .metadataPath = "generator.yml",
+            .clearOutDir = false,
+            .vars = { },
+        });
+    };
+
+    SECTION("Happy path: spec satisfies the declared schema")
+    {
+        auto gen
+            = makeGen(R"({"type": "object", "required": ["openapi"], "properties": {"openapi": {"type": "string"}}})");
+        REQUIRE_NOTHROW(gen.generate(getResourcePath("petstore.yaml")));
+    }
+
+    SECTION("Unhappy path: spec violates the declared schema")
+    {
+        auto gen = makeGen(R"({"type": "object", "required": ["thisFieldDoesNotExistInPetstore"]})");
+        REQUIRE_THROWS(gen.generate(getResourcePath("petstore.yaml")));
+    }
+
+    SECTION("The declared JSON schema file itself is malformed")
+    {
+        auto gen = makeGen("{ not valid json");
+        REQUIRE_THROWS(gen.generate(getResourcePath("petstore.yaml")));
+    }
 }

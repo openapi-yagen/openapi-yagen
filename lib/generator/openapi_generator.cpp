@@ -4,6 +4,7 @@
 #include <cstring>
 #include <stdexcept>
 
+#include <nlohmann/json-schema.hpp>
 #include <quickjs/quickjs-libc.h>
 #include <quickjs/quickjs.h>
 
@@ -60,7 +61,7 @@ Node getFinalVars(const vector<string>& vars, const GeneratorMetadata& metadata)
         if (it == parsedVars.end()) {
             if (varDescr.required)
                 throw runtime_error(format("<1e9c49a1> Variable required: {}{}", varDescr.name,
-                    (varDescr.description ? " - " + *varDescr.description : "")));
+                                           (varDescr.description ? " - " + *varDescr.description : "")));
             if (!varDescr.defaultValue)
                 continue;
             varValue = *varDescr.defaultValue;
@@ -86,6 +87,63 @@ Node readSpecFile(const string& filePath)
         return parseYamlOrJsonToNode(specFile);
     } catch (const exception& e) {
         throw runtime_error(format("<2b4ec139> Cannot read spec file \"{}\". Error: {}", filePath, e.what()));
+    }
+}
+
+nlohmann::json nodeToJson(const Node& n)
+{
+    return visit(
+        [](auto&& v) -> nlohmann::json {
+            using T = decay_t<decltype(v)>;
+            if constexpr (is_same_v<T, Node::Null>) {
+                return nullptr;
+            } else if constexpr (is_same_v<T, Node::Vec>) {
+                auto arr = nlohmann::json::array();
+                for (const auto& e : v)
+                    arr.push_back(nodeToJson(e));
+                return arr;
+            } else if constexpr (is_same_v<T, Node::Map>) {
+                auto obj = nlohmann::json::object();
+                for (const auto& [key, value] : v)
+                    obj[key] = nodeToJson(value);
+                return obj;
+            } else {
+                return v; // Bool, Int, String all convert implicitly to nlohmann::json
+            }
+        },
+        n.value);
+}
+
+// Validates the parsed spec against the generator's declared `jsonSchemaPath` (see
+// GeneratorMetadata / the "Json schema for input data validation" field in generator.yml docs).
+// A no-op when the generator didn't declare one.
+void validateSpecAgainstJsonSchema(const FS::FileReaderPtr& fileReader, const GeneratorMetadata& metadata,
+                                   const Node& specNode)
+{
+    if (!metadata.jsonSchemaPath)
+        return;
+    const auto& jsonSchemaPath = *metadata.jsonSchemaPath;
+
+    nlohmann::json schemaJson;
+    try {
+        schemaJson = nlohmann::json::parse(fileReader->read(jsonSchemaPath));
+    } catch (const exception& e) {
+        throw runtime_error(
+            format("<a1b1c1d1> Cannot read/parse JSON schema \"{}\". Error: {}", jsonSchemaPath, e.what()));
+    }
+
+    nlohmann::json_schema::json_validator validator;
+    try {
+        validator.set_root_schema(schemaJson);
+    } catch (const exception& e) {
+        throw runtime_error(format("<b2c2d2e2> Invalid JSON schema \"{}\". Error: {}", jsonSchemaPath, e.what()));
+    }
+
+    try {
+        validator.validate(nodeToJson(specNode));
+    } catch (const exception& e) {
+        throw runtime_error(
+            format("<c3d3e3f3> Spec file does not conform to JSON schema \"{}\". Error: {}", jsonSchemaPath, e.what()));
     }
 }
 
@@ -158,8 +216,8 @@ JSValue renderTemplate(JSContext* ctx, JSValueConst thisVal, int argc, JSValueCo
     });
 }
 
-JSValue renderTemplateToString(
-    JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic, JSValue* data)
+JSValue renderTemplateToString(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic,
+                               JSValue* data)
 {
     return runAndCatchExceptions(ctx, [&] {
         const auto& gen = *jsValueToPtr<const OpenApiGenerator>(*data);
@@ -190,8 +248,8 @@ void OpenApiGenerator::generate(const string& specPath)
     finalize
     {
         auto endTime = chrono::high_resolution_clock::now();
-        logger.debug(
-            "<eb2395fc> Generation time: {} msec", chrono::duration<double, milli>(endTime - startTime).count());
+        logger.debug("<eb2395fc> Generation time: {} msec",
+                     chrono::duration<double, milli>(endTime - startTime).count());
     };
 
     if (opts.clearOutDir)
@@ -199,6 +257,7 @@ void OpenApiGenerator::generate(const string& specPath)
     auto metadata = readMetadata(opts.fileReader, opts.metadataPath);
     auto mainScriptPath = metadata.mainScriptPath.value_or(opts.defaultMainSciptPath);
     auto schemaNode = readSpecFile(specPath);
+    validateSpecAgainstJsonSchema(opts.fileReader, metadata, schemaNode);
     auto generatorPtr = this;
     auto vars = getFinalVars(opts.vars, metadata);
 

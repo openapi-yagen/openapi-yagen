@@ -6,7 +6,8 @@ quickjs/2023-12-09
 kuba-zip/0.3.2
 inja/3.4.0
 catch2/3.7.1
-#json-schema-validator/2.3.0
+json-schema-validator/2.3.0
+nlohmann_json/3.11.3
 
 [generators]
 CMakeDeps
