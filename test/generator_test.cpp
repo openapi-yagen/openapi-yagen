@@ -91,6 +91,37 @@ TEST_CASE("Generate", "[generator]")
                      "Pets={items={properties={id={format=int64,type=integer},name={type=string},tag={type=string}}"));
 }
 
+TEST_CASE("copyFile copies a static file verbatim without templating", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js", "copyFile(\"Validation.kt\", \"out/Validation.kt\")" },
+        { "generator.yml", readResource("generator.yml") },
+        { "Validation.kt", "fun requireMin(v: Int, min: Int, label: String) { /* {{ not a template }} */ }\n" },
+    };
+
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { make_shared<MockedFileReaderBackend>(files) },
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { },
+    });
+
+    gen.generate(getResourcePath("petstore.yaml"));
+
+    REQUIRE(fileWriter->files["out/Validation.kt"]
+            == "fun requireMin(v: Int, min: Int, label: String) { /* {{ not a template }} */ }\n");
+}
+
 TEST_CASE("Generate exposes kindOf/constraintsOf/nameOf/collectOperations", "[generator]")
 {
     auto fileWriter = make_shared<MockedFileWriter>();

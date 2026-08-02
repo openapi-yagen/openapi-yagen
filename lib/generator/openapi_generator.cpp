@@ -329,6 +329,26 @@ JSValue collectOperationsBuiltin(JSContext* ctx, JSValueConst thisVal, int argc,
     });
 }
 
+// Copies a static file from the generator's own directory straight into the output directory,
+// without routing it through the template engine just to move bytes unchanged (previously the
+// only option - see e.g. how kotlin_ktor_server_generator/templates/validation.kt.j2 has no
+// `{{ }}` in it at all, just to be `renderTemplate`-able).
+JSValue copyFile(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic, JSValue* data)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        const auto& gen = *jsValueToPtr<const OpenApiGenerator>(*data);
+
+        if (argc != 2)
+            throw runtime_error("<a9b8c7d6> copyFile requires 2 arguments (srcFileName: string, outFileName: string)");
+        auto srcFileName = jsValueToString(ctx, argv[0]);
+        auto outFileName = jsValueToString(ctx, argv[1]);
+
+        auto content = gen.opts.fileReader->read(srcFileName);
+        gen.opts.fileWriter->write(outFileName, content);
+        return JS_NewBool(ctx, 1);
+    });
+}
+
 JSValue renderTemplate(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic, JSValue* data)
 {
     return runAndCatchExceptions(ctx, [&] {
@@ -415,6 +435,7 @@ void OpenApiGenerator::generate(const string& specPath)
             auto globalObj = JS_GetGlobalObject(ctx);
             finalize { JS_FreeValue(ctx, globalObj); };
 
+            setObjFunction(ctx, globalObj, "copyFile", copyFile, generatorPtr);
             setObjFunction(ctx, globalObj, "renderTemplate", renderTemplate, generatorPtr);
             setObjFunction(ctx, globalObj, "renderTemplateToString", renderTemplateToString, generatorPtr);
 

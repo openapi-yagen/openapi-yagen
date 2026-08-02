@@ -172,6 +172,16 @@ for (const op of collectOperations()) {
 }
 ```
 
+#### copyFile
+
+Copies a file from the generator folder straight into the output directory, unmodified - for
+static runtime files that need no substitution (previously the only way to emit one was
+`renderTemplate` against a template with no `{{ }}` in it at all).
+
+```typescript
+copyFile(srcFileName: string, outFileName: string): void
+```
+
 #### renderTemplate
 
 Renders specified template (`templateFilePath`) in generator folder into `outFilePath` with provided `data` object. 
