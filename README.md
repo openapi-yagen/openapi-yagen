@@ -110,6 +110,18 @@ toScreamingSnakeCase(s: string): string // SCREAMING_SNAKE_CASE
 The generator core supports all modern JavaScript features from ES2023 (string interpolation, classes, let, const, 
 modules ...) thanks to QuickJS. 
 
+### Global values
+
+These global values are available in the main script (and anything it imports):
+
+- `schema` - the parsed OpenAPI specification (contents of the `spec-file`) as a plain object
+- `vars` - an object with the resolved generator variables (see `-v`/`--var` and the `variables`
+  section of `generator.yml`), keyed by variable name
+
+```js
+renderTemplate("model.h.j2", { schemas: schema.components.schemas, namespace: vars.namespace }, "model.h");
+```
+
 ### Built-in functions
 
 #### renderTemplate
@@ -154,6 +166,13 @@ You can call common built-in functions described above in this way:
 ## Example generators 
 
 Example generators are located in the `examples` folder.
+
+## Development
+
+The project is a CMake + Conan 2 C++20 codebase (core in `lib/`, CLI in `cli/`, tests in
+`test/`). See [AGENTS.md](AGENTS.md) for build/test commands, project architecture, and coding
+conventions - it's the entry point for working on the generator itself (as opposed to writing a
+generator, which the rest of this README covers).
 
 ## TODO
 
