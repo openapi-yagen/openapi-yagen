@@ -10,6 +10,7 @@ set(SOURCES
     common/tools.h
     common_test.cpp
     generator_test.cpp
+    openapi_js_test.cpp
     openapi_test.cpp
     parser_test.cpp
     vfs_test.cpp

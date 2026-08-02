@@ -11,6 +11,8 @@ set(SOURCES
   generator_metadata.h
   openapi_generator.cpp
   openapi_generator.h
+  openapi_js_bridge.cpp
+  openapi_js_bridge.h
 )
 
 set(DEPS
