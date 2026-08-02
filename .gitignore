@@ -2,6 +2,6 @@
 /dist
 /CMakeLists.txt.user
 /CMakeUserPresets.json
-/examples/out
+/generators/out
 /test/kotlin_generators/classpath/.gradle
 /test/kotlin_generators/classpath/build

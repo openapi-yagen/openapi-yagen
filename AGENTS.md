@@ -42,8 +42,8 @@ sources/deps):
 `cli/` — CLI11-based argument parsing and command dispatch. `cli/config.h.in` is configured by
 CMake with `APP_VERSION` (read from the first line of `CHANGELOG.md`).
 
-`examples/simple_cpp_models_generator/` is a working example generator (used by
-`examples/run.sh` and referenced by `test/`) — a good template to look at when writing or
+`generators/simple_cpp_models_generator/` is a working example generator (used by
+`generators/run.sh` and referenced by `test/`) — a good template to look at when writing or
 debugging a generator, or when changing what globals/functions are exposed to `main.js`.
 
 ## Conventions
@@ -111,12 +111,12 @@ build or CI — run it manually (see that directory's README for prerequisites).
 
 ## Trying it end-to-end
 
-`examples/run.sh` runs the CLI against the example generator and the test petstore spec:
+`generators/run.sh` runs the CLI against the example generator and the test petstore spec:
 ```bash
-./build/cli/openapi-yagen g -o examples/out -g examples/simple_cpp_models_generator \
+./build/cli/openapi-yagen g -o generators/out -g generators/simple_cpp_models_generator \
     -c test/resources/petstore.yaml -v "namespace=OpenAPI"
 ```
-(the checked-in `examples/run.sh` assumes an installed `openapi-yagen` on PATH and
+(the checked-in `generators/run.sh` assumes an installed `openapi-yagen` on PATH and
 `clang-format` post-processing; adjust the path to your local build binary.)
 
 ## Docs upkeep

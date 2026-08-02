@@ -58,7 +58,7 @@ run_case() {
     echo
     echo "=== $label: $generator <- $(basename "$spec") ==="
 
-    if ! "$OPENAPI_YAGEN" g -o "$out_dir" -g "$REPO_ROOT/examples/$generator" "$spec" \
+    if ! "$OPENAPI_YAGEN" g -o "$out_dir" -g "$REPO_ROOT/generators/$generator" "$spec" \
             -v "packageName=$package" -c; then
         echo "FAIL ($label): generation failed" >&2
         FAILURES=$((FAILURES + 1))

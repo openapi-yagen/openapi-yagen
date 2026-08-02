@@ -88,13 +88,13 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
 
 ## Try it
 
-From the `examples/` directory, with `openapi-yagen` on `PATH` (see `run_kotlin_client.sh`,
+From the `generators/` directory, with `openapi-yagen` on `PATH` (see `run_kotlin_client.sh`,
 sibling to the existing `run.sh`):
 
 ```bash
-cd examples && ./run_kotlin_client.sh
+cd generators && ./run_kotlin_client.sh
 ```
-generates into `examples/out/kotlin-client` from `test/resources/petstore.yaml`.
+generates into `generators/out/kotlin-client` from `test/resources/petstore.yaml`.
 
 For an automated generate-then-compile check (including against a real-world spec, a curated
 GitHub API subset), see [`test/kotlin_generators/`](../../test/kotlin_generators/README.md).

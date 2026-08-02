@@ -1,7 +1,7 @@
 # Kotlin generator integration tests
 
-Integration tests for `examples/kotlin_ktor_client_generator` and
-`examples/kotlin_ktor_server_generator`: for both generators, against both a clean textbook spec
+Integration tests for `generators/kotlin_ktor_client_generator` and
+`generators/kotlin_ktor_server_generator`: for both generators, against both a clean textbook spec
 (`test/resources/petstore.yaml`) and a real-world one (`test/resources/ghes-subset.yaml`, a
 curated subset of GitHub's own REST API spec), generate Kotlin source with `openapi-yagen` and
 then compile it with `kotlinc`. A case only passes if both generation and compilation succeed.
