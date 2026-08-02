@@ -73,7 +73,11 @@ description: Example of C++ model generator from OpenAPI v3 specification
 # Main JavaScript file (entrypoint).
 mainScriptPath: main.js
 
-# Json schema for input data validation 
+# Json schema for input data validation. Point this at the official OpenAPI schema for the
+# exact version(s) your generator supports (e.g. the OpenAPI 3.0 or 3.1 meta-schema) - the engine
+# has no separate/hardcoded version check of its own, and the official schemas already pin the
+# "openapi" field itself (e.g. `^3\.0\.\d(-.+)?$`), so an unsupported spec version is rejected as
+# part of this same validation, with no extra mechanism needed.
 jsonSchemaPath: openapi_v3_schema.json
 
 # Variables that can be used to customize script execution
