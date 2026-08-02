@@ -7,6 +7,7 @@
 #include <lib/common/node_walker.h>
 #include <lib/common/yaml_or_json_parser.h>
 #include <lib/openapi/document.h>
+#include <lib/openapi/resolve.h>
 #include <lib/openapi/schema.h>
 
 #include "common/tools.h"
@@ -417,4 +418,85 @@ components:
     REQUIRE(createItem != ops.end());
     REQUIRE(createItem->requestBody->ref == nullopt);
     REQUIRE(createItem->requestBody->required == true);
+}
+
+TEST_CASE("resolveAllRefs", "[openapi]")
+{
+    SECTION("self-referential schema resolves without hanging, preserving identity")
+    {
+        auto doc = parseDoc(R"(
+components:
+  schemas:
+    TreeNode:
+      type: object
+      properties:
+        name:
+          type: string
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/TreeNode"
+)");
+        resolveAllRefs(doc);
+        auto treeNode = doc.components.schemas.at("TreeNode");
+        REQUIRE(treeNode->properties.at("children")->items == treeNode);
+        REQUIRE(kindOf(*treeNode) == SchemaKind::Object);
+    }
+
+    SECTION("alias chain collapses to the final target")
+    {
+        auto doc = parseDoc(R"(
+components:
+  schemas:
+    Alias1:
+      $ref: "#/components/schemas/Alias2"
+    Alias2:
+      $ref: "#/components/schemas/Pet"
+    Pet:
+      type: object
+      properties:
+        name:
+          type: string
+)");
+        resolveAllRefs(doc);
+        REQUIRE(doc.components.schemas.at("Alias1") == doc.components.schemas.at("Pet"));
+        REQUIRE(doc.components.schemas.at("Alias2") == doc.components.schemas.at("Pet"));
+    }
+
+    SECTION("cyclic alias-only refs still throw (guard is actually exercised, not silently hanging)")
+    {
+        auto doc = parseDoc(R"(
+components:
+  schemas:
+    A:
+      $ref: "#/components/schemas/B"
+    B:
+      $ref: "#/components/schemas/A"
+)");
+        REQUIRE_THROWS(resolveAllRefs(doc));
+    }
+
+    SECTION("petstore fixture: response schema is fully resolved, no $ref left")
+    {
+        auto doc = parseDoc(readResource("petstore.yaml"));
+        resolveAllRefs(doc);
+        auto ops = collectOperations(doc);
+        auto listPets = find_if(ops.begin(), ops.end(),
+                                [](const auto& op) { return op.operationId && *op.operationId == "listPets"; });
+        REQUIRE(listPets != ops.end());
+        auto responseSchema = listPets->responses.at("200")->content.at("application/json").schema;
+        REQUIRE(responseSchema->ref == nullopt);
+        REQUIRE(responseSchema->type == "array");
+        REQUIRE(responseSchema->items->ref == nullopt);
+        REQUIRE(responseSchema->items->type == "object");
+    }
+
+    SECTION("idempotent: calling twice is a no-op the second time")
+    {
+        auto doc = parseDoc(readResource("petstore.yaml"));
+        resolveAllRefs(doc);
+        auto petBefore = doc.components.schemas.at("Pet");
+        resolveAllRefs(doc);
+        REQUIRE(doc.components.schemas.at("Pet") == petBefore);
+    }
 }

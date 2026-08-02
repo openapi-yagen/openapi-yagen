@@ -4,6 +4,8 @@ set(SOURCES
   document.cpp
   document.h
   ref.h
+  resolve.cpp
+  resolve.h
   schema.cpp
   schema.h
 )
