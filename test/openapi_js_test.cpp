@@ -10,6 +10,8 @@
 #include <lib/js/tools.h>
 #include <lib/openapi/resolve.h>
 
+#include "common/tools.h"
+
 using namespace std;
 using namespace OpenApi;
 using namespace JS;
@@ -132,6 +134,48 @@ components:
         JS_FreeValue(ctx, globalObj);
 
         REQUIRE(evalBool(ctx, "wrapper.properties.a === wrapper.properties.b"));
+    }
+    JS_FreeContext(ctx);
+    JS_FreeRuntime(runtime);
+}
+
+TEST_CASE("OpenApiJsGraphBuilder builds the whole document, resolving $ref by identity", "[openapi_js]")
+{
+    auto rawNode = parseYamlOrJsonToNode(readResource("petstore.yaml"));
+    auto doc = parseDocument(NodeWalker(rawNode));
+    resolveAllRefs(doc);
+
+    auto runtime = JS_NewRuntime();
+    auto ctx = JS_NewContext(runtime);
+    {
+        Generator::OpenApiJsGraphBuilder builder(ctx);
+        auto schemaValue = builder.buildDocumentValue(rawNode, doc);
+        auto globalObj = JS_GetGlobalObject(ctx);
+        setObjProperty(ctx, globalObj, "schema", schemaValue);
+        JS_FreeValue(ctx, globalObj);
+
+        // Pets.items was `$ref: Pet` - now literally the same object as components.schemas.Pet.
+        REQUIRE(evalBool(ctx, "schema.components.schemas.Pets.items === schema.components.schemas.Pet"));
+        REQUIRE(evalBool(ctx, "schema.components.schemas.Pets.items['$ref'] === undefined"));
+
+        // Non-schema top-level document fields survive untouched.
+        REQUIRE(evalBool(ctx, "schema.info.title === 'Swagger Petstore'"));
+
+        // Path-level/operation-level structure preserved; response schema resolved by identity.
+        REQUIRE(evalBool(ctx,
+                         "schema.paths['/pets'].get.responses['200'].content['application/json'].schema === "
+                         "schema.components.schemas.Pets"));
+        REQUIRE(evalBool(ctx, "schema.paths['/pets/{petId}'].get.parameters[0].name === 'petId'"));
+
+        // nameOf: a named component resolves to its registered name; an inline schema does not.
+        auto petValue = builder.buildSchemaValue(doc.components.schemas.at("Pet"));
+        REQUIRE(builder.nameOf(petValue) == string("Pet"));
+        JS_FreeValue(ctx, petValue);
+
+        auto limitParamSchema
+            = builder.buildSchemaValue(doc.paths.at("/pets").operations.at("get").parameters[0]->schema);
+        REQUIRE_FALSE(builder.nameOf(limitParamSchema).has_value());
+        JS_FreeValue(ctx, limitParamSchema);
     }
     JS_FreeContext(ctx);
     JS_FreeRuntime(runtime);
