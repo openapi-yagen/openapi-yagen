@@ -1,0 +1,17 @@
+package {{ packageName }}
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+{% if model.serialName -%}
+@SerialName("{{ model.serialName }}")
+{% endif -%}
+data class {{ model.name }}(
+{% for p in model.properties -%}
+    {% if p.needsSerialName -%}
+    @SerialName("{{ p.wireName }}")
+    {% endif -%}
+    val {{ p.ktName }}: {{ p.type }}{% if p.nullable %}? = null{% endif %},
+{% endfor -%}
+){% if model.implements %} : {{ model.implements }}{% endif %}

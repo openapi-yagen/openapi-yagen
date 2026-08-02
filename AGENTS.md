@@ -103,6 +103,12 @@ cmake --build build -j --target openapi-yagen-test
 `generator_test.cpp` uses mocked `TemplateRenderer`/`FileReaderBackend` — follow that pattern
 (don't hit the real filesystem or network) when adding tests for generator/JS-executor behavior.
 
+Separately, `test/kotlin_generators/run_tests.sh` integration-tests the
+`kotlin_ktor_client_generator`/`kotlin_ktor_server_generator` example generators end-to-end:
+generate from a spec, then compile the output with `kotlinc`. It needs an external JVM/Kotlin/
+Gradle toolchain the core project doesn't otherwise depend on, so it's not part of the CMake
+build or CI — run it manually (see that directory's README for prerequisites).
+
 ## Trying it end-to-end
 
 `examples/run.sh` runs the CLI against the example generator and the test petstore spec:

@@ -1,0 +1,34 @@
+package {{ packageName }}
+
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.request.*
+import io.ktor.http.*
+
+class {{ tagClass }}(private val client: HttpClient, private val baseUrl: String = "") {
+{% for op in operations %}
+    {% if op.summary %}/** {{ op.summary }} */
+    {% endif -%}
+    suspend fun {{ op.name }}({{ op.signatureParams }}){% if op.returnsValue %}: {{ op.response.type }}{% endif %} {
+        {% if op.returnsValue -%}
+        val response = client.{{ op.method }}("$baseUrl{{ op.pathExpr }}") {
+        {% else -%}
+        client.{{ op.method }}("$baseUrl{{ op.pathExpr }}") {
+        {% endif -%}
+        {% for p in op.queryParams -%}
+            queryParam("{{ p.wireName }}", {{ p.ktName }})
+        {% endfor -%}
+        {% for p in op.headerParams -%}
+            headerParam("{{ p.wireName }}", {{ p.ktName }})
+        {% endfor -%}
+        {% if op.body -%}
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        {% endif -%}
+        }
+        {% if op.returnsValue -%}
+        return response.body()
+        {% endif -%}
+    }
+{% endfor %}
+}

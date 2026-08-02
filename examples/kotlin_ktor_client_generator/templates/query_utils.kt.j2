@@ -1,0 +1,13 @@
+package {{ packageName }}
+
+import io.ktor.client.request.HttpRequestBuilder
+import io.ktor.client.request.header
+import io.ktor.client.request.parameter
+
+fun HttpRequestBuilder.queryParam(name: String, value: Any?) {
+    if (value != null) parameter(name, value)
+}
+
+fun HttpRequestBuilder.headerParam(name: String, value: Any?) {
+    if (value != null) header(name, value)
+}

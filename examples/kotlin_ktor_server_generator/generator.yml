@@ -1,0 +1,21 @@
+# Generator name
+name: kotlin_ktor_server
+
+# Generator description
+description: >-
+  Ktor server routing generator. Generates one routing class + one handler interface per
+  OpenAPI tag. The routing class takes a caller-supplied io.ktor.server.routing.Route in its
+  constructor and an implementation of the handler interface - no HTTP engine is chosen by the
+  generated code, so it works on every server platform Ktor supports (JVM, Native). Incoming
+  requests (path/query/header parameters and, where constrained, the request body) are parsed
+  and validated before the handler is called, using shared validator functions (see
+  Validation.kt) instead of duplicating checks per operation.
+
+# Main JavaScript file (entrypoint).
+mainScriptPath: main.js
+
+# Variables that can be used to customize script execution
+variables:
+  - name: packageName
+    description: Kotlin package for the generated routes, handler and model classes (e.g. com.example.petstore)
+    required: true

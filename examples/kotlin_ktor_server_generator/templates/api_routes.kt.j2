@@ -1,0 +1,54 @@
+package {{ packageName }}
+
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.request.receive
+import io.ktor.server.response.respond
+import io.ktor.server.routing.Route
+import io.ktor.server.routing.delete
+import io.ktor.server.routing.get
+import io.ktor.server.routing.head
+import io.ktor.server.routing.options
+import io.ktor.server.routing.patch
+import io.ktor.server.routing.post
+import io.ktor.server.routing.put
+
+// Parses and validates each request (path/query/header parameters via Validation.kt, and the
+// body via its generated validate() when the body model has constraints) before calling into
+// the handler - handler implementations only ever see clean, typed, already-validated values.
+class {{ tagClass }}Routes(route: Route, private val handler: {{ tagClass }}Handler) {
+    init {
+{% for op in operations %}
+        route.{{ op.method }}("{{ op.pathStr }}") {
+{% for p in op.pathParams %}
+            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}") { {{ p.converter }} }
+{% for v in p.validationCalls %}
+            {{ v }}
+{% endfor %}
+{% endfor %}
+{% for p in op.queryParams %}
+            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}") { {{ p.converter }} }
+{% for v in p.validationCalls %}
+            {{ v }}
+{% endfor %}
+{% endfor %}
+{% for p in op.headerParams %}
+            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}") { {{ p.converter }} }
+{% for v in p.validationCalls %}
+            {{ v }}
+{% endfor %}
+{% endfor %}
+{% if op.body %}
+            val body = call.receive<{{ op.body.type }}>(){% if op.body.hasValidate %}.validate(){% endif %}
+
+{% endif %}
+{% if op.returnsValue %}
+            val result = handler.{{ op.name }}({{ op.handlerArgs }})
+            call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}), result)
+{% else %}
+            handler.{{ op.name }}({{ op.handlerArgs }})
+            call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}))
+{% endif %}
+        }
+{% endfor %}
+    }
+}

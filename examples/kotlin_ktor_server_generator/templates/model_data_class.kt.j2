@@ -1,0 +1,28 @@
+package {{ packageName }}
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+{% if model.serialName -%}
+@SerialName("{{ model.serialName }}")
+{% endif -%}
+data class {{ model.name }}(
+{% for p in model.properties -%}
+    {% if p.needsSerialName -%}
+    @SerialName("{{ p.wireName }}")
+    {% endif -%}
+    val {{ p.ktName }}: {{ p.type }}{% if p.nullable %}? = null{% endif %},
+{% endfor -%}
+){% if model.implements %} : {{ model.implements }}{% endif %}
+
+// Validates constrained fields via the shared Validation.kt helpers (no-op if this model has
+// no constrained properties) - called automatically for request bodies by the generated routes.
+fun {{ model.name }}.validate(): {{ model.name }} {
+{% for p in model.properties -%}
+{% for call in p.validationCalls -%}
+    {{ call }}
+{% endfor -%}
+{% endfor -%}
+    return this
+}

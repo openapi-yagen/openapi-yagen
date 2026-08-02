@@ -1,0 +1,11 @@
+package {{ packageName }}
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+enum class {{ model.name }} {
+{% for e in model.entries -%}
+    @SerialName("{{ e.wireValue }}") {{ e.ktName }},
+{% endfor -%}
+}

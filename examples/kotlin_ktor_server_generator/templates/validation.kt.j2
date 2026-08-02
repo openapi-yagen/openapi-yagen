@@ -1,0 +1,48 @@
+package {{ packageName }}
+
+import io.ktor.server.plugins.BadRequestException
+import io.ktor.server.plugins.MissingRequestParameterException
+import io.ktor.server.routing.RoutingCall
+
+// Shared request-parsing/validation helpers - generated once and called from every route instead
+// of duplicating parameter parsing and constraint checks per operation (see api_routes.kt.j2 and
+// the validate() extension generated for constrained models).
+
+fun RoutingCall.requirePathParam(name: String): String =
+    pathParameters[name] ?: throw MissingRequestParameterException(name)
+
+fun <T> RoutingCall.pathParamAs(name: String, convert: (String) -> T): T =
+    convert(requirePathParam(name))
+
+fun <T> RoutingCall.queryParamAs(name: String, convert: (String) -> T): T? =
+    request.queryParameters[name]?.let(convert)
+
+fun <T> RoutingCall.requireQueryParamAs(name: String, convert: (String) -> T): T =
+    convert(request.queryParameters[name] ?: throw MissingRequestParameterException(name))
+
+fun <T> RoutingCall.headerParamAs(name: String, convert: (String) -> T): T? =
+    request.headers[name]?.let(convert)
+
+fun <T> RoutingCall.requireHeaderParamAs(name: String, convert: (String) -> T): T =
+    convert(request.headers[name] ?: throw MissingRequestParameterException(name))
+
+fun requireMax(value: Number?, max: Double, field: String) {
+    if (value != null && value.toDouble() > max) throw BadRequestException("Field \"$field\" must be <= $max")
+}
+
+fun requireMin(value: Number?, min: Double, field: String) {
+    if (value != null && value.toDouble() < min) throw BadRequestException("Field \"$field\" must be >= $min")
+}
+
+fun requireMaxLength(value: String?, max: Int, field: String) {
+    if (value != null && value.length > max) throw BadRequestException("Field \"$field\" must have length <= $max")
+}
+
+fun requireMinLength(value: String?, min: Int, field: String) {
+    if (value != null && value.length < min) throw BadRequestException("Field \"$field\" must have length >= $min")
+}
+
+fun requirePattern(value: String?, pattern: String, field: String) {
+    if (value != null && !Regex(pattern).matches(value))
+        throw BadRequestException("Field \"$field\" does not match pattern $pattern")
+}

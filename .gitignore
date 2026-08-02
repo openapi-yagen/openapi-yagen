@@ -3,3 +3,5 @@
 /CMakeLists.txt.user
 /CMakeUserPresets.json
 /examples/out
+/test/kotlin_generators/classpath/.gradle
+/test/kotlin_generators/classpath/build

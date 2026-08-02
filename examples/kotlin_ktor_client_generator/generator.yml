@@ -1,0 +1,18 @@
+# Generator name
+name: kotlin_ktor_client
+
+# Generator description
+description: >-
+  Kotlin Multiplatform API client generator for Ktor. Generates one class per OpenAPI tag,
+  taking a caller-supplied io.ktor.client.HttpClient in its constructor - no HTTP engine is
+  chosen by the generated code, so it works on every platform Ktor's client supports
+  (JVM, Android, iOS/Native, JS, Wasm).
+
+# Main JavaScript file (entrypoint).
+mainScriptPath: main.js
+
+# Variables that can be used to customize script execution
+variables:
+  - name: packageName
+    description: Kotlin package for the generated client and model classes (e.g. com.example.petstore)
+    required: true

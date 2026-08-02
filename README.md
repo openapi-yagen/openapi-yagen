@@ -165,7 +165,14 @@ You can call common built-in functions described above in this way:
 
 ## Example generators 
 
-Example generators are located in the `examples` folder.
+Example generators are located in the `examples` folder:
+
+- `simple_cpp_models_generator` - minimal example generating C++ model structs from schemas.
+- [`kotlin_ktor_client_generator`](examples/kotlin_ktor_client_generator/README.md) - Kotlin
+  Multiplatform API client for [Ktor](https://ktor.io), engine-agnostic (works on JVM, Android,
+  iOS/Native, JS, Wasm).
+- [`kotlin_ktor_server_generator`](examples/kotlin_ktor_server_generator/README.md) - Ktor server
+  routing + a handler interface you implement, with request validation.
 
 ## Development
 
