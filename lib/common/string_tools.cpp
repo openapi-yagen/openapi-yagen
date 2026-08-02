@@ -49,7 +49,10 @@ vector<string> splitToWords(const string& s)
         words.push_back(ss | ansiToLower());
     };
 
-    auto isDelimiter = [](char ch) { return ch == '_' || ch == '-' || ch == '.' || ch == ' '; };
+    // Any non-alphanumeric character is a word boundary (not just `_-. `), so identifiers built
+    // from arbitrary OpenAPI names (header "x-next", path segment "pet/status", ...) split
+    // correctly instead of leaking the punctuation into the resulting word.
+    auto isDelimiter = [](char ch) { return !isalnum(static_cast<unsigned char>(ch)); };
 
     for (unsigned int i = 0; i < s.size(); i++) {
         char ch = s[i];
@@ -105,11 +108,12 @@ string toCamelCase(const std::string& s)
 {
     bool first = true;
     return splitToWords(s) | views::transform([&](const auto& w) {
-        if (first) {
-            first = false;
-            return w;
-        } else {
-            return capitalize(w);
-        }
-    }) | joinToString("");
+               if (first) {
+                   first = false;
+                   return w;
+               } else {
+                   return capitalize(w);
+               }
+           })
+        | joinToString("");
 }

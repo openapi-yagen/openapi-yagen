@@ -36,6 +36,9 @@ TEST_CASE("Change case", "[common]")
         REQUIRE((splitToWords("first_second") | joinToString("-")) == "first-second");
         REQUIRE((splitToWords("First-Second") | joinToString("-")) == "first-second");
         REQUIRE((splitToWords("FIRST.SECOND") | joinToString("-")) == "first-second");
+        REQUIRE((splitToWords("x-next") | joinToString("-")) == "x-next");
+        REQUIRE((splitToWords("pet/status") | joinToString("-")) == "pet-status");
+        REQUIRE((splitToWords("foo@bar#baz") | joinToString("-")) == "foo-bar-baz");
     }
     SECTION("To snake_case") { REQUIRE((toSnakeCase("firstSecond__ Third")) == "first_second_third"); }
     SECTION("To SCREAMING_SNAKE_CASE") { REQUIRE((toScreamingSnakeCase("firstSecondThird")) == "FIRST_SECOND_THIRD"); }
