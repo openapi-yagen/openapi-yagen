@@ -83,7 +83,64 @@ TEST_CASE("Generate", "[generator]")
 
     gen.generate(getResourcePath("petstore.yaml"));
 
-    REQUIRE_THAT(fileWriter->files["outfile"], Catch::Matchers::ContainsSubstring("#/components/schemas/Pet"));
+    // `schema` is now fully resolved: no $ref anywhere, and a $ref position (Pets.items) shows
+    // Pet's actual content in place.
+    REQUIRE_THAT(fileWriter->files["outfile"], !Catch::Matchers::ContainsSubstring("$ref"));
+    REQUIRE_THAT(fileWriter->files["outfile"],
+                 Catch::Matchers::ContainsSubstring(
+                     "Pets={items={properties={id={format=int64,type=integer},name={type=string},tag={type=string}}"));
+}
+
+TEST_CASE("Generate exposes kindOf/constraintsOf/nameOf/collectOperations", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js",
+          "const pet = schema.components.schemas.Pet;\n"
+          "const ops = collectOperations();\n"
+          "const limitParam = ops[0].parameters[0];\n"
+          "renderTemplate(\"test_template\", {\n"
+          "  opsCount: ops.length,\n"
+          "  firstOpMethod: ops[0].method,\n"
+          "  petKind: kindOf(pet),\n"
+          "  petsKind: kindOf(schema.components.schemas.Pets),\n"
+          "  petName: nameOf(pet),\n"
+          "  petsItemsName: nameOf(schema.components.schemas.Pets.items),\n"
+          "  limitParamName: limitParam.name,\n"
+          "  limitParamSchemaName: nameOf(limitParam.schema),\n"
+          "  limitConstraints: constraintsOf(limitParam.schema),\n"
+          "}, \"outfile\")" },
+        { "generator.yml", readResource("generator.yml") },
+    };
+
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { make_shared<MockedFileReaderBackend>(files) },
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { },
+    });
+
+    gen.generate(getResourcePath("petstore.yaml"));
+
+    auto& out = fileWriter->files["outfile"];
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("opsCount=3"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("firstOpMethod=get"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("petKind=Object"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("petsKind=Array"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("petName=Pet"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("petsItemsName=Pet"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("limitParamName=limit"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("limitParamSchemaName=null"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("limitConstraints={maximum=100}"));
 }
 
 TEST_CASE("Generate validates spec against jsonSchemaPath when declared", "[generator]")

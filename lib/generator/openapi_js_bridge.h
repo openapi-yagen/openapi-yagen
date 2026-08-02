@@ -59,4 +59,13 @@ private:
     std::map<const void*, std::string> componentNames; // JS heap pointer -> components.* name
 };
 
+// Builds a plain array from OpenApi::collectOperations()'s result: each operation is a computed,
+// merged view (not parsed from a single spec node), so - unlike build*Value above - it's built as
+// an explicit set of named fields rather than "raw + override". Uses `builder` for the embedded
+// parameter/requestBody/response objects, so identity is shared with anything else built through
+// the same builder (e.g. `operations[i].parameters[j].schema === schema.components.schemas.X`
+// holds whenever they really are the same schema).
+JSValue buildOperationsArray(JSContext* ctx, OpenApiJsGraphBuilder& builder,
+                             const std::vector<OpenApi::ResolvedOperation>& operations);
+
 }

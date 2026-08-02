@@ -19,9 +19,11 @@
 #include "../js/executor.h"
 #include "../js/tools.h"
 #include "../logger/logger.h"
+#include "../openapi/resolve.h"
 #include "../templates/template_renderer.h"
 #include "functions.h"
 #include "generator_metadata.h"
+#include "openapi_js_bridge.h"
 
 using namespace std;
 using namespace std::ranges;
@@ -190,6 +192,143 @@ Functions mapJSFuncsToTemplateFuncs(JSContext* ctx, const JSValue& v)
     return res;
 }
 
+int32_t jsArrayLength(JSContext* ctx, JSValueConst v)
+{
+    if (!JS_IsArray(ctx, v))
+        return 0;
+    auto lenVal = JS_GetPropertyStr(ctx, v, "length");
+    int32_t len = 0;
+    JS_ToInt32(ctx, &len, lenVal);
+    JS_FreeValue(ctx, lenVal);
+    return len;
+}
+
+bool jsObjectHasOwnKeys(JSContext* ctx, JSValueConst v)
+{
+    if (!JS_IsObject(v))
+        return false;
+    JSPropertyEnum* propEnum;
+    uint32_t len;
+    if (JS_GetOwnPropertyNames(ctx, &propEnum, &len, v, JS_GPN_STRING_MASK) < 0)
+        return false;
+    for (uint32_t i = 0; i < len; i++)
+        JS_FreeAtom(ctx, propEnum[i].atom);
+    js_free(ctx, propEnum);
+    return len > 0;
+}
+
+// Mirrors OpenApi::kindOf's precedence (lib/openapi/schema.cpp) but reads only shallow, top-level
+// properties of the JS schema object directly - never the full nested content, unlike a
+// jsValueToNode round-trip - so it stays safe on a (possibly self-referential) schema built by
+// OpenApiJsGraphBuilder, where a full conversion back to Node would recurse forever. Keep this in
+// sync with OpenApi::kindOf if that precedence ever changes.
+string kindOfShallow(JSContext* ctx, JSValueConst v)
+{
+    auto getStr = [&](const char* key) -> optional<string> {
+        auto val = JS_GetPropertyStr(ctx, v, key);
+        optional<string> res;
+        if (JS_IsString(val))
+            res = jsValueToString(ctx, val);
+        JS_FreeValue(ctx, val);
+        return res;
+    };
+    auto getArrLen = [&](const char* key) {
+        auto val = JS_GetPropertyStr(ctx, v, key);
+        auto len = jsArrayLength(ctx, val);
+        JS_FreeValue(ctx, val);
+        return len;
+    };
+    auto getObjHasKeys = [&](const char* key) {
+        auto val = JS_GetPropertyStr(ctx, v, key);
+        auto has = jsObjectHasOwnKeys(ctx, val);
+        JS_FreeValue(ctx, val);
+        return has;
+    };
+
+    auto type = getStr("type");
+
+    if (getArrLen("enum") > 0)
+        return "Enum";
+    if (getArrLen("allOf") > 0)
+        return "AllOf";
+    if (getArrLen("oneOf") > 0)
+        return "OneOf";
+    if (getArrLen("anyOf") > 0)
+        return "AnyOf";
+    if (type == "array")
+        return "Array";
+    if (getObjHasKeys("properties"))
+        return "Object";
+
+    auto apVal = JS_GetPropertyStr(ctx, v, "additionalProperties");
+    bool hasAdditionalProperties = !JS_IsUndefined(apVal);
+    JS_FreeValue(ctx, apVal);
+    if (type == "object" || hasAdditionalProperties)
+        return "Map";
+
+    if (type == "string" || type == "integer" || type == "number" || type == "boolean")
+        return "Primitive";
+    return "Unknown";
+}
+
+JSValue kindOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        if (argc < 1)
+            throw runtime_error("<b1c2d3e4> kindOf requires 1 argument (schema: object)");
+        auto kind = kindOfShallow(ctx, argv[0]);
+        return JS_NewStringLen(ctx, kind.data(), kind.size());
+    });
+}
+
+// Only leaf/scalar constraint fields are read - none of these are ever nested schemas, so no
+// cycle-safety concern here at all (unlike kindOf's shape-classifying fields).
+JSValue constraintsOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        if (argc < 1)
+            throw runtime_error("<c2d3e4f5> constraintsOf requires 1 argument (schema: object)");
+        auto obj = JS_NewObject(ctx);
+        checkForException(ctx, obj, "<d3e4f5a6> Cannot create object");
+        for (const char* key :
+             { "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "pattern", "uniqueItems" }) {
+            auto val = JS_GetPropertyStr(ctx, argv[0], key);
+            if (!JS_IsUndefined(val))
+                setObjProperty(ctx, obj, key, val);
+            else
+                JS_FreeValue(ctx, val);
+        }
+        return obj;
+    });
+}
+
+JSValue nameOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic, JSValue* data)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        auto& builder = *jsValueToPtr<Generator::OpenApiJsGraphBuilder>(*data);
+        if (argc < 1)
+            throw runtime_error("<e4f5a6b7> nameOf requires 1 argument (x: object)");
+        auto name = builder.nameOf(argv[0]);
+        if (!name)
+            return JS_NULL;
+        return JS_NewStringLen(ctx, name->data(), name->size());
+    });
+}
+
+struct CollectOperationsCtx {
+    Generator::OpenApiJsGraphBuilder* builder;
+    const vector<OpenApi::ResolvedOperation>* operations;
+};
+
+JSValue collectOperationsBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic,
+                                 JSValue* data)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        auto& c = *jsValueToPtr<CollectOperationsCtx>(*data);
+        return Generator::buildOperationsArray(ctx, *c.builder, *c.operations);
+    });
+}
+
 JSValue renderTemplate(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic, JSValue* data)
 {
     return runAndCatchExceptions(ctx, [&] {
@@ -258,26 +397,48 @@ void OpenApiGenerator::generate(const string& specPath)
     auto mainScriptPath = metadata.mainScriptPath.value_or(opts.defaultMainSciptPath);
     auto schemaNode = readSpecFile(specPath);
     validateSpecAgainstJsonSchema(opts.fileReader, metadata, schemaNode);
+
+    auto doc = OpenApi::parseDocument(NodeWalker(schemaNode));
+    OpenApi::resolveAllRefs(doc);
+    auto operations = OpenApi::collectOperations(doc);
+
     auto generatorPtr = this;
     auto vars = getFinalVars(opts.vars, metadata);
 
     vector<FuncType> commonJsFuncs;
-    opts.jsExecutor->execute(mainScriptPath, [&schemaNode, generatorPtr, &vars, &commonJsFuncs](JSContext* ctx) {
-        auto globalObj = JS_GetGlobalObject(ctx);
-        finalize { JS_FreeValue(ctx, globalObj); };
+    optional<Generator::OpenApiJsGraphBuilder> builder;
+    CollectOperationsCtx collectOperationsCtx { };
+    opts.jsExecutor->execute(
+        mainScriptPath,
+        [&schemaNode, &doc, &operations, generatorPtr, &vars, &commonJsFuncs, &builder,
+         &collectOperationsCtx](JSContext* ctx) {
+            auto globalObj = JS_GetGlobalObject(ctx);
+            finalize { JS_FreeValue(ctx, globalObj); };
 
-        setObjFunction(ctx, globalObj, "renderTemplate", renderTemplate, generatorPtr);
-        setObjFunction(ctx, globalObj, "renderTemplateToString", renderTemplateToString, generatorPtr);
-        setObjProperty(ctx, globalObj, "schema", nodeToJSValue(ctx, schemaNode));
-        setObjProperty(ctx, globalObj, "vars", nodeToJSValue(ctx, vars));
+            setObjFunction(ctx, globalObj, "renderTemplate", renderTemplate, generatorPtr);
+            setObjFunction(ctx, globalObj, "renderTemplateToString", renderTemplateToString, generatorPtr);
 
-        auto funcs = getCommonFunctions();
-        commonJsFuncs.reserve(funcs.size());
-        for (const auto& func : funcs) {
-            const auto& jsFunc = commonJsFuncs.emplace_back(func.func);
-            setObjFunction(ctx, globalObj, func.name, jsFunc);
-        }
-    });
+            // `schema` is now the fully-resolved document (see OpenApiJsGraphBuilder): every $ref
+            // is replaced by the actual (possibly shared/cyclic) target object. This intentionally
+            // replaces the old raw-Node `schema` global - existing generators that read `$ref`
+            // strings directly will need rewriting onto `nameOf`/`kindOf`/`constraintsOf` instead.
+            builder.emplace(ctx);
+            setObjProperty(ctx, globalObj, "schema", builder->buildDocumentValue(schemaNode, doc));
+            setObjFunction(ctx, globalObj, "kindOf", kindOfBuiltin);
+            setObjFunction(ctx, globalObj, "constraintsOf", constraintsOfBuiltin);
+            setObjFunction(ctx, globalObj, "nameOf", nameOfBuiltin, &*builder);
+            collectOperationsCtx = { &*builder, &operations };
+            setObjFunction(ctx, globalObj, "collectOperations", collectOperationsBuiltin, &collectOperationsCtx);
+
+            setObjProperty(ctx, globalObj, "vars", nodeToJSValue(ctx, vars));
+
+            auto funcs = getCommonFunctions();
+            commonJsFuncs.reserve(funcs.size());
+            for (const auto& func : funcs) {
+                const auto& jsFunc = commonJsFuncs.emplace_back(func.func);
+                setObjFunction(ctx, globalObj, func.name, jsFunc);
+            }
+        });
 }
 
 }

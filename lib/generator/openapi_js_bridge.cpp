@@ -235,6 +235,52 @@ JSValue OpenApiJsGraphBuilder::buildDocumentValue(const Node& schemaNode, const 
     return obj;
 }
 
+JSValue buildOperationsArray(JSContext* ctx, OpenApiJsGraphBuilder& builder,
+                             const vector<ResolvedOperation>& operations)
+{
+    auto arr = JS_NewArray(ctx);
+    checkForException(ctx, arr, "<f3f4a5b6> Cannot create array");
+
+    for (size_t i = 0; i < operations.size(); i++) {
+        const auto& op = operations[i];
+        auto obj = JS_NewObject(ctx);
+        checkForException(ctx, obj, "<a5b6c7d8> Cannot create object");
+
+        setObjProperty(ctx, obj, "method", JS_NewString(ctx, op.method.c_str()));
+        setObjProperty(ctx, obj, "path", JS_NewString(ctx, op.path.c_str()));
+        setObjProperty(ctx, obj, "operationId", op.operationId ? JS_NewString(ctx, op.operationId->c_str()) : JS_NULL);
+        setObjProperty(ctx, obj, "summary", op.summary ? JS_NewString(ctx, op.summary->c_str()) : JS_NULL);
+        setObjProperty(ctx, obj, "description", op.description ? JS_NewString(ctx, op.description->c_str()) : JS_NULL);
+
+        auto tagsArr = JS_NewArray(ctx);
+        checkForException(ctx, tagsArr, "<b6c7d8e9> Cannot create array");
+        for (size_t j = 0; j < op.tags.size(); j++)
+            JS_DefinePropertyValueUint32(ctx, tagsArr, (uint32_t)j, JS_NewString(ctx, op.tags[j].c_str()),
+                                         JS_PROP_C_W_E);
+        setObjProperty(ctx, obj, "tags", tagsArr);
+
+        auto paramsArr = JS_NewArray(ctx);
+        checkForException(ctx, paramsArr, "<c7d8e9fa> Cannot create array");
+        for (size_t j = 0; j < op.parameters.size(); j++)
+            JS_DefinePropertyValueUint32(ctx, paramsArr, (uint32_t)j, builder.buildParameterValue(op.parameters[j]),
+                                         JS_PROP_C_W_E);
+        setObjProperty(ctx, obj, "parameters", paramsArr);
+
+        setObjProperty(ctx, obj, "requestBody",
+                       op.requestBody ? builder.buildRequestBodyValue(op.requestBody) : JS_NULL);
+
+        auto responsesObj = JS_NewObject(ctx);
+        checkForException(ctx, responsesObj, "<d8e9faab> Cannot create object");
+        for (const auto& [status, r] : op.responses)
+            setObjProperty(ctx, responsesObj, status, builder.buildResponseValue(r));
+        setObjProperty(ctx, obj, "responses", responsesObj);
+
+        JS_DefinePropertyValueUint32(ctx, arr, (uint32_t)i, obj, JS_PROP_C_W_E);
+    }
+
+    return arr;
+}
+
 optional<string> OpenApiJsGraphBuilder::nameOf(JSValueConst x) const
 {
     auto it = componentNames.find(JS_VALUE_GET_PTR(x));
