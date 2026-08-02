@@ -2,8 +2,11 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <algorithm>
+
 #include <lib/common/node_walker.h>
 #include <lib/common/yaml_or_json_parser.h>
+#include <lib/openapi/document.h>
 #include <lib/openapi/schema.h>
 
 #include "common/tools.h"
@@ -197,4 +200,129 @@ components:
         REQUIRE(s->maxLength == 50);
         REQUIRE(s->pattern == "^[a-z]+$");
     }
+}
+
+TEST_CASE("Collect operations", "[openapi]")
+{
+    auto doc = parseDoc(readResource("petstore.yaml"));
+    auto ops = collectOperations(doc);
+    REQUIRE(ops.size() == 3);
+
+    auto listPets = find_if(ops.begin(), ops.end(),
+                            [](const auto& op) { return op.operationId && *op.operationId == "listPets"; });
+    REQUIRE(listPets != ops.end());
+    REQUIRE(listPets->method == "get");
+    REQUIRE(listPets->path == "/pets");
+    REQUIRE(listPets->tags == vector<string> { "pets" });
+    REQUIRE(listPets->parameters.size() == 1);
+    REQUIRE(listPets->parameters[0]->name == "limit");
+    REQUIRE(listPets->parameters[0]->in == "query");
+    REQUIRE(listPets->parameters[0]->required == false);
+    REQUIRE(listPets->requestBody == nullptr);
+    REQUIRE(listPets->responses.contains("200"));
+    REQUIRE(listPets->responses.contains("default"));
+    REQUIRE(listPets->responses.at("200")->content.at("application/json").schema->ref == "#/components/schemas/Pets");
+
+    auto createPets = find_if(ops.begin(), ops.end(),
+                              [](const auto& op) { return op.operationId && *op.operationId == "createPets"; });
+    REQUIRE(createPets != ops.end());
+    REQUIRE(createPets->requestBody != nullptr);
+    REQUIRE(createPets->requestBody->required == true);
+    REQUIRE(createPets->requestBody->content.at("application/json").schema->ref == "#/components/schemas/Pet");
+
+    auto showPetById = find_if(ops.begin(), ops.end(),
+                               [](const auto& op) { return op.operationId && *op.operationId == "showPetById"; });
+    REQUIRE(showPetById != ops.end());
+    REQUIRE(showPetById->parameters.size() == 1);
+    REQUIRE(showPetById->parameters[0]->name == "petId");
+    REQUIRE(showPetById->parameters[0]->in == "path");
+    REQUIRE(showPetById->parameters[0]->required == true);
+}
+
+TEST_CASE("Merge path-level and operation-level parameters", "[openapi]")
+{
+    auto doc = parseDoc(R"(
+paths:
+  /items/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: from path item
+        schema: { type: string }
+      - name: verbose
+        in: query
+        schema: { type: boolean }
+    get:
+      operationId: getItem
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: overridden by operation
+          schema: { type: string }
+)");
+    auto ops = collectOperations(doc);
+    REQUIRE(ops.size() == 1);
+    const auto& op = ops[0];
+    // Same count as declared (path-level "id" is overridden in place, not duplicated), operation
+    // order preserved: "id" (path-level position), then "verbose".
+    REQUIRE(op.parameters.size() == 2);
+    REQUIRE(op.parameters[0]->name == "id");
+    REQUIRE(op.parameters[0]->description == "overridden by operation");
+    REQUIRE(op.parameters[1]->name == "verbose");
+}
+
+TEST_CASE("Deref parameter/requestBody/response components", "[openapi]")
+{
+    auto doc = parseDoc(R"(
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+    post:
+      operationId: createItem
+      requestBody:
+        $ref: "#/components/requestBodies/ItemBody"
+      responses:
+        "201":
+          description: created
+components:
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer }
+  requestBodies:
+    ItemBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+  responses:
+    Ok:
+      description: OK response
+)");
+    auto ops = collectOperations(doc);
+
+    auto listItems = find_if(ops.begin(), ops.end(),
+                             [](const auto& op) { return op.operationId && *op.operationId == "listItems"; });
+    REQUIRE(listItems != ops.end());
+    REQUIRE(listItems->parameters.size() == 1);
+    REQUIRE(listItems->parameters[0]->ref == nullopt);
+    REQUIRE(listItems->parameters[0]->name == "limit");
+    REQUIRE(listItems->responses.at("200")->ref == nullopt);
+    REQUIRE(listItems->responses.at("200")->description == "OK response");
+
+    auto createItem = find_if(ops.begin(), ops.end(),
+                              [](const auto& op) { return op.operationId && *op.operationId == "createItem"; });
+    REQUIRE(createItem != ops.end());
+    REQUIRE(createItem->requestBody->ref == nullopt);
+    REQUIRE(createItem->requestBody->required == true);
 }

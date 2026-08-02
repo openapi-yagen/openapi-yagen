@@ -91,14 +91,4 @@ SchemaPtr resolveSchemaRef(const SchemaMap& schemas, const Str& ref);
 // unchanged if it isn't a $ref. Throws on a cyclic chain.
 SchemaPtr deref(const SchemaMap& schemas, const SchemaPtr& schema);
 
-struct Components {
-    SchemaMap schemas;
-};
-
-struct Document {
-    Components components;
-};
-
-Document parseDocument(const NodeWalker& w);
-
 }

@@ -82,6 +82,11 @@ NodeWalker NodeWalker::walk(const string& path) const
             if (i >= v->size())
                 return NodeWalker(Node(), curPath);
             return NodeWalker(v->at(i), curPath);
+        } else if (cur.getIf<Node::Null>()) {
+            // Walking further into an absent parent (e.g. `w["components"]["schemas"]` when the
+            // whole "components" section is missing) is still absent, not an error - callers can
+            // chain through an optional section without an isEmpty() check at every level.
+            return NodeWalker(Node(), curPath);
         } else {
             throw WalkError(format("<1ca056be> Cannot walk. Wrong current value type {}", getNodeType(cur)), curPath);
         }

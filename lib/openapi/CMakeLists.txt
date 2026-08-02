@@ -1,6 +1,9 @@
 set(TARGET openapi-yagen-lib-openapi)
 
 set(SOURCES
+  document.cpp
+  document.h
+  ref.h
   schema.cpp
   schema.h
 )
