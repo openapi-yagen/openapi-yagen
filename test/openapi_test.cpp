@@ -52,6 +52,44 @@ TEST_CASE("Parse OpenAPI schemas", "[openapi]")
         REQUIRE(petsItems->type == nullopt);
         REQUIRE(petsItems->properties.empty());
     }
+
+    SECTION("deref resolves a $ref schema")
+    {
+        auto petsItems = schemas.at("Pets")->items;
+        auto resolved = deref(schemas, petsItems);
+        REQUIRE(resolved == schemas.at("Pet"));
+        REQUIRE(resolved->type == "object");
+    }
+
+    SECTION("deref is a no-op on a non-$ref schema")
+    {
+        auto pet = schemas.at("Pet");
+        REQUIRE(deref(schemas, pet) == pet);
+    }
+
+    SECTION("resolveSchemaRef throws on unsupported ref target")
+    {
+        REQUIRE_THROWS(resolveSchemaRef(schemas, "#/components/parameters/Foo"));
+        REQUIRE_THROWS(resolveSchemaRef(schemas, "other.yaml#/components/schemas/Pet"));
+    }
+
+    SECTION("resolveSchemaRef throws on missing schema")
+    {
+        REQUIRE_THROWS(resolveSchemaRef(schemas, "#/components/schemas/Nope"));
+    }
+}
+
+TEST_CASE("Detect cyclic $ref", "[openapi]")
+{
+    auto doc = parseDoc(R"(
+components:
+  schemas:
+    A:
+      $ref: "#/components/schemas/B"
+    B:
+      $ref: "#/components/schemas/A"
+)");
+    REQUIRE_THROWS(deref(doc.components.schemas, doc.components.schemas.at("A")));
 }
 
 TEST_CASE("Parse OpenAPI schema edge cases", "[openapi]")

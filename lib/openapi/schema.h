@@ -80,6 +80,17 @@ struct Schema {
 
 SchemaPtr parseSchema(const NodeWalker& w);
 
+// Resolves a single `$ref` pointer against `schemas` (as populated in Document::components).
+// Only local refs of the form "#/components/schemas/<Name>" are supported - that's the only
+// place a Schema $ref can point to, since parameters/requestBodies/responses are modeled
+// separately. Throws a clear error for any other ref shape (external files, unsupported
+// components) rather than guessing.
+SchemaPtr resolveSchemaRef(const SchemaMap& schemas, const Str& ref);
+
+// Follows `schema`'s $ref chain (if any) until it reaches a non-$ref schema. Returns `schema`
+// unchanged if it isn't a $ref. Throws on a cyclic chain.
+SchemaPtr deref(const SchemaMap& schemas, const SchemaPtr& schema);
+
 struct Components {
     SchemaMap schemas;
 };
