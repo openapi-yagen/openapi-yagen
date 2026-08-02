@@ -1,5 +1,7 @@
 #include "schema.h"
 
+#include <stdexcept>
+
 #include "ref.h"
 
 using namespace std;
@@ -74,6 +76,59 @@ SchemaPtr parseSchema(const NodeWalker& w)
     schema->uniqueItems = w["uniqueItems"].optional<bool>();
 
     return schema;
+}
+
+SchemaKind kindOf(const Schema& schema)
+{
+    if (schema.ref)
+        return SchemaKind::Ref;
+    if (!schema.enumValues.empty())
+        return SchemaKind::Enum;
+    if (!schema.allOf.empty())
+        return SchemaKind::AllOf;
+    if (!schema.oneOf.empty())
+        return SchemaKind::OneOf;
+    if (!schema.anyOf.empty())
+        return SchemaKind::AnyOf;
+    if (schema.type == "array")
+        return SchemaKind::Array;
+    // A fixed set of named properties makes it an Object regardless of whether `type: object` was
+    // spelled out; `type: object` with no properties (an explicit or implicit free-form map) is
+    // Map instead - so the two need checking in this order, not "type == object" first.
+    if (!schema.properties.empty())
+        return SchemaKind::Object;
+    if (schema.type == "object" || schema.additionalPropertiesSchema || schema.additionalPropertiesBool)
+        return SchemaKind::Map;
+    if (schema.type == "string" || schema.type == "integer" || schema.type == "number" || schema.type == "boolean")
+        return SchemaKind::Primitive;
+    return SchemaKind::Unknown;
+}
+
+string_view toString(SchemaKind kind)
+{
+    switch (kind) {
+        case SchemaKind::Ref:
+            return "Ref";
+        case SchemaKind::Enum:
+            return "Enum";
+        case SchemaKind::AllOf:
+            return "AllOf";
+        case SchemaKind::OneOf:
+            return "OneOf";
+        case SchemaKind::AnyOf:
+            return "AnyOf";
+        case SchemaKind::Array:
+            return "Array";
+        case SchemaKind::Object:
+            return "Object";
+        case SchemaKind::Map:
+            return "Map";
+        case SchemaKind::Primitive:
+            return "Primitive";
+        case SchemaKind::Unknown:
+            return "Unknown";
+    }
+    throw runtime_error("<f0f0f6a7> Unreachable: unknown SchemaKind");
 }
 
 const Str schemaRefPrefix = "#/components/schemas/";

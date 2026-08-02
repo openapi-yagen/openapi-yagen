@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../common/node.h"
@@ -79,6 +80,28 @@ struct Schema {
 };
 
 SchemaPtr parseSchema(const NodeWalker& w);
+
+// The shape a Schema was written in, in precedence order (a schema could technically combine
+// several of these keywords; the first match below wins, mirroring how generators need to decide
+// one concrete representation to emit). Language-specific interpretation - which Kotlin/TS/...
+// type a Primitive becomes, whether a target language even supports OneOf - is still up to the
+// generator; this only answers "which shape is this", so generators stop re-deriving it from
+// `Array.isArray(s.enum)`-style checks against the raw tree.
+enum class SchemaKind {
+    Ref, // schema->ref is set; every other field is unset (see Schema's own comment)
+    Enum, // enum: [...]
+    AllOf,
+    OneOf,
+    AnyOf,
+    Array, // type: array
+    Object, // type: object, or an inferred object (has properties)
+    Map, // type: object with only additionalProperties, no fixed properties (free-form map)
+    Primitive, // string/integer/number/boolean scalar
+    Unknown, // no recognizable shape (e.g. a schema with no keywords at all)
+};
+
+SchemaKind kindOf(const Schema& schema);
+std::string_view toString(SchemaKind kind);
 
 // Resolves a single `$ref` pointer against `schemas` (as populated in Document::components).
 // Only local refs of the form "#/components/schemas/<Name>" are supported - that's the only

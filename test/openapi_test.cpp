@@ -202,6 +202,63 @@ components:
     }
 }
 
+TEST_CASE("Classify schema kind", "[openapi]")
+{
+    auto doc = parseDoc(R"(
+components:
+  schemas:
+    ARef:
+      $ref: "#/components/schemas/Pet"
+    Pet:
+      type: object
+      properties:
+        name: { type: string }
+    Status:
+      type: string
+      enum: [a, b]
+    Merged:
+      allOf:
+        - $ref: "#/components/schemas/Pet"
+    Union:
+      oneOf:
+        - $ref: "#/components/schemas/Pet"
+    UnionAny:
+      anyOf:
+        - $ref: "#/components/schemas/Pet"
+    Names:
+      type: array
+      items: { type: string }
+    ObjectNoTypeKeyword:
+      properties:
+        id: { type: integer }
+    FreeFormBool:
+      type: object
+      additionalProperties: true
+    FreeFormSchema:
+      type: object
+      additionalProperties: { type: string }
+    Scalar:
+      type: integer
+    NoKeywords: {}
+)");
+    const auto& s = doc.components.schemas;
+    REQUIRE(kindOf(*s.at("ARef")) == SchemaKind::Ref);
+    REQUIRE(kindOf(*s.at("Pet")) == SchemaKind::Object);
+    REQUIRE(kindOf(*s.at("Status")) == SchemaKind::Enum);
+    REQUIRE(kindOf(*s.at("Merged")) == SchemaKind::AllOf);
+    REQUIRE(kindOf(*s.at("Union")) == SchemaKind::OneOf);
+    REQUIRE(kindOf(*s.at("UnionAny")) == SchemaKind::AnyOf);
+    REQUIRE(kindOf(*s.at("Names")) == SchemaKind::Array);
+    REQUIRE(kindOf(*s.at("ObjectNoTypeKeyword")) == SchemaKind::Object);
+    REQUIRE(kindOf(*s.at("FreeFormBool")) == SchemaKind::Map);
+    REQUIRE(kindOf(*s.at("FreeFormSchema")) == SchemaKind::Map);
+    REQUIRE(kindOf(*s.at("Scalar")) == SchemaKind::Primitive);
+    REQUIRE(kindOf(*s.at("NoKeywords")) == SchemaKind::Unknown);
+
+    REQUIRE(toString(SchemaKind::Object) == "Object");
+    REQUIRE(toString(SchemaKind::Primitive) == "Primitive");
+}
+
 TEST_CASE("Collect operations", "[openapi]")
 {
     auto doc = parseDoc(readResource("petstore.yaml"));
