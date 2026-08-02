@@ -132,7 +132,13 @@ modules ...) thanks to QuickJS.
 
 These global values are available in the main script (and anything it imports):
 
-- `schema` - the parsed OpenAPI specification (contents of the `spec-file`) as a plain object
+- `schema` - the parsed OpenAPI specification (contents of the `spec-file`), mirroring the
+  original document 1:1 (every field, including vendor/`x-*` extensions, unchanged) with exactly
+  one difference: every `$ref` is replaced by the actual object it points to. A schema reached
+  through two different `$ref`s (or a self-referential one) is the *same* JS object (`===`), not a
+  copy - so cyclic types work, but it also means you should never pass a piece of `schema` directly
+  as `renderTemplate`'s `data` if it might be cyclic (see `renderTemplate` below); use `schema` for
+  navigation and build a fresh plain object per render instead.
 - `vars` - an object with the resolved generator variables (see `-v`/`--var` and the `variables`
   section of `generator.yml`), keyed by variable name
 
@@ -142,10 +148,38 @@ renderTemplate("model.h.j2", { schemas: schema.components.schemas, namespace: va
 
 ### Built-in functions
 
+#### kindOf, constraintsOf, nameOf, collectOperations
+
+Since `$ref` is already resolved on `schema`, these save you from re-deriving the bookkeeping every
+generator otherwise needs: classifying a schema's shape, extracting its validation keywords,
+recovering the name a resolved schema/parameter/requestBody/response was reached through (there's
+no `$ref` string to read anymore), and merging path-level + operation-level parameters.
+
+```typescript
+kindOf(schema: object): "Object" | "Array" | "Enum" | "AllOf" | "OneOf" | "AnyOf" | "Map" | "Primitive" | "Unknown"
+constraintsOf(schema: object): { minimum?, maximum?, minLength?, maxLength?, minItems?, maxItems?, pattern?, uniqueItems? }
+nameOf(x: object): string | null // null if x is an inline/anonymous definition, never reached via $ref
+collectOperations(): Operation[] // { method, path, operationId, summary, description, tags, parameters, requestBody, responses }
+```
+
+```js
+for (const [name, s] of Object.entries(schema.components.schemas)) {
+  if (kindOf(s) === "Object") { /* ... */ }
+}
+for (const op of collectOperations()) {
+  const responseSchema = op.responses["200"]?.content?.["application/json"]?.schema;
+  const typeName = responseSchema && nameOf(responseSchema); // null -> anonymous/inline type
+}
+```
+
 #### renderTemplate
 
 Renders specified template (`templateFilePath`) in generator folder into `outFilePath` with provided `data` object. 
 Additionally, you can pass a set of JS defined functions (`functions`) that will be available for use in the templates.
+
+`data` must not contain a circular reference - build a fresh, per-render plain object from
+whatever part of `schema` you need (e.g. represent a self-referential property as `{ name, type:
+"TreeNode" }`, a reference by name, rather than passing the nested schema object itself).
 
 ```typescript
 renderTemplate(
