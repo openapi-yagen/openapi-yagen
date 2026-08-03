@@ -9,7 +9,6 @@
 struct {{ schemaKey }} {
     {% for propKey, propValue in schemaValue.properties %}
     {{ renderDescriptionComment(propValue) }}
-    {{ dump("aaa", schemaValue) }}
     {%- if isFieldRequired(propKey, schemaValue.required) -%}
     {{ mapType(propValue.type) }} {{ propKey }};
     {%- else -%}
@@ -20,7 +19,7 @@ struct {{ schemaKey }} {
 {% endif %}
 {% if schemaValue.type == "array" %}
 {{ renderDescriptionComment(schemaValue) }}
-using {{ schemaKey }} = std::vector<{{ getModelNameByRef(schemaValue.items) }}>;
+using {{ schemaKey }} = std::vector<{{ schemaValue.itemsName }}>;
 {% endif %}
 
 {% endfor %}

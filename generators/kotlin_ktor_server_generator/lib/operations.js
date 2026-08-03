@@ -1,14 +1,15 @@
-// Walks schema.paths, groups operations by tag, and builds a fully precomputed description of
-// each operation (parameter extraction/validation, request/response types, Kotlin function
-// signature) so the .kt.j2 templates stay close to flat printers instead of re-deriving logic.
+// Groups the engine's already-merged/deref'd collectOperations() by tag, and builds a fully
+// precomputed description of each operation (parameter extraction/validation, request/response
+// types, Kotlin function signature) so the .kt.j2 templates stay close to flat printers instead
+// of re-deriving logic.
+//
+// Everything here runs before any renderTemplate call (see main.js), while schema/parameter/
+// response objects still have real JS identity - kindOf/constraintsOf/nameOf only work up to that
+// point (see README's "renderTemplate" docs on the Node round-trip that erases it afterwards).
 
-import { deref } from "./refs.js";
 import { className, fieldName, operationName } from "./naming.js";
-import { ktType, extractConstraints, buildValidationCalls } from "./types.js";
+import { ktType, buildValidationCalls } from "./types.js";
 import { escapeKotlinStringContent } from "./keywords.js";
-
-// "trace" is intentionally omitted: Ktor's server routing DSL has no Route.trace() builder.
-const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch"];
 
 const PARAM_CONVERTERS = {
   String: "it",
@@ -19,8 +20,8 @@ const PARAM_CONVERTERS = {
   Boolean: "it.toBoolean()",
 };
 
-function buildParam(root, registry, hintBase, p) {
-  const t = ktType(root, registry, p.schema || { type: "string" }, hintBase + className(p.name));
+function buildParam(registry, hintBase, p) {
+  const t = ktType(registry, p.schema || { type: "string" }, hintBase + className(p.name));
   const converter = PARAM_CONVERTERS[t.type];
   if (!converter) {
     throw Error(
@@ -31,7 +32,7 @@ function buildParam(root, registry, hintBase, p) {
   const isPath = p.in === "path";
   const required = isPath || !!p.required;
   const { kotlinName } = fieldName(p.name);
-  const constraints = extractConstraints(deref(root, p.schema || {}));
+  const constraints = constraintsOf(p.schema || {});
   let extractFn;
   if (isPath) extractFn = "pathParamAs";
   else if (p.in === "header") extractFn = required ? "requireHeaderParamAs" : "headerParamAs";
@@ -81,17 +82,16 @@ function buildPathExpr(pathStr) {
   );
 }
 
-function buildRequestBody(root, registry, hintBase, requestBody) {
+function buildRequestBody(registry, hintBase, requestBody) {
   if (!requestBody) return null;
-  const rb = deref(root, requestBody);
-  const jsonContent = (rb.content || {})["application/json"];
+  const jsonContent = (requestBody.content || {})["application/json"];
   if (!jsonContent) return null;
-  const t = ktType(root, registry, jsonContent.schema || {}, hintBase + "Body");
+  const t = ktType(registry, jsonContent.schema || {}, hintBase + "Body");
   const model = registry.models.get(t.type);
-  return { type: t.type, required: rb.required !== false, hasValidate: !!model && model.kind === "object" };
+  return { type: t.type, required: requestBody.required !== false, hasValidate: !!model && model.kind === "object" };
 }
 
-function buildResponse(root, registry, hintBase, responses) {
+function buildResponse(registry, hintBase, responses) {
   if (!responses) return { type: "Unit", statusCode: 200 };
   const codes = Object.keys(responses)
     .filter((c) => /^2\d\d$/.test(c))
@@ -99,58 +99,52 @@ function buildResponse(root, registry, hintBase, responses) {
   const codeKey = codes[0] || (responses["default"] ? "default" : null);
   if (!codeKey) return { type: "Unit", statusCode: 200 };
   const statusCode = /^\d+$/.test(codeKey) ? parseInt(codeKey, 10) : 200;
-  const resp = deref(root, responses[codeKey]);
+  const resp = responses[codeKey];
   const content = (resp.content || {})["application/json"];
   if (!content) return { type: "Unit", statusCode };
-  const t = ktType(root, registry, content.schema || {}, hintBase + "Response");
+  const t = ktType(registry, content.schema || {}, hintBase + "Response");
   return { type: t.type, statusCode };
 }
 
 // Returns a Map<tag, { tagClass, operations: [...] }> in path-declaration order.
-export function collectOperationsByTag(root, registry) {
+export function collectOperationsByTag(registry) {
   const groups = new Map();
-  const paths = root.paths || {};
-  for (const [pathStr, pathItem] of Object.entries(paths)) {
-    const commonParams = (pathItem.parameters || []).map((p) => deref(root, p));
-    for (const method of HTTP_METHODS) {
-      const op = pathItem[method];
-      if (!op) continue;
+  for (const op of collectOperations()) {
+    // Ktor's server routing DSL has no Route.trace() builder - keep the same generated surface as
+    // before rather than silently starting to emit trace operations now that collectOperations()
+    // reports every method the spec declares.
+    if (op.method === "trace") continue;
 
-      const merged = new Map();
-      for (const p of commonParams) merged.set(`${p.in}:${p.name}`, p);
-      for (const p of (op.parameters || []).map((p) => deref(root, p))) merged.set(`${p.in}:${p.name}`, p);
+    const tag = (op.tags && op.tags[0]) || "Default";
+    const tagClass = className(tag) + "Api";
+    const opName = operationName(op.method, op.path, op.operationId);
+    const hintBase = tagClass + className(opName);
 
-      const tag = (op.tags && op.tags[0]) || "Default";
-      const tagClass = className(tag) + "Api";
-      const opName = operationName(method, pathStr, op.operationId);
-      const hintBase = tagClass + className(opName);
+    const allParams = op.parameters.map((p) => buildParam(registry, hintBase, p));
+    const pathParams = allParams.filter((p) => p.in === "path");
+    const queryParams = allParams.filter((p) => p.in === "query");
+    const headerParams = allParams.filter((p) => p.in === "header");
 
-      const allParams = [...merged.values()].map((p) => buildParam(root, registry, hintBase, p));
-      const pathParams = allParams.filter((p) => p.in === "path");
-      const queryParams = allParams.filter((p) => p.in === "query");
-      const headerParams = allParams.filter((p) => p.in === "header");
+    const body = buildRequestBody(registry, hintBase, op.requestBody);
+    const response = buildResponse(registry, hintBase, op.responses);
+    const { signatureParams, handlerArgs } = buildSignature(allParams, body);
 
-      const body = buildRequestBody(root, registry, hintBase, op.requestBody);
-      const response = buildResponse(root, registry, hintBase, op.responses);
-      const { signatureParams, handlerArgs } = buildSignature(allParams, body);
-
-      if (!groups.has(tag)) groups.set(tag, { tagClass, operations: [] });
-      groups.get(tag).operations.push({
-        name: opName,
-        method,
-        pathStr,
-        pathExpr: buildPathExpr(pathStr),
-        summary: op.summary || null,
-        pathParams,
-        queryParams,
-        headerParams,
-        body,
-        response,
-        returnsValue: response.type !== "Unit",
-        signatureParams,
-        handlerArgs,
-      });
-    }
+    if (!groups.has(tag)) groups.set(tag, { tagClass, operations: [] });
+    groups.get(tag).operations.push({
+      name: opName,
+      method: op.method,
+      pathStr: op.path,
+      pathExpr: buildPathExpr(op.path),
+      summary: op.summary || null,
+      pathParams,
+      queryParams,
+      headerParams,
+      body,
+      response,
+      returnsValue: response.type !== "Unit",
+      signatureParams,
+      handlerArgs,
+    });
   }
   return groups;
 }

@@ -1,7 +1,7 @@
 /**
  * Maps spec type to C++ type
  **/
-function mapType(type) {
+export function mapType(type) {
   switch (type) {
     case "integer":
       return "int";
@@ -12,30 +12,19 @@ function mapType(type) {
   }
 }
 
-/**
- * Get model name from $ref
- **/
-function getModelNameByRef(refObject) {
-  const refVal = refObject["$ref"];
-  if (!refVal) throw Error(`<93ee6b4e> Ref not found: ${refObject}`);
-  const rx = /\/([^/]+)$/;
-  const v = rx.exec(refVal);
-  if (v.length != 2)
-    throw Error(`<9b8b3ff1> Invalid reference format: ${refVal}`);
-  return v[1];
-}
-
 function renderDescriptionComment(obj) {
   return renderTemplateToString("comment.j2", { obj });
 }
 
 function isFieldRequired(fieldName, requiredFields) {
-  return !!requiredFields.find((v) => v == fieldName);
+  return !!(requiredFields || []).find((v) => v == fieldName);
 }
 
+// nameOf/kindOf rely on JS object identity and only work in main.js, before a schema is passed
+// into renderTemplate (see main.js) - not usable from within a template itself, so they're not
+// included here.
 export const commonFuncs = {
   mapType,
-  getModelNameByRef,
   renderDescriptionComment,
   isFieldRequired,
 };

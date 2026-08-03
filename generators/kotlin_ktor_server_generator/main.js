@@ -8,7 +8,7 @@ const pkgPath = packageNameToPath(packageName);
 const registry = buildModelRegistry(schema);
 // May register additional inline models discovered only in operation params/bodies/responses -
 // must run before rendering models below so nothing is missed.
-const groups = collectOperationsByTag(schema, registry);
+const groups = collectOperationsByTag(registry);
 
 const MODEL_TEMPLATES = {
   object: "templates/model_data_class.kt.j2",

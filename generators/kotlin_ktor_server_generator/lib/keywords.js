@@ -10,20 +10,6 @@ export const KOTLIN_KEYWORDS = new Set([
   "override", "private", "protected", "public", "reified", "sealed", "suspend", "tailrec", "vararg",
 ]);
 
-export function isValidIdentifier(name) {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
-}
-
-// Sanitizes an arbitrary string into a syntactically valid Kotlin identifier (not case-converted -
-// callers apply toCamelCase/toPascalCase/toScreamingSnakeCase before or after this as needed).
-export function sanitizeIdentifier(name) {
-  let n = String(name).replace(/[^A-Za-z0-9_]/g, "_");
-  if (n.length === 0 || /^[0-9]/.test(n)) {
-    n = "_" + n;
-  }
-  return n;
-}
-
 // Wraps a keyword in backticks so it can still be used as an identifier.
 export function escapeKeyword(name) {
   return KOTLIN_KEYWORDS.has(name) ? "`" + name + "`" : name;
