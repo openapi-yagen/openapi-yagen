@@ -13,9 +13,13 @@ Node convertScalar(const YAML::Node& n)
     bool b;
     int64_t i;
     string s;
-    if (YAML::convert<bool>::decode(n, b)) {
+    // A quoted scalar ("+1", "42", "true") gets YAML's non-specific "!" tag, meaning: don't run
+    // implicit type resolution on its content, it's a string, full stop. Only a plain/unquoted
+    // scalar (tag "?") is a candidate for bool/int coercion - otherwise real-world specs that
+    // quote numeric-looking strings (e.g. reaction names "+1"/"-1") get silently miscoerced to int.
+    if (n.Tag() == "?" && YAML::convert<bool>::decode(n, b)) {
         return { b };
-    } else if (YAML::convert<int64_t>::decode(n, i)) {
+    } else if (n.Tag() == "?" && YAML::convert<int64_t>::decode(n, i)) {
         return { i };
     } else if (YAML::convert<string>::decode(n, s)) {
         return { s };

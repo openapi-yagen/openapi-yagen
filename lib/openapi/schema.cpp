@@ -55,8 +55,13 @@ SchemaPtr parseSchema(const NodeWalker& w)
             schema->additionalPropertiesSchema = parseSchema(additionalPropertiesWalker);
     }
 
-    schema->enumValues
-        = w["enum"].optionalList([](const NodeWalker& cw) { return cw.required<Node>(); }).value_or(vector<Node>());
+    // A plain required<Node>() would reject a literal `null` entry (e.g. `enum: [foo, bar, null]`,
+    // a real-world pattern for "nullable enum" some specs use alongside `nullable: true`) since
+    // NodeWalker treats a Null node the same as an absent one - fall back to Null explicitly
+    // instead of throwing on what's a perfectly valid enum member.
+    schema->enumValues = w["enum"]
+                             .optionalList([](const NodeWalker& cw) { return cw.optional<Node>().value_or(Node{ Node::NullValue }); })
+                             .value_or(vector<Node>());
 
     schema->allOf = w["allOf"].optionalList(parseSchema).value_or(vector<SchemaPtr>());
     schema->oneOf = w["oneOf"].optionalList(parseSchema).value_or(vector<SchemaPtr>());

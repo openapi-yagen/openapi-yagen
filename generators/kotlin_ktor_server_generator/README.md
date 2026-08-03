@@ -24,6 +24,7 @@ openapi-yagen g -o out -g kotlin_ktor_server_generator openapi.yaml \
 | Variable      | Required | Description                                            |
 |---------------|----------|----------------------------------------------------------|
 | `packageName` | yes      | Kotlin package for the generated classes (e.g. `com.example.petstore`) |
+| `strict`      | no (default `true`) | `true`: an unsupported schema/operation aborts generation with an error. `false`: skip it with a printed warning and generate everything else - useful for large real-world specs (see "Known limitations" below). |
 
 ## Output layout
 
@@ -91,6 +92,19 @@ openapi-yagen g -o out -g kotlin_ktor_server_generator openapi.yaml -v packageNa
 find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --kotlinlang-style
 ```
 
+## oneOf/anyOf support
+
+- With `discriminator.propertyName` and every variant a `$ref` to a named schema: a `sealed
+  interface` plus one `@Serializable` subtype per variant, dispatched by
+  `JsonClassDiscriminator`.
+- Otherwise (undiscriminated, and/or inline variants): a "union" model instead - a `sealed
+  interface` with one value-wrapping variant per branch, deserialized by a generated
+  `JsonContentPolymorphicSerializer` that dispatches on the JSON value's shape (object/array/
+  string/number/boolean). This only works if the variants are pairwise distinguishable from the
+  raw JSON alone: at most one variant per non-object shape, and for multiple object-shaped
+  variants, each one needs a `required` property that no other object variant also requires.
+  A oneOf/anyOf that can't be dispatched this way is a generator error (see `strict` above).
+
 ## Known limitations (v1)
 
 - Only `application/json` request/response bodies are handled; other content types are ignored.
@@ -98,9 +112,6 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
   number/boolean) - an enum, object or array in one of those positions is a generator error.
   Numeric/boolean parameter conversion (`toInt()`/`toBoolean()`/...) throws `NumberFormatException`
   on bad input rather than a `BadRequestException` - map it via `StatusPages` as shown above.
-- `oneOf`/`anyOf` are only supported together with `discriminator.propertyName`, and every
-  variant must be a `$ref` to a named schema. Undiscriminated `oneOf`/`anyOf` and inline
-  (non-`$ref`) variants raise a clear generator error rather than guessing.
 - Body validation only covers `minimum`/`maximum`/`minLength`/`maxLength`/`pattern` on direct
   properties (matching what `Validation.kt` implements) - it does not recurse into nested object
   or array element constraints.
@@ -117,5 +128,5 @@ cd generators && ./run_kotlin_server.sh
 ```
 generates into `generators/out/kotlin-server` from `test/resources/petstore.yaml`.
 
-For an automated generate-then-compile check (including against a real-world spec, a curated
-GitHub API subset), see [`test/kotlin_generators/`](../../test/kotlin_generators/README.md).
+For an automated generate-then-compile check (including against a real-world spec, the full
+GitHub Enterprise Server REST API), see [`test/kotlin_generators/`](../../test/kotlin_generators/README.md).

@@ -94,7 +94,11 @@ function registerObject(registry, name, schema, variantOpts) {
 function registerEnum(registry, name, schema) {
   if (registry.models.has(name)) return;
   const baseType = schema.type === "integer" ? "Int" : "String";
-  const entries = schema.enum.map((v) => ({ ktName: enumConstantName(v), wireValue: String(v) }));
+  // A literal `null` entry (some real-world specs write `enum: [foo, bar, null]` alongside
+  // `nullable: true`, e.g. GitHub's) isn't a real enum constant - the property's Kotlin type
+  // already becomes nullable via `nullable`, so a JSON null there deserializes to Kotlin `null`
+  // rather than needing an enum member of its own.
+  const entries = schema.enum.filter((v) => v !== null).map((v) => ({ ktName: enumConstantName(v), wireValue: String(v) }));
   addModel(registry, name, { name, kind: "enum", baseType, entries, description: schema.description || null });
 }
 

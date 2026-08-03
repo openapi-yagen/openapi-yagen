@@ -2,9 +2,10 @@
 
 Integration tests for `generators/kotlin_ktor_client_generator` and
 `generators/kotlin_ktor_server_generator`: for both generators, against both a clean textbook spec
-(`test/resources/petstore.yaml`) and a real-world one (`test/resources/ghes-subset.yaml`, a
-curated subset of GitHub's own REST API spec), generate Kotlin source with `openapi-yagen` and
-then compile it with `kotlinc`. A case only passes if both generation and compilation succeed.
+(`test/resources/petstore.yaml`) and a real-world one (`test/resources/ghes-3.15.yaml`, the full,
+real GitHub Enterprise Server REST API spec - see below), generate Kotlin source with
+`openapi-yagen` and then compile it with `kotlinc`. A case only passes if both generation and
+compilation succeed.
 
 These are separate from the C++ Catch2 suite under `test/` (`../CMakeLists.txt`) - they exercise
 a full generate-then-compile round trip through an external toolchain (JVM/Kotlin/Gradle), which
@@ -35,10 +36,12 @@ case(s).
 ## The GitHub fixture
 
 `test/resources/ghes-3.15.yaml` is the full, real GitHub Enterprise Server 3.15 spec (216k
-lines) - too large to run wholesale, and it uses `oneOf`/`anyOf` far more often without a
-discriminator than with one, which the generators don't support (a documented v1 limitation, see
-each generator's README). `test/resources/ghes-subset.yaml` is a small, self-contained extract
-(paths + their full transitive schema/parameter closure) containing only operations that are
-fully compatible with the generators' current feature set, produced by
-`extract_github_subset.py`. Re-run it if `ghes-3.15.yaml` changes or the generators gain support
-for more spec features - see that script's docstring.
+lines), used as-is - it isn't hand-edited or trimmed down, since doing that would mean testing
+against something other than a real third-party spec. It's large and contains plenty of
+constructs the generators don't support yet (undiscriminated `oneOf`/`anyOf` that can't be
+disambiguated from the raw JSON shape, enum-typed path/query parameters, etc. - see each
+generator's README for the current feature set), so the `client-github`/`server-github` cases run
+it with `-v strict=false`: unsupported schemas/operations are skipped with a warning instead of
+failing the whole generation (see the `strict` generator variable). The `client-petstore`/
+`server-petstore` cases keep the default `strict=true` (the textbook spec is fully supported, so
+nothing should ever need to fall back there - if it starts warning, that's a regression).

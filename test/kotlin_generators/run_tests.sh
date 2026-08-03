@@ -4,8 +4,10 @@ set -uo pipefail
 # Integration tests for kotlin_ktor_client_generator / kotlin_ktor_server_generator: for each
 # (spec, generator) combination below, run openapi-yagen to generate Kotlin source, then compile
 # it with kotlinc against a resolved JVM classpath - failing if either step errors. Covers both
-# a clean textbook spec (petstore) and a real-world one (a curated subset of GitHub's own REST
-# API spec, see ../resources/ghes-subset.yaml and extract_github_subset.py for how it was made).
+# a clean textbook spec (petstore) and a real-world one (the full, real GitHub Enterprise Server
+# REST API spec, see ../resources/ghes-3.15.yaml) generated with `-v strict=false` - real-world
+# specs routinely contain constructs a generator can't handle yet (see each generator's README),
+# and permissive mode skips just those with a warning instead of failing the whole generation.
 #
 # Prerequisites:
 #   - an openapi-yagen binary - set OPENAPI_YAGEN=/path/to/it, or it defaults to dist/openapi-yagen
@@ -52,14 +54,14 @@ fi
 FAILURES=0
 
 run_case() {
-    local label="$1" generator="$2" spec="$3" package="$4"
+    local label="$1" generator="$2" spec="$3" package="$4" strict="${5:-true}"
     local out_dir="$WORK_DIR/$label"
 
     echo
-    echo "=== $label: $generator <- $(basename "$spec") ==="
+    echo "=== $label: $generator <- $(basename "$spec") (strict=$strict) ==="
 
     if ! "$OPENAPI_YAGEN" g -o "$out_dir" -g "$REPO_ROOT/generators/$generator" "$spec" \
-            -v "packageName=$package" -c; then
+            -v "packageName=$package" -v "strict=$strict" -c; then
         echo "FAIL ($label): generation failed" >&2
         FAILURES=$((FAILURES + 1))
         return
@@ -83,10 +85,10 @@ run_case() {
     echo "OK ($label): $(echo "$kt_files" | wc -l | tr -d ' ') file(s) generated and compiled cleanly"
 }
 
-run_case client-petstore kotlin_ktor_client_generator "$REPO_ROOT/test/resources/petstore.yaml"    com.example.petstore
-run_case server-petstore kotlin_ktor_server_generator "$REPO_ROOT/test/resources/petstore.yaml"    com.example.petstore
-run_case client-github   kotlin_ktor_client_generator "$REPO_ROOT/test/resources/ghes-subset.yaml" com.example.github
-run_case server-github   kotlin_ktor_server_generator "$REPO_ROOT/test/resources/ghes-subset.yaml" com.example.github
+run_case client-petstore kotlin_ktor_client_generator "$REPO_ROOT/test/resources/petstore.yaml"  com.example.petstore
+run_case server-petstore kotlin_ktor_server_generator "$REPO_ROOT/test/resources/petstore.yaml"  com.example.petstore
+run_case client-github   kotlin_ktor_client_generator "$REPO_ROOT/test/resources/ghes-3.15.yaml" com.example.github false
+run_case server-github   kotlin_ktor_server_generator "$REPO_ROOT/test/resources/ghes-3.15.yaml" com.example.github false
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
