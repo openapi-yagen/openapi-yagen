@@ -45,3 +45,16 @@ it with `-v strict=false`: unsupported schemas/operations are skipped with a war
 failing the whole generation (see the `strict` generator variable). The `client-petstore`/
 `server-petstore` cases keep the default `strict=true` (the textbook spec is fully supported, so
 nothing should ever need to fall back there - if it starts warning, that's a regression).
+
+## Relationship to each generator's own `test/`
+
+There's a second, complementary testing tier: each Kotlin generator also has its own
+self-contained `test/` subdirectory (`generators/kotlin_ktor_client_generator/test/`,
+`generators/kotlin_ktor_server_generator/test/`) that generates from a small, purpose-built
+"kitchen-sink" spec and actually *runs* the generated code (via Ktor's `testApplication`/
+`MockEngine` test tooling), asserting on request/response behavior method-by-method, including
+error paths - see [`generators/README.md`](../../generators/README.md). This directory's role
+stays narrower and complementary to that: breadth across one real, large, messy third-party spec
+plus a clean textbook one, checked for compile-success only. The per-generator `test/` directories
+check depth - does every generated method actually behave correctly - on a small hand-designed
+spec. Neither tier subsumes the other; run both when in doubt.
