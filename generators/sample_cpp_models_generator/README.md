@@ -1,15 +1,14 @@
-# simple_cpp_models_generator
+# sample_cpp_models_generator
 
 Minimal example generator: turns OpenAPI schemas into plain C++ structs (and array schemas into
 `std::vector<...>` aliases). Mainly useful as a small, readable reference when writing or
-debugging a generator (see the root [README.md](../../README.md) and [AGENTS.md](../../AGENTS.md)
-for the engine's built-in functions/globals this generator uses: `kindOf`, `nameOf`,
-`renderTemplate`).
+debugging a generator (see [`docs/javascript-api.md`](../../docs/javascript-api.md) for the
+engine's built-in functions/globals this generator uses: `kindOf`, `nameOf`, `renderTemplate`).
 
 ## Usage
 
 ```bash
-openapi-yagen g -o out -g simple_cpp_models_generator/src \
+openapi-yagen g -o out -g sample_cpp_models_generator/src \
     -c openapi.yaml -v "namespace=MyModels"
 ```
 

@@ -80,7 +80,7 @@ in this repo.
 
 `generators/kotlin_ktor_client_generator/` and `generators/kotlin_ktor_server_generator/` are the
 fullest worked example of this convention - read their `test/` directories if you're adding a test
-suite to another generator. `generators/simple_cpp_models_generator/` follows the `README.md`/`src/`
+suite to another generator. `generators/sample_cpp_models_generator/` follows the `README.md`/`src/`
 convention but doesn't have a `test/` yet (an open item, not specific to any one language or
 toolchain - a future C++ generator test suite doesn't need Gradle, or any particular tool at all;
 it just needs to live in that generator's own `test/` directory and regenerate-then-verify on its

@@ -42,7 +42,7 @@ sources/deps):
 `cli/` — CLI11-based argument parsing and command dispatch. `cli/config.h.in` is configured by
 CMake with `APP_VERSION` (read from the first line of `CHANGELOG.md`).
 
-`generators/simple_cpp_models_generator/` is a working example generator (used by
+`generators/sample_cpp_models_generator/` is a working example generator (used by
 `generators/run.sh` and referenced by `test/`) — a good template to look at when writing or
 debugging a generator, or when changing what globals/functions are exposed to `main.js`.
 
@@ -114,7 +114,7 @@ run the generated code (`testApplication`/`MockEngine`), not just compile it —
 
 `generators/run.sh` runs the CLI against the example generator and the test petstore spec:
 ```bash
-./build/cli/openapi-yagen g -o generators/out -g generators/simple_cpp_models_generator/src \
+./build/cli/openapi-yagen g -o generators/out -g generators/sample_cpp_models_generator/src \
     -c test/resources/petstore.yaml -v "namespace=OpenAPI"
 ```
 (the checked-in `generators/run.sh` assumes an installed `openapi-yagen` on PATH and
@@ -122,8 +122,9 @@ run the generated code (`testApplication`/`MockEngine`), not just compile it —
 
 ## Docs upkeep
 
-If you change the CLI options, the `generator.yml` schema, built-in JS/template functions, or
-the globals exposed to `main.js`, update `README.md`'s corresponding reference section — it is
-the user-facing source of truth and easily drifts from code. `README.md`'s `## TODO` section
-tracks known gaps/planned features; check it before assuming something missing is an oversight
-rather than planned work.
+If you change the CLI options, update `README.md`'s "CLI reference" section. If you change the
+`generator.yml` schema, built-in JS/template functions, or the globals exposed to `main.js`, update
+the corresponding page under [`docs/`](docs/README.md) instead - that's the user-facing source of
+truth for writing a generator and easily drifts from code. `README.md`'s `## TODO` section tracks
+known gaps/planned features; check it before assuming something missing is an oversight rather
+than planned work.
