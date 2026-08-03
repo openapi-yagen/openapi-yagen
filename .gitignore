@@ -5,3 +5,5 @@
 /generators/out
 /test/kotlin_generators/classpath/.gradle
 /test/kotlin_generators/classpath/build
+/generators/*/test/.gradle
+/generators/*/test/build

@@ -61,6 +61,11 @@ Example:
 └── model.h.j2
 ```
 
+(This is the engine's minimal contract - any directory shaped like this works with `-g`,
+wherever it lives. This repo's own `generators/` collection additionally nests that payload one
+level down, under each generator's own `src/`, alongside a `README.md` and an optional `test/` -
+see [`generators/README.md`](generators/README.md) for that convention.)
+
 The file `generator.yml` is a descriptor of the generator. This is a example file with comments:
 
 ```yaml
@@ -229,7 +234,8 @@ You can call common built-in functions described above in this way:
 
 Example generators are located in the `generators` folder:
 
-- `simple_cpp_models_generator` - minimal example generating C++ model structs from schemas.
+- [`simple_cpp_models_generator`](generators/simple_cpp_models_generator/README.md) - minimal
+  example generating C++ model structs from schemas.
 - [`kotlin_ktor_client_generator`](generators/kotlin_ktor_client_generator/README.md) - Kotlin
   Multiplatform API client for [Ktor](https://ktor.io), engine-agnostic (works on JVM, Android,
   iOS/Native, JS, Wasm).

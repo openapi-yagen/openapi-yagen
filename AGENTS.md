@@ -109,11 +109,18 @@ generate from a spec, then compile the output with `kotlinc`. It needs an extern
 Gradle toolchain the core project doesn't otherwise depend on, so it's not part of the CMake
 build or CI — run it manually (see that directory's README for prerequisites).
 
+Each generator is also a self-contained subproject under `generators/<name>/` — `README.md` +
+`src/` (everything `-g` points at) + `test/` (that generator's own runtime test suite, if it has
+one). `kotlin_ktor_client_generator/test/` and `kotlin_ktor_server_generator/test/` are
+independent Gradle/JUnit5 projects that regenerate from their own kitchen-sink spec and actually
+run the generated code (`testApplication`/`MockEngine`), not just compile it — see
+`generators/README.md` for the convention and how to run one in isolation.
+
 ## Trying it end-to-end
 
 `generators/run.sh` runs the CLI against the example generator and the test petstore spec:
 ```bash
-./build/cli/openapi-yagen g -o generators/out -g generators/simple_cpp_models_generator \
+./build/cli/openapi-yagen g -o generators/out -g generators/simple_cpp_models_generator/src \
     -c test/resources/petstore.yaml -v "namespace=OpenAPI"
 ```
 (the checked-in `generators/run.sh` assumes an installed `openapi-yagen` on PATH and
