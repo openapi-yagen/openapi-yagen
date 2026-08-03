@@ -12,13 +12,9 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertTrue
 
 // Runs the generated WidgetsApiRoutes - the vehicle for the oneOf/anyOf coverage: a discriminated
 // union (Shape: Circle/Square) and an undiscriminated one ("union" kind: WidgetVariant), plus a
@@ -42,19 +38,13 @@ class WidgetsApiRoutesTest {
         assertEquals(HttpStatusCode.OK, response.status)
     }
 
-    // WidgetVariant.Serializer.selectDeserializer dispatches on the raw JSON shape: an object
-    // with "kind" -> WidgetVariantA, an object with "label" -> WidgetVariantB, a bare string ->
-    // the inline string variant (see kitchensink.yaml's WidgetVariant schema). We only assert the
-    // request is *accepted* here (201) and that the other Widget fields round-trip correctly -
-    // NOT the exact re-serialized shape of the echoed `variant` field: a
-    // JsonContentPolymorphicSerializer only customizes *deserialize* (selectDeserializer); its
-    // inherited `serialize` just serializes the concrete wrapper data class
-    // (`WidgetVariantWidgetVariantA(val value: WidgetVariantA)`) normally, which nests the
-    // variant's own fields one level deeper (under a "value" key) than the flat shape we sent -
-    // an asymmetry inherent to the wrapper-per-variant design, not something this black-box HTTP
-    // test should assert on.
+    // WidgetVariant.Serializer dispatches on the raw JSON shape: an object with "kind" ->
+    // WidgetVariantA, an object with "label" -> WidgetVariantB, a bare string -> the inline
+    // string variant (see kitchensink.yaml's WidgetVariant schema). Both directions are flat and
+    // symmetric (see model_union.kt.j2's hand-rolled serializer), so the echoed `variant` field's
+    // exact shape is asserted here too, not just that the request was accepted.
     @Test
-    fun `createWidget accepts an object-shaped union variant`() = testApplication {
+    fun `createWidget accepts and echoes back an object-shaped union variant`() = testApplication {
         installKitchenSinkApp()
         val response = client.post("/widgets") {
             contentType(ContentType.Application.Json)
@@ -64,20 +54,27 @@ class WidgetsApiRoutesTest {
             )
         }
         assertEquals(HttpStatusCode.Created, response.status)
-        val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
-        assertEquals("Gizmo", body.getValue("name").jsonPrimitive.content)
-        assertEquals(2, body.getValue("tags").jsonArray.size)
-        assertTrue(body.containsKey("variant"))
+        val widget = Json.decodeFromString<Widget>(response.bodyAsText())
+        assertEquals("Gizmo", widget.name)
+        assertEquals(2, widget.tags?.size)
+        val variant = widget.variant
+        assertIs<WidgetVariant.WidgetVariantWidgetVariantA>(variant)
+        assertEquals("a", variant.value.kind)
+        assertEquals(42, variant.value.value)
     }
 
     @Test
-    fun `createWidget accepts the plain-string union variant`() = testApplication {
+    fun `createWidget accepts and echoes back the plain-string union variant`() = testApplication {
         installKitchenSinkApp()
         val response = client.post("/widgets") {
             contentType(ContentType.Application.Json)
             setBody("""{"id":2,"name":"Thingy","variant":"just-a-string"}""")
         }
         assertEquals(HttpStatusCode.Created, response.status)
+        val widget = Json.decodeFromString<Widget>(response.bodyAsText())
+        val variant = widget.variant
+        assertIs<WidgetVariant.WidgetVariantVariant3>(variant)
+        assertEquals("just-a-string", variant.value)
     }
 
     @Test

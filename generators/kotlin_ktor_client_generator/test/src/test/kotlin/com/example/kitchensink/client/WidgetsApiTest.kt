@@ -6,9 +6,13 @@ import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -34,18 +38,16 @@ class WidgetsApiTest {
         assertEquals("1.2.3", captured!!.headers["X-Client-Version"])
     }
 
-    // See PetsApiTest's "Negative cases" section for why createWidget's outgoing `variant` field
-    // isn't asserted here beyond "the call succeeds": WidgetVariant.Serializer only customizes
-    // deserialize (selectDeserializer); its inherited serialize() wraps the concrete variant
-    // subtype normally (nesting under a "value" key), so asserting that exact outgoing shape
-    // isn't this test's job - only that the request reaches the right path/method.
+    // WidgetVariant's hand-rolled serializer (see model_union.kt.j2) keeps the wire shape flat and
+    // symmetric - the outgoing `variant` field is asserted here as the bare string itself, not a
+    // `{"value": ...}` wrapper.
     @Test
-    fun `createWidget sends the correct path and method`() = runTest {
+    fun `createWidget sends a flat JSON body for the union-typed variant field`() = runTest {
         var captured: HttpRequestData? = null
         val client = buildTestClient { request ->
             captured = request
             respond(
-                content = """{"id":1,"name":"Gizmo","variant":{"value":"just-a-string"}}""",
+                content = """{"id":1,"name":"Gizmo","variant":"just-a-string"}""",
                 status = HttpStatusCode.Created,
                 headers = headersOf(HttpHeaders.ContentType, "application/json"),
             )
@@ -58,6 +60,8 @@ class WidgetsApiTest {
 
         assertEquals("/widgets", captured!!.url.encodedPath)
         assertEquals(HttpMethod.Post, captured!!.method)
+        val sentJson = Json.parseToJsonElement((captured!!.body as TextContent).text).jsonObject
+        assertEquals("just-a-string", sentJson.getValue("variant").jsonPrimitive.content)
     }
 
     @Test

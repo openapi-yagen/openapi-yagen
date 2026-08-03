@@ -2,39 +2,68 @@ package {{ packageName }}
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonContentPolymorphicSerializer
+import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonEncoder
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.serializer
 
 @Serializable(with = {{ model.name }}.Serializer::class)
 sealed interface {{ model.name }}{% if model.implements %} : {{ model.implements }}{% endif %} {
 {% for v in model.variants -%}
-    @Serializable
     data class {{ v.wrapperName }}(val value: {{ v.valueType }}) : {{ model.name }}
 
 {% endfor -%}
-    object Serializer : JsonContentPolymorphicSerializer<{{ model.name }}>({{ model.name }}::class) {
-        override fun selectDeserializer(element: JsonElement): KSerializer<out {{ model.name }}> = when {
+    // Hand-rolled instead of JsonContentPolymorphicSerializer: that base class's deserialize() is
+    // `final` and passes the *same, unwrapped* JsonElement straight to the chosen variant's own
+    // derived serializer - but each variant here is a one-property wrapper class whose derived
+    // serializer expects a nested `{"value": ...}` shape, while the real wire value is flat (the
+    // variant's own type directly, e.g. a bare string/array/object - not `{"value": ...}`). So
+    // both directions below explicitly (de)serialize the *wrapped* value's own type via
+    // serializer<...>(), never the wrapper class's own derived (de)serializer, keeping the wire
+    // shape flat and symmetric.
+    object Serializer : KSerializer<{{ model.name }}> {
+        override val descriptor: SerialDescriptor = buildClassSerialDescriptor("{{ packageName }}.{{ model.name }}")
+
+        override fun serialize(encoder: Encoder, value: {{ model.name }}) {
+            val jsonEncoder = encoder as? JsonEncoder ?: throw IllegalStateException("{{ model.name }} can only be serialized to Json")
+            val element = when (value) {
+{% for v in model.variants -%}
+                is {{ v.wrapperName }} -> jsonEncoder.json.encodeToJsonElement(serializer<{{ v.valueType }}>(), value.value)
+{% endfor -%}
+            }
+            jsonEncoder.encodeJsonElement(element)
+        }
+
+        override fun deserialize(decoder: Decoder): {{ model.name }} {
+            val jsonDecoder = decoder as? JsonDecoder ?: throw IllegalStateException("{{ model.name }} can only be deserialized from Json")
+            val element = jsonDecoder.decodeJsonElement()
+            return when {
 {% for v in model.variants -%}
 {% if v.dispatchKind == "object" -%}
 {% if v.dispatchField -%}
-            element is JsonObject && "{{ v.dispatchField }}" in element -> {{ v.wrapperName }}.serializer()
+                element is JsonObject && "{{ v.dispatchField }}" in element -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
 {% else -%}
-            element is JsonObject -> {{ v.wrapperName }}.serializer()
+                element is JsonObject -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
 {% endif -%}
 {% else if v.dispatchKind == "array" -%}
-            element is JsonArray -> {{ v.wrapperName }}.serializer()
+                element is JsonArray -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
 {% else if v.dispatchKind == "string" -%}
-            element is JsonPrimitive && element.isString -> {{ v.wrapperName }}.serializer()
+                element is JsonPrimitive && element.isString -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
 {% else if v.dispatchKind == "boolean" -%}
-            element is JsonPrimitive && !element.isString && (element.content == "true" || element.content == "false") -> {{ v.wrapperName }}.serializer()
+                element is JsonPrimitive && !element.isString && (element.content == "true" || element.content == "false") -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
 {% else if v.dispatchKind == "number" -%}
-            element is JsonPrimitive && !element.isString && element.content.toDoubleOrNull() != null -> {{ v.wrapperName }}.serializer()
+                element is JsonPrimitive && !element.isString && element.content.toDoubleOrNull() != null -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
 {% endif -%}
 {% endfor -%}
-            else -> throw IllegalArgumentException("Unrecognized JSON shape for {{ model.name }}: $element")
+                else -> throw IllegalArgumentException("Unrecognized JSON shape for {{ model.name }}: $element")
+            }
         }
     }
 }
