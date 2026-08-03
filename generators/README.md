@@ -49,9 +49,9 @@ handler implementations; client tests point it at `ktor-client-mock`'s `MockEngi
 on every generated operation's positive and negative (validation, not-found, etc.) behavior. No
 real network or socket is involved in either.
 
-`OPENAPI_YAGEN` follows the same convention used elsewhere in this repo
-(`test/kotlin_generators/run_tests.sh`): point it at a prebuilt `openapi-yagen` binary. Without it,
-the build falls back to this checkout's own `dist/openapi-yagen`.
+`OPENAPI_YAGEN` points it at a prebuilt `openapi-yagen` binary. Without it, the build falls back
+to this checkout's own `dist/openapi-yagen` - make sure that's up to date (`./build-musl.sh` or a
+local `cmake --build`) before relying on the fallback, or just set `OPENAPI_YAGEN` explicitly.
 
 A generator's `test/` project has exactly one relative reference back into this repo: `../src`,
 pointing at its own sibling generator directory. That's it - no root `settings.gradle.kts`, no
@@ -95,12 +95,3 @@ own).
 Globs `generators/*/test/build.gradle.kts` and runs `./gradlew test` in each directory found. Pure
 convenience glue, not a build dependency of anything else - see that script for why it's not a
 Gradle composite build.
-
-## Relationship to `test/kotlin_generators/`
-
-[`test/kotlin_generators/`](../test/kotlin_generators/README.md) is a separate, complementary
-testing tier: it runs both Kotlin generators against a full, real, unmodified third-party spec
-(GitHub's own 216k-line API spec) and checks only that the output *compiles*. This collection's
-`test/` directories check the opposite thing on a small, hand-designed spec: not "does this
-compile against real-world messiness" but "does every generated method actually behave correctly."
-Neither tier subsumes the other.

@@ -107,5 +107,6 @@ cd generators && ./run_kotlin_client.sh
 ```
 generates into `generators/out/kotlin-client` from `test/resources/petstore.yaml`.
 
-For an automated generate-then-compile check (including against a real-world spec, the full
-GitHub Enterprise Server REST API), see [`test/kotlin_generators/`](../../test/kotlin_generators/README.md).
+For a real generate-then-run check exercising every operation, positive and negative, see
+[`test/`](test/) - this generator's own self-contained test suite (see also
+[`../README.md`](../README.md) for the collection-wide convention).

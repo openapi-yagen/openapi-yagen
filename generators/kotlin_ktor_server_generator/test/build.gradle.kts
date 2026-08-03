@@ -13,10 +13,7 @@ repositories {
     mavenCentral()
 }
 
-// Keep in sync with test/kotlin_generators/classpath/build.gradle.kts and this generator's own
-// README.md - the runtime artifacts below are additions this module actually needs to execute
-// the generated code (ContentNegotiation, StatusPages, the in-memory test server), not
-// compile-only as that module is.
+// Keep these versions in sync with this generator's own README.md.
 val ktorVersion = "3.0.1"
 val kotlinxSerializationVersion = "1.7.3"
 val kotlinxDatetimeVersion = "0.6.1"
@@ -48,11 +45,11 @@ tasks.test {
 // --- Generate step -----------------------------------------------------------------------
 // Regenerates the Kotlin server routing from this project's own kitchen-sink spec, using this
 // generator itself (../src, relative to this test/ dir), via the openapi-yagen CLI binary.
-// OPENAPI_YAGEN follows the existing repo-wide convention (see test/kotlin_generators/run_tests.sh):
-// an env var pointing at a prebuilt binary, defaulting to this checkout's dist/openapi-yagen so
-// this still works out of the box inside the full openapi-yagen repo, but overridable to any
-// binary (including one built from a different checkout) so this project has no hard dependency
-// on living inside this specific repo layout.
+// OPENAPI_YAGEN is an env var pointing at a prebuilt binary, defaulting to this checkout's own
+// dist/openapi-yagen (make sure that's up to date - see generators/README.md) so this still works
+// out of the box inside the full openapi-yagen repo, but overridable to any binary (including one
+// built from a different checkout) so this project has no hard dependency on living inside this
+// specific repo layout.
 val openApiYagenBin: String = providers.environmentVariable("OPENAPI_YAGEN")
     .orElse(providers.gradleProperty("openApiYagenBin"))
     .getOrElse("${projectDir}/../../../dist/openapi-yagen")
