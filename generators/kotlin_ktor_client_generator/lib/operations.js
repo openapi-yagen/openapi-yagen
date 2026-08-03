@@ -10,6 +10,7 @@
 import { className, fieldName, operationName } from "./naming.js";
 import { ktType, buildValidationCalls } from "./types.js";
 import { escapeKotlinStringContent } from "./keywords.js";
+import { withResilience } from "./strict.js";
 
 const PARAM_CONVERTERS = {
   String: "it",
@@ -115,36 +116,42 @@ export function collectOperationsByTag(registry) {
     // reports every method the spec declares.
     if (op.method === "trace") continue;
 
-    const tag = (op.tags && op.tags[0]) || "Default";
-    const tagClass = className(tag) + "Api";
-    const opName = operationName(op.method, op.path, op.operationId);
-    const hintBase = tagClass + className(opName);
+    withResilience(
+      `operation ${op.method.toUpperCase()} ${op.path}`,
+      () => {
+        const tag = (op.tags && op.tags[0]) || "Default";
+        const tagClass = className(tag) + "Api";
+        const opName = operationName(op.method, op.path, op.operationId);
+        const hintBase = tagClass + className(opName);
 
-    const allParams = op.parameters.map((p) => buildParam(registry, hintBase, p));
-    const pathParams = allParams.filter((p) => p.in === "path");
-    const queryParams = allParams.filter((p) => p.in === "query");
-    const headerParams = allParams.filter((p) => p.in === "header");
+        const allParams = op.parameters.map((p) => buildParam(registry, hintBase, p));
+        const pathParams = allParams.filter((p) => p.in === "path");
+        const queryParams = allParams.filter((p) => p.in === "query");
+        const headerParams = allParams.filter((p) => p.in === "header");
 
-    const body = buildRequestBody(registry, hintBase, op.requestBody);
-    const response = buildResponse(registry, hintBase, op.responses);
-    const { signatureParams, handlerArgs } = buildSignature(allParams, body);
+        const body = buildRequestBody(registry, hintBase, op.requestBody);
+        const response = buildResponse(registry, hintBase, op.responses);
+        const { signatureParams, handlerArgs } = buildSignature(allParams, body);
 
-    if (!groups.has(tag)) groups.set(tag, { tagClass, operations: [] });
-    groups.get(tag).operations.push({
-      name: opName,
-      method: op.method,
-      pathStr: op.path,
-      pathExpr: buildPathExpr(op.path),
-      summary: op.summary || null,
-      pathParams,
-      queryParams,
-      headerParams,
-      body,
-      response,
-      returnsValue: response.type !== "Unit",
-      signatureParams,
-      handlerArgs,
-    });
+        if (!groups.has(tag)) groups.set(tag, { tagClass, operations: [] });
+        groups.get(tag).operations.push({
+          name: opName,
+          method: op.method,
+          pathStr: op.path,
+          pathExpr: buildPathExpr(op.path),
+          summary: op.summary || null,
+          pathParams,
+          queryParams,
+          headerParams,
+          body,
+          response,
+          returnsValue: response.type !== "Unit",
+          signatureParams,
+          handlerArgs,
+        });
+      },
+      () => {} // permissive mode: drop this operation, keep the rest of the group as-is
+    );
   }
   return groups;
 }

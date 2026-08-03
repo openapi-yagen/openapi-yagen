@@ -19,3 +19,10 @@ variables:
   - name: packageName
     description: Kotlin package for the generated routes, handler and model classes (e.g. com.example.petstore)
     required: true
+  - name: strict
+    description: >-
+      When "true" (default), a schema or operation the generator can't handle aborts generation
+      with an error. Set to "false" to instead skip it with a printed warning and generate
+      everything else - useful for large real-world specs where a handful of unsupported
+      constructs shouldn't block the rest of the generated code.
+    defaultValue: "true"

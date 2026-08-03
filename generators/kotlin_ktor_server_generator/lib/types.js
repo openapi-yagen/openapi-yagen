@@ -27,6 +27,7 @@
 
 import { className, fieldName, enumConstantName } from "./naming.js";
 import { escapeKotlinString } from "./keywords.js";
+import { withResilience } from "./strict.js";
 
 // Builds calls into the shared Validation.kt runtime helpers (DRY: constraint-checking logic
 // lives once there, both model validate() extensions and route parameter validation call it).
@@ -368,7 +369,17 @@ export function buildModelRegistry(root) {
       if (existing.kind === "sealed") continue; // marker already registered in pass 1
       throw Error(`<d8e9faab> Schema name collision after Kotlin identifier conversion: "${rawName}" -> "${name}"`);
     }
-    registerTopLevel(registry, name, schemas[rawName], variantInfo.get(name));
+    withResilience(
+      `schema "${rawName}"`,
+      () => registerTopLevel(registry, name, schemas[rawName], variantInfo.get(name)),
+      () =>
+        addModel(registry, name, {
+          name,
+          kind: "typealias",
+          targetType: "kotlinx.serialization.json.JsonElement",
+          description: null,
+        })
+    );
   }
 
   return registry;
