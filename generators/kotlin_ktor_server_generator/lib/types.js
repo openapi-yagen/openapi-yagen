@@ -1,10 +1,16 @@
 // Maps OpenAPI schemas to Kotlin types and builds a registry of named models to render.
 //
 // Supported: object/array/primitives (with format mapping), $ref, enum, allOf (flattened merge),
-// oneOf/anyOf *with* a discriminator (sealed interface + one @Serializable subtype per variant).
+// oneOf/anyOf with a discriminator and $ref-only variants (sealed interface + one @Serializable
+// subtype per variant), and *undiscriminated* oneOf/anyOf (kind "union": a sealed interface with
+// one value-wrapping variant per branch, deserialized via a generated
+// JsonContentPolymorphicSerializer that dispatches on the JSON value's shape - see
+// classifyVariantDispatch/registerUnion below and templates/model_union.kt.j2).
 //
-// Not supported (v1 limitation, throws a clear error instead of guessing): oneOf/anyOf without a
-// discriminator, and oneOf/anyOf variants that aren't a $ref to a named schema.
+// A union's variants must be pairwise distinguishable from the raw JSON alone: at most one
+// variant per non-object JSON shape (string/number/boolean/array), and for multiple object-shaped
+// variants, each one needs a `required` property that no other object variant also requires. If a
+// oneOf/anyOf can't be dispatched this way, that's a hard error (not a silent guess).
 //
 // External types are always referenced fully-qualified (kotlinx.datetime.Instant,
 // kotlinx.serialization.json.JsonElement/JsonObject) so callers never need per-file import
@@ -101,6 +107,100 @@ function registerMerged(registry, name, schema, variantOpts) {
   registerObject(registry, name, merged, variantOpts);
 }
 
+// Classifies a oneOf/anyOf variant by the shape it takes on the wire (what a
+// JsonContentPolymorphicSerializer can actually branch on): "object"/"array"/"string"/"number"/
+// "boolean", or null if the variant has no shape we can recognize (e.g. a nested oneOf/anyOf -
+// not supported as a union variant).
+function classifyVariantDispatch(variant) {
+  const kind = kindOf(variant);
+  if (kind === "Object" || kind === "Map" || kind === "AllOf") return "object";
+  if (kind === "Array") return "array";
+  if (kind === "Enum") return variant.type === "integer" || variant.type === "number" ? "number" : "string";
+  if (kind === "Primitive") {
+    if (variant.type === "string") return "string";
+    if (variant.type === "integer" || variant.type === "number") return "number";
+    if (variant.type === "boolean") return "boolean";
+    return null;
+  }
+  return null;
+}
+
+// Finds a `required` property name of `variant` that no other object-shaped variant in
+// `objectVariants` also requires - what selectDeserializer uses to tell apart multiple
+// object-shaped oneOf/anyOf variants that have no discriminator.
+function findUniqueRequiredField(variant, objectVariants) {
+  for (const field of variant.required || []) {
+    const sharedByOthers = objectVariants.some((other) => other !== variant && (other.required || []).includes(field));
+    if (!sharedByOthers) return field;
+  }
+  return null;
+}
+
+// Registers an undiscriminated oneOf/anyOf as a "union" model: a sealed interface with one
+// value-wrapping data class per variant, plus a JsonContentPolymorphicSerializer that dispatches
+// on the JSON value's shape (see classifyVariantDispatch/findUniqueRequiredField above).
+function registerUnion(registry, name, schema, variantOpts) {
+  if (registry.models.has(name)) return;
+  const variants = schema.oneOf || schema.anyOf || [];
+
+  const classified = variants.map((variant, index) => {
+    const dispatchKind = classifyVariantDispatch(variant);
+    if (!dispatchKind) {
+      throw Error(
+        `<e1f2a3b4> oneOf/anyOf variant #${index + 1} of "${name}" has no recognizable JSON shape to ` +
+          `dispatch on (nested oneOf/anyOf variants aren't supported)`
+      );
+    }
+    return { variant, dispatchKind, index };
+  });
+
+  const objectVariants = classified.filter((c) => c.dispatchKind === "object").map((c) => c.variant);
+  const dispatchFieldByVariant = new Map();
+  if (objectVariants.length > 1) {
+    for (const variant of objectVariants) {
+      const field = findUniqueRequiredField(variant, objectVariants);
+      if (!field) {
+        throw Error(
+          `<f2a3b4c5> Cannot disambiguate object-shaped oneOf/anyOf variants of "${name}": every variant ` +
+            `needs a "required" property that no other object variant also requires`
+        );
+      }
+      dispatchFieldByVariant.set(variant, field);
+    }
+  }
+  const countByKind = new Map();
+  for (const { dispatchKind } of classified) countByKind.set(dispatchKind, (countByKind.get(dispatchKind) || 0) + 1);
+  for (const [dispatchKind, count] of countByKind) {
+    if (dispatchKind !== "object" && count > 1) {
+      throw Error(
+        `<a3b4c5d6> Cannot disambiguate multiple "${dispatchKind}"-shaped oneOf/anyOf variants of "${name}" ` +
+          `(only one variant per non-object JSON shape is supported)`
+      );
+    }
+  }
+
+  const variantModels = classified.map(({ variant, dispatchKind, index }) => {
+    const variantRawName = nameOf(variant);
+    const suffix = variantRawName ? className(variantRawName) : `Variant${index + 1}`;
+    const wrapperName = name + suffix;
+    const t = ktType(registry, variant, wrapperName);
+    return {
+      wrapperName,
+      valueType: t.type,
+      dispatchKind,
+      dispatchField: dispatchFieldByVariant.get(variant) || null,
+    };
+  });
+
+  addModel(registry, name, {
+    name,
+    kind: "union",
+    description: schema.description || null,
+    variants: variantModels,
+    implements: (variantOpts && variantOpts.implements) || null,
+  });
+}
+
 // Maps a schema's `type`/`format` to a Kotlin primitive, or null if it isn't a plain scalar
 // (object/array/etc). Shared by ktType (property/param positions) and registerTopLevel (named
 // top-level schemas that are themselves just a scalar, e.g. `AnnouncementMessage: {type: string}`).
@@ -132,7 +232,8 @@ export function ktType(registry, schema, hintName) {
     return { type: hintName };
   }
   if (kind === "OneOf" || kind === "AnyOf") {
-    throw Error(`<a5b6c7d8> Inline oneOf/anyOf (not a named schema) is not supported: ${hintName}`);
+    registerUnion(registry, hintName, s);
+    return { type: hintName };
   }
   if (kind === "AllOf") {
     registerMerged(registry, hintName, s);
@@ -168,6 +269,10 @@ function registerTopLevel(registry, name, schema, variantOpts) {
   }
   if (kind === "AllOf") {
     registerMerged(registry, name, s, variantOpts);
+    return;
+  }
+  if (kind === "OneOf" || kind === "AnyOf") {
+    registerUnion(registry, name, s, variantOpts);
     return;
   }
   if (kind === "Array") {
@@ -222,18 +327,19 @@ export function buildModelRegistry(root) {
   const registry = newRegistry();
   const schemas = (root.components && root.components.schemas) || {};
 
-  // Pass 1: find discriminated sealed parents, register their markers, and record which
-  // variants need to implement them (must happen before pass 2 registers the variants).
+  // Pass 1: find discriminated sealed parents (a discriminator.propertyName plus $ref-only
+  // variants), register their markers, and record which variants need to implement them (must
+  // happen before pass 2 registers the variants). Anything else shaped like oneOf/anyOf - no
+  // discriminator, or variants that aren't a reference to a named schema - is left for pass 2 to
+  // pick up as a "union" model instead (see registerUnion).
   const variantInfo = new Map();
   for (const [rawName, schema] of Object.entries(schemas)) {
     const variants = schema.oneOf || schema.anyOf;
     if (!variants) continue;
+    if (!schema.discriminator || !schema.discriminator.propertyName) continue;
+    if (!variants.every((v) => nameOf(v))) continue;
+
     const name = className(rawName);
-    if (!schema.discriminator || !schema.discriminator.propertyName) {
-      throw Error(
-        `<b6c7d8e9> Undiscriminated oneOf/anyOf is not supported: "${rawName}". Add a "discriminator.propertyName".`
-      );
-    }
     const discProp = schema.discriminator.propertyName;
     // discriminator.mapping's values are still literal ref strings (discriminator isn't itself a
     // schema, so the engine's $ref resolution doesn't touch it) - match by the ref's trailing
@@ -248,9 +354,6 @@ export function buildModelRegistry(root) {
     });
     for (const variant of variants) {
       const variantRawName = nameOf(variant);
-      if (!variantRawName) {
-        throw Error(`<c7d8e9fa> oneOf/anyOf variants must be a reference to a named schema: "${rawName}"`);
-      }
       const variantName = className(variantRawName);
       const serialName = nameToSerialName.get(variantRawName) || variantRawName;
       variantInfo.set(variantName, { implements: name, serialName, skipProperty: discProp });

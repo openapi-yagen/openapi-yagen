@@ -15,6 +15,7 @@ const MODEL_TEMPLATES = {
   enum: "templates/model_enum.kt.j2",
   sealed: "templates/model_sealed.kt.j2",
   typealias: "templates/model_typealias.kt.j2",
+  union: "templates/model_union.kt.j2",
 };
 
 for (const name of registry.order) {
