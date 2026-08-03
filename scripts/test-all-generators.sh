@@ -23,7 +23,7 @@ for build_file in "$REPO_ROOT"/generators/*/test/build.gradle.kts; do
 
     echo
     echo "=== $name ==="
-    if ! (cd "$dir" && gradle test); then
+    if ! (cd "$dir" && ./gradlew test); then
         echo "FAIL ($name)" >&2
         FAILURES=$((FAILURES + 1))
     fi

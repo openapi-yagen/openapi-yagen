@@ -1,7 +1,8 @@
 // Self-contained runtime test suite for this generator (see generators/README.md): regenerates
 // the Kotlin client from resources/kitchensink.yaml via the openapi-yagen CLI, compiles it
-// together with the hand-written tests below, and runs them with `gradle test` - no other Gradle
-// module in this repo needs to know this project exists.
+// together with the hand-written tests below, and runs them with `./gradlew test` (the committed
+// Gradle wrapper means no separate Gradle install is needed, just a JDK) - no other Gradle module
+// in this repo needs to know this project exists.
 
 plugins {
     kotlin("jvm") version "2.0.21"

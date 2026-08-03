@@ -34,11 +34,12 @@ generators/<name>/
 
 ## Running one generator's tests in isolation
 
-The Kotlin generators' test suites are ordinary Gradle/JUnit5 projects:
+The Kotlin generators' test suites are ordinary Gradle/JUnit5 projects, each with its own Gradle
+wrapper committed - no separate Gradle install needed, just a JDK:
 
 ```bash
 cd generators/kotlin_ktor_client_generator/test
-OPENAPI_YAGEN=/path/to/openapi-yagen gradle test
+OPENAPI_YAGEN=/path/to/openapi-yagen ./gradlew test
 ```
 
 Each regenerates its own code from a small "kitchen-sink" spec (`test/resources/kitchensink.yaml`)
@@ -91,7 +92,7 @@ own).
 ./scripts/test-all-generators.sh
 ```
 
-Globs `generators/*/test/build.gradle.kts` and runs `gradle test` in each directory found. Pure
+Globs `generators/*/test/build.gradle.kts` and runs `./gradlew test` in each directory found. Pure
 convenience glue, not a build dependency of anything else - see that script for why it's not a
 Gradle composite build.
 
