@@ -128,3 +128,37 @@ the corresponding page under [`docs/`](docs/README.md) instead - that's the user
 truth for writing a generator and easily drifts from code. `README.md`'s `## TODO` section tracks
 known gaps/planned features; check it before assuming something missing is an oversight rather
 than planned work.
+
+### "Tidy up CHANGELOG"
+
+When asked to tidy up `CHANGELOG.md`, edit
+only the section for commits since the last tagged release (`git tag -l`) - typically the topmost,
+still-unreleased heading. For each commit message in that section:
+
+- Drop entries with no interest to `openapi-yagen` users: routine `README` touch-ups, internal
+  test/CI/build-tooling churn (test project restructuring, Docker base image bumps, Gradle
+  wrappers), typo fixes, reverted/rolled-back intermediate steps, and other commits that don't
+  change a user- or generator-author-visible behavior, built-in, or CLI flag.
+- Refactors and source-tree reorganizations (moving files, renaming internal folders, splitting
+  modules) are not interesting to users on their own - drop them. Only mention one if it changes a
+  path/name a user actually passes on the command line (e.g. a renamed generator directory).
+- Rephrase entries that describe an internal implementation step (a class name, a file path, "lib/
+  ...") into a plain description of the resulting user-visible capability.
+- Consolidate a run of incremental commits that build up one feature (e.g. a series of "Add X",
+  "Extend X", "Document X" commits landing one JS API) into a single bullet describing the
+  feature's end state, rather than listing every step.
+- Multiple commits touching the same generator or component (e.g. several separate commits about
+  the Kotlin generators) collapse into one bullet naming that generator/component once, not one
+  bullet per commit.
+- Keep bug fixes, new CLI/generator-author-facing features, new built-ins, new example generators,
+  and install/release process changes - these are what users read the changelog for. But still aim
+  to leave only what matters most: fold minor/low-signal entries into a closely related bullet
+  instead of listing them on their own, rather than keeping every commit as a separate line.
+
+Preserve the existing formatting: one version heading per release (`# <semver> (<date>)`, matching
+`APP_VERSION`'s source - see "Architecture" above), one `- ` bullet per entry. Do not touch
+already-released version sections.
+
+Order the entries in three groups, in this order: new features first, then changes to existing
+behavior (including docs/process changes), then bug fixes last. Within each group, keep entries in
+newest-first order (their original relative order).
