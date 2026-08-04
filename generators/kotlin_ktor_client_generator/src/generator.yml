@@ -11,6 +11,9 @@ description: >-
 # Main JavaScript file (entrypoint).
 mainScriptPath: main.js
 
+# Json schema for input data validation (official OpenAPI 3.0.x meta-schema).
+jsonSchemaPath: openapi_v3_schema.json
+
 # Variables that can be used to customize script execution
 variables:
   - name: packageName

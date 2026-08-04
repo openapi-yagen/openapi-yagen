@@ -116,6 +116,23 @@ nlohmann::json nodeToJson(const Node& n)
         n.value);
 }
 
+// nlohmann-json-schema-validator's built-in format checker throws for a handful of
+// draft-07 `format` values it recognizes but hasn't implemented (e.g. "uri-reference", used by
+// the official OpenAPI schema's `$ref` definition) - treating an unimplemented/unrecognized
+// format as a hard failure would reject every spec that uses those, including the schema's own
+// $ref-bearing Reference Object. Per the JSON Schema spec, `format` is an annotation unless a
+// validator specifically implements assertion for it, so unimplemented/unknown formats are
+// treated as a no-op here; formats the library does implement (date-time, uri, email, ...) still
+// fail validation on genuinely malformed values.
+void checkStringFormat(const string& format, const string& value)
+{
+    try {
+        nlohmann::json_schema::default_string_format_check(format, value);
+    } catch (const logic_error&) {
+        // Unimplemented or unrecognized format - ignore.
+    }
+}
+
 // Validates the parsed spec against the generator's declared `jsonSchemaPath` (see
 // GeneratorMetadata / the "Json schema for input data validation" field in generator.yml docs).
 // A no-op when the generator didn't declare one.
@@ -134,7 +151,7 @@ void validateSpecAgainstJsonSchema(const FS::FileReaderPtr& fileReader, const Ge
             format("<a1b1c1d1> Cannot read/parse JSON schema \"{}\". Error: {}", jsonSchemaPath, e.what()));
     }
 
-    nlohmann::json_schema::json_validator validator;
+    nlohmann::json_schema::json_validator validator(nullptr, checkStringFormat);
     try {
         validator.set_root_schema(schemaJson);
     } catch (const exception& e) {
