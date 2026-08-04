@@ -1,21 +1,23 @@
+# syntax=docker/dockerfile:1
 FROM alpine:3.21
 
 RUN set -x && \
     apk add cmake py3-pip g++ make ninja-build git upx && \
     pip install conan --break-system-packages
 
-RUN conan profile detect --force
+RUN --mount=type=cache,target=/root/.conan2 \
+    conan profile detect --force
 
 COPY conanfile.txt /sources/
 
-RUN set -x && \
+RUN --mount=type=cache,target=/root/.conan2 set -x && \
     mkdir -p /build && \
     cd /build && \
     conan install /sources --output-folder=. --build=missing
 
 COPY . /sources/
 
-RUN set -x && \
+RUN --mount=type=cache,target=/root/.conan2 set -x && \
     cd /build && \
     cmake /sources -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release && \
     cmake --build . -- -j 8 && \

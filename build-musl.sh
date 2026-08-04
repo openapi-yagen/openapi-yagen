@@ -4,7 +4,7 @@ APP_NAME=openapi-yagen
 
 IMAGE_NAME=${APP_NAME}
 
-docker build --progress plain --tag ${IMAGE_NAME} -f Dockerfile.musl .
+docker buildx build --progress plain --tag ${IMAGE_NAME} -f Dockerfile.musl --load ${DOCKER_BUILDX_ARGS:-} .
 
 id=$(docker create ${IMAGE_NAME})
 mkdir -p dist

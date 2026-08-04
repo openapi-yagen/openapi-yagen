@@ -95,6 +95,17 @@ Static, statically-linked release binaries (as shipped in `dist/` and CI) are bu
 `.github/workflows/build.yml` runs (build + upload artifact) on pull requests targeting `master`
 and on semver tag pushes, publishing a GitHub Release only for the latter.
 
+Both Dockerfiles cache Conan's package cache (`/root/.conan2`) via a BuildKit `RUN
+--mount=type=cache` (needs `# syntax=docker/dockerfile:1` as the file's first line). A cache mount
+is **not** part of the committed image layer - it only exists for the duration of the `RUN` that
+mounts it - so every `RUN` that needs anything under `/root/.conan2` (`conan profile detect`,
+`conan install`, and the final `cmake`/build step, which links against libraries living in the
+Conan package cache) must mount it, or it'll see an empty/incomplete dir and fail (e.g. "Library
+'yaml-cpp' not found in package"). `build-musl.sh`/`build-uclibc.sh` build with `docker buildx
+build --load ${DOCKER_BUILDX_ARGS:-}` - CI sets `DOCKER_BUILDX_ARGS` to add
+`--cache-from/--cache-to type=gha` (via `docker/setup-buildx-action`) so the whole `conan install`
+layer is reused across runs too; locally the var is just unset/empty.
+
 ## Testing
 
 Tests use Catch2 3, in `test/` (`common_test.cpp`, `generator_test.cpp`, `parser_test.cpp`,
