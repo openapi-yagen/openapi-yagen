@@ -58,6 +58,20 @@ Options:
   -v,--var TEXT ...           Set variable. Syntax is: -v (var_name)=(var_value)
 ```
 
+### Running a generator directly from GitHub
+
+`-g` also accepts an HTTP/S URL pointing at a generator's source folder, so you can run a
+generator straight from GitHub without cloning it. `openapi-yagen` fetches the generator's files
+(`generator.yml`, scripts, templates) over HTTP/S as it needs them, so the URL must point at the
+raw folder contents (`curl` is required). For example, using this repo's own
+[`sample_cpp_models_generator`](generators/sample_cpp_models_generator/README.md):
+
+```bash
+openapi-yagen generate openapi.yaml \
+    -g https://raw.githubusercontent.com/openapi-yagen/openapi-yagen/master/generators/sample_cpp_models_generator/src \
+    -o out
+```
+
 ## Writing a generator
 
 See [`docs/`](docs/README.md) for the full generator-writing documentation: a step-by-step
