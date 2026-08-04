@@ -4,6 +4,8 @@
 
 # Yet another OpenAPI generator (openapi-yagen)
 
+[![GitHub release](https://img.shields.io/github/v/release/openapi-yagen/openapi-yagen)](https://github.com/openapi-yagen/openapi-yagen/releases/latest)
+
 Main features:
 
 - a small generator core written in C++
