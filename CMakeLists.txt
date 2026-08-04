@@ -21,9 +21,20 @@ if(NOT RELEASE_MODE)
 else()
 endif()
 
-# read version
-file(READ "CHANGELOG.md" VERSION_FILE_CONTENT)
-string(REGEX REPLACE "^# ([0-9.]+).*$" "\\1" APP_VERSION ${VERSION_FILE_CONTENT})
+# version from git: exact tag -> "1.2.3", N commits after a tag -> "1.2.3-N-gHASH"
+find_package(Git QUIET)
+if(GIT_EXECUTABLE)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --always
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE APP_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+endif()
+if(NOT APP_VERSION)
+    set(APP_VERSION "unknown")
+endif()
 message(STATUS "App version: " ${APP_VERSION})
 
 include_directories(${CMAKE_SOURCE_DIR})

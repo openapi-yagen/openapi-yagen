@@ -32,6 +32,7 @@ Usage: ./openapi-yagen [OPTIONS] [SUBCOMMAND]
 
 Options:
   -h,--help                   Print this help message and exit
+  -v,--version                Print version and exit
 
 Subcommands:
   generate, g                 Generate sources from openapi specification

@@ -1,7 +1,7 @@
 FROM alpine:3.21
 
 RUN set -x && \
-    apk add cmake py3-pip g++ make ninja-build && \
+    apk add cmake py3-pip g++ make ninja-build git upx && \
     pip install conan --break-system-packages
 
 RUN conan profile detect --force
@@ -18,4 +18,5 @@ COPY . /sources/
 RUN set -x && \
     cd /build && \
     cmake /sources -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build . -- -j 8
+    cmake --build . -- -j 8 && \
+    upx --best --lzma cli/openapi-yagen

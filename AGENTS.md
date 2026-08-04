@@ -40,7 +40,12 @@ sources/deps):
   `toScreamingSnakeCase`).
 
 `cli/` — CLI11-based argument parsing and command dispatch. `cli/config.h.in` is configured by
-CMake with `APP_VERSION` (read from the first line of `CHANGELOG.md`).
+CMake with `APP_VERSION`, taken from `git describe --tags --always` (root `CMakeLists.txt`): an
+exact tag reads as `1.2.3`, N commits past a tag as `1.2.3-N-gHASH`. Requires the build's checkout
+to have full history and tags fetched (see `.github/workflows/build.yml`'s `fetch-depth: 0`) and
+`git` available on `PATH` at configure time (the musl/uClibc Docker build images install it) -
+falls back to `"unknown"` if git or a repo isn't found. Exposed on the CLI via `-v/--version`
+(`CLI::App::set_version_flag` in `cli/main.cpp`) and in the `--help` banner.
 
 `generators/sample_cpp_models_generator/` is a working example generator (used by
 `generators/run.sh` and referenced by `test/`) — a good template to look at when writing or

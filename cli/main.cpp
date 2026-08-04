@@ -28,6 +28,7 @@ int main(int argc, char** argv)
         };
 
         CLI::App app { format("OpenAPI Yet Another Generator (v{})", APP_VERSION) };
+        app.set_version_flag("-v,--version", string(APP_VERSION), "Print version and exit");
         for (const auto& cmd : commands) {
             cmd->reg(app);
         }
