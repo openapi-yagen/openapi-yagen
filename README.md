@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="openapi-yagen.png" alt="openapi-yagen logo" width="150">
+</p>
+
 # Yet another OpenAPI generator (openapi-yagen)
 
 Main features:
