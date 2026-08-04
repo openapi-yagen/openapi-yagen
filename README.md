@@ -5,7 +5,7 @@
 # Yet another OpenAPI generator (openapi-yagen)
 
 [![GitHub release](https://img.shields.io/github/v/release/openapi-yagen/openapi-yagen)](https://github.com/openapi-yagen/openapi-yagen/releases/latest)
-[![Build status](https://img.shields.io/github/actions/workflow/status/openapi-yagen/openapi-yagen/build.yml)](https://github.com/openapi-yagen/openapi-yagen/actions/workflows/build.yml)
+[![Build status](https://img.shields.io/github/actions/workflow/status/openapi-yagen/openapi-yagen/build.yml?event=push)](https://github.com/openapi-yagen/openapi-yagen/actions/workflows/build.yml)
 
 Main features:
 

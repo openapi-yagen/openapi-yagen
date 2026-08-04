@@ -92,7 +92,8 @@ any new warning.
 Static, statically-linked release binaries (as shipped in `dist/` and CI) are built via Docker:
 `./build-musl.sh` (musl/Alpine, x86_64 — output `dist/openapi-yagen`) and `./build-uclibc.sh`
 (uClibc, x86, older glibc-free targets — output `dist/openapi-yagen-5`). These are what
-`.github/workflows/build.yml` runs on every push and release on tag pushes.
+`.github/workflows/build.yml` runs (build + upload artifact) on pull requests targeting `master`
+and on semver tag pushes, publishing a GitHub Release only for the latter.
 
 ## Testing
 
