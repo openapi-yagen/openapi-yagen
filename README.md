@@ -14,6 +14,16 @@ Main features:
 - post-processing of output files using custom tools (code formatters, linters, checkers...)
 - using generators available via HTTP/S (directly from GitHub, or other sources). The `curl` tool is required.
 
+## Installation
+
+Statically-linked binaries for Linux (x86_64) are published on the
+[releases page](https://github.com/openapi-yagen/openapi-yagen/releases). Install the latest
+release to `/usr/local/bin` with:
+
+```bash
+sudo curl -L https://github.com/openapi-yagen/openapi-yagen/releases/latest/download/openapi-yagen -o /usr/local/bin/openapi-yagen && sudo chmod +x /usr/local/bin/openapi-yagen
+```
+
 ## CLI reference
 
 Supported CLI root options and subcommands:
