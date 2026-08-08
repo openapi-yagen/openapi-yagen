@@ -28,6 +28,21 @@ Node nodeSanitizeIdentifier(const Node::Vec& args)
 {
     return { sanitizeIdentifier((args | firstOrThrow()).get<string>()) };
 }
+Node nodeToStringLiteral(const Node::Vec& args) { return { toStringLiteral((args | firstOrThrow()).get<string>()) }; }
+Node nodeSplitPathTemplate(const Node::Vec& args)
+{
+    auto path = (args | firstOrThrow()).get<string>();
+    Node::Vec segments;
+    for (const auto& seg : splitPathTemplate(path)) {
+        Node::Map m;
+        if (seg.isParam)
+            m["param"] = { seg.value };
+        else
+            m["literal"] = { seg.value };
+        segments.push_back({ m });
+    }
+    return { segments };
+}
 
 Node dumpNode(const Node::Vec& args)
 {
@@ -54,6 +69,8 @@ Functions getCommonFunctions()
     res.push_back({ .name = "toScreamingSnakeCase", .func = nodeToScreamingSnakeCase });
     res.push_back({ .name = "isValidIdentifier", .func = nodeIsValidIdentifier });
     res.push_back({ .name = "sanitizeIdentifier", .func = nodeSanitizeIdentifier });
+    res.push_back({ .name = "toStringLiteral", .func = nodeToStringLiteral });
+    res.push_back({ .name = "splitPathTemplate", .func = nodeSplitPathTemplate });
     return res;
 }
 

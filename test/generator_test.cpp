@@ -174,6 +174,87 @@ TEST_CASE("Generate exposes kindOf/constraintsOf/nameOf/collectOperations", "[ge
     REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("limitConstraints={maximum=100}"));
 }
 
+TEST_CASE("Generate exposes flattenAllOf/resolveDiscriminator/firstSuccessResponse", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js", R"JS(
+const schemas = schema.components.schemas;
+const ops = collectOperations();
+const listOp = ops.find((o) => o.operationId === "listWidgets");
+const legacyOp = ops.find((o) => o.operationId === "legacyOnlyDefault");
+
+const flat = flattenAllOf(schemas.Widget);
+const shapeDisc = resolveDiscriminator(schemas.Shape);
+const undispatchable = resolveDiscriminator(schemas.UndispatchableUnion);
+const listResp = firstSuccessResponse(listOp.responses);
+const legacyResp = firstSuccessResponse(legacyOp.responses);
+
+renderTemplate("test_template", {
+  flatPropertyNames: Object.keys(flat.properties).sort().join(","),
+  flatRequired: flat.required.join(","),
+  flatIdType: flat.properties.id.type,
+  flatSpeciesType: flat.properties.species.type,
+  flatPrimaryShapeIsCircle: flat.properties.primaryShape === schemas.Circle,
+  flatPrimaryShapeName: nameOf(flat.properties.primaryShape),
+  shapeDiscProperty: shapeDisc.property,
+  shapeDiscVariantCount: shapeDisc.variants.length,
+  shapeDiscCircleLiteral: shapeDisc.variants.find((v) => v.name === "Circle").literal,
+  shapeDiscSquareLiteral: shapeDisc.variants.find((v) => v.name === "Square").literal,
+  undispatchableIsNull: undispatchable === null,
+  listRespStatusCode: listResp.statusCode,
+  listRespItemsIsWidget: listResp.response.content["application/json"].schema.items === schemas.Widget,
+  legacyRespStatusCode: legacyResp.statusCode,
+}, "outfile");
+)JS" },
+        { "generator.yml", readResource("generator.yml") },
+    };
+
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { make_shared<MockedFileReaderBackend>(files) },
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { },
+    });
+
+    gen.generate(getResourcePath("allof_discriminator.yaml"));
+
+    auto& out = fileWriter->files["outfile"];
+    // flattenAllOf: recurses into a nested allOf branch (Base+WithSpecies) plus the outer branch's
+    // own properties, merging everything into one flat {properties, required}.
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("flatPropertyNames=id,name,primaryShape,species"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("flatRequired=id,species,name,primaryShape"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("flatIdType=integer"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("flatSpeciesType=string"));
+    // A merged-in property that's a $ref keeps its exact JS object identity - nameOf still works.
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("flatPrimaryShapeIsCircle=1"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("flatPrimaryShapeName=Circle"));
+
+    // resolveDiscriminator: Circle's literal comes from the explicit mapping entry; Square has no
+    // mapping entry, so its literal falls back to its own component name (spec default).
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("shapeDiscProperty=shapeType"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("shapeDiscVariantCount=2"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("shapeDiscCircleLiteral=circle"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("shapeDiscSquareLiteral=Square"));
+    // No discriminator at all -> null, left for the caller to treat as an ordinary union.
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("undispatchableIsNull=1"));
+
+    // firstSuccessResponse: picks the declared 2xx when present, falls back to "default" when a
+    // response map has no 2xx at all - and the picked response's nested schema keeps its identity.
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("listRespStatusCode=200"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("listRespItemsIsWidget=1"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("legacyRespStatusCode=default"));
+}
+
 TEST_CASE("Generate validates spec against jsonSchemaPath when declared", "[generator]")
 {
     auto fileWriter = make_shared<MockedFileWriter>();

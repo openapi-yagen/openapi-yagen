@@ -1,7 +1,11 @@
 # JavaScript API reference
 
 The generator core supports all modern JavaScript features from ES2023 (string interpolation,
-classes, `let`/`const`, modules...) thanks to [QuickJS](https://bellard.org/quickjs/).
+classes, `let`/`const`, modules...) thanks to [QuickJS](https://bellard.org/quickjs/) - including
+its standard library: `JSON`, `Map`, `Set`, `RegExp`, `Array`/`Object` methods, and everything else
+ES2023 itself defines are all available with no setup, on top of the custom globals/built-ins
+documented below. `JSON.stringify`, in particular, doubles as a correct escaped-and-quoted string
+literal for any JS/TS-family output (see also `toStringLiteral` below for other languages).
 
 `main.js` (and anything it `import`s) runs with the global values and built-in functions described
 below already in scope - no `require`/`import` needed for any of them.
@@ -77,6 +81,37 @@ isValidIdentifier("pet-status"); // -> false
 sanitizeIdentifier("pet-status"); // -> "pet_status"
 ```
 
+#### `toStringLiteral`
+
+Produces a JSON-style double-quoted, backslash-escaped string literal - also valid syntax for most
+C-family languages' double-quoted string literals (C/C++/Java/Kotlin/JS/TS/C#/Go all treat
+`\\`/`\"`/`\n`/`\r`/`\t` the same way), so most generators need no hand-rolled escaping at all for
+emitting a string constant. Doesn't add a target language's *extra* escaping needs beyond that
+(e.g. Kotlin also escapes `$` because of string templates) - wrap the result yourself for that one
+additional rule if your target needs it.
+
+```typescript
+toStringLiteral(s: string): string
+```
+```js
+toStringLiteral('He said "hi"\n'); // -> "\"He said \\\"hi\\\"\\n\""
+```
+
+#### `splitPathTemplate`
+
+Splits an OpenAPI path template into its literal and `{param}` segments, in declaration order -
+every generator that builds a path-interpolation expression for path parameters needs exactly this
+split; this saves reimplementing the same regex/parsing logic (and risking it drifting slightly)
+in every generator.
+
+```typescript
+splitPathTemplate(path: string): Array<{ literal: string } | { param: string }>
+```
+```js
+splitPathTemplate("/pets/{petId}/ratings");
+// -> [{ literal: "pets" }, { param: "petId" }, { literal: "ratings" }]
+```
+
 ### OpenAPI-specific functions (JS only)
 
 #### `kindOf`, `constraintsOf`, `nameOf`, `collectOperations`
@@ -103,11 +138,64 @@ for (const op of collectOperations()) {
 }
 ```
 
-`kindOf`/`constraintsOf`/`nameOf` only work while a schema still has its original JS object
-identity - that is, before it's passed into `renderTemplate`/`renderTemplateToString` (which
-converts `data` via an internal value tree with no object identity) or into a function called from
-inside a template. Call them in `main.js` first, build a plain object with the results, and pass
-*that* into the template - not the raw schema object.
+#### `firstSuccessResponse`
+
+Picks the response every generator otherwise re-derives by hand: the first declared `2xx` status
+code (sorted), falling back to `"default"`, or `null` if `responses` has neither.
+
+```typescript
+firstSuccessResponse(responses: object): { statusCode: string, response: object } | null
+```
+```js
+for (const op of collectOperations()) {
+  const picked = firstSuccessResponse(op.responses);
+  const schema = picked?.response.content?.["application/json"]?.schema;
+}
+```
+
+#### `flattenAllOf`
+
+Recursively merges a schema's own `properties`/`required` with every (possibly itself `allOf`-
+bearing) branch of its `allOf`, into a single flat `{ properties, required }` - every generator
+handling `allOf` otherwise hand-rolls a one-level-only version of this same merge.
+
+```typescript
+flattenAllOf(schema: object): { properties: { [name: string]: object }, required: string[] }
+```
+```js
+const merged = flattenAllOf(schema.components.schemas.Cat);
+for (const [name, propSchema] of Object.entries(merged.properties)) {
+  const required = merged.required.includes(name);
+}
+```
+
+#### `resolveDiscriminator`
+
+Detects a discriminated `oneOf`/`anyOf` (`discriminator.propertyName` set, every variant a `$ref`
+to a named schema - the one shape a target language with algebraic/discriminated-union support can
+dispatch on a single literal property) and resolves each variant's component name plus its
+discriminator literal value (from `discriminator.mapping`, falling back to the component name
+itself when a variant has no explicit mapping entry, per the OpenAPI spec's own default). Returns
+`null` for anything else (no discriminator, or a variant that isn't a named `$ref`) - treat that as
+an ordinary, non-dispatchable union instead.
+
+```typescript
+resolveDiscriminator(schema: object): { property: string, variants: Array<{ name: string, literal: string }> } | null
+```
+```js
+const disc = resolveDiscriminator(schema.components.schemas.Shape);
+// -> { property: "shapeType", variants: [{ name: "Circle", literal: "circle" }, { name: "Square", literal: "Square" }] }
+```
+
+`kindOf`/`constraintsOf`/`nameOf`/`firstSuccessResponse`/`flattenAllOf`/`resolveDiscriminator` only
+work while a schema still has its original JS object identity - that is, before it's passed into
+`renderTemplate`/`renderTemplateToString` (which converts `data` via an internal value tree with no
+object identity) or into a function called from inside a template. Call them in `main.js` first,
+build a plain object with the results, and pass *that* into the template - not the raw schema
+object. `firstSuccessResponse`/`flattenAllOf`/`resolveDiscriminator` each build a fresh plain
+result object per call, but everything nested inside that result (a response's schema, a merged-in
+property that's a `$ref`, ...) keeps its original identity - so `nameOf`/`kindOf` still work on
+those nested values afterwards.
 
 ### File output (JS only)
 

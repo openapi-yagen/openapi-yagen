@@ -1,8 +1,13 @@
 #include "openapi_generator.h"
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstring>
+#include <map>
+#include <set>
 #include <stdexcept>
+#include <utility>
 
 #include <nlohmann/json-schema.hpp>
 #include <quickjs/quickjs-libc.h>
@@ -346,6 +351,228 @@ JSValue collectOperationsBuiltin(JSContext* ctx, JSValueConst thisVal, int argc,
     });
 }
 
+// True if `code` looks like a 3-digit "2xx" HTTP status code string.
+bool isSuccessStatusCode(const string& code)
+{
+    return code.size() == 3 && code[0] == '2' && isdigit(static_cast<unsigned char>(code[1]))
+        && isdigit(static_cast<unsigned char>(code[2]));
+}
+
+// Picks the response every generator's own buildResponse()-style helper otherwise re-derives by
+// hand: the first declared 2xx status code (sorted), falling back to "default", or null if
+// `responses` has neither. Reads `responses` (an operation's already-deref'd `.responses` object,
+// or `schema.paths.<path>.<method>.responses`) directly via JSValue property access rather than a
+// Node round-trip, like kindOf/constraintsOf above - the picked response's nested schema may still
+// need nameOf()/kindOf() to work on it, which requires preserving its exact JS object identity.
+JSValue firstSuccessResponseBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        if (argc < 1)
+            throw runtime_error("<a1b2c3d4> firstSuccessResponse requires 1 argument (responses: object)");
+        if (!JS_IsObject(argv[0]))
+            return JS_NULL;
+
+        JSPropertyEnum* propEnum;
+        uint32_t len;
+        if (JS_GetOwnPropertyNames(ctx, &propEnum, &len, argv[0], JS_GPN_STRING_MASK) < 0)
+            throw runtime_error("<b2c3d4e5> Cannot enumerate responses object");
+        vector<string> codes;
+        codes.reserve(len);
+        for (uint32_t i = 0; i < len; i++) {
+            auto cstr = JS_AtomToCString(ctx, propEnum[i].atom);
+            codes.emplace_back(cstr);
+            JS_FreeCString(ctx, cstr);
+            JS_FreeAtom(ctx, propEnum[i].atom);
+        }
+        js_free(ctx, propEnum);
+
+        vector<string> successCodes;
+        for (const auto& c : codes)
+            if (isSuccessStatusCode(c))
+                successCodes.push_back(c);
+        std::sort(successCodes.begin(), successCodes.end());
+
+        string chosenCode;
+        if (!successCodes.empty())
+            chosenCode = successCodes.front();
+        else if (std::find(codes.begin(), codes.end(), "default") != codes.end())
+            chosenCode = "default";
+        else
+            return JS_NULL;
+
+        auto result = JS_NewObject(ctx);
+        checkForException(ctx, result, "<c3d4e5f6> Cannot create object");
+        setObjProperty(ctx, result, "statusCode", JS_NewStringLen(ctx, chosenCode.data(), chosenCode.size()));
+        setObjProperty(ctx, result, "response", JS_GetPropertyStr(ctx, argv[0], chosenCode.c_str()));
+        return result;
+    });
+}
+
+// Recursively merges `schema`'s own `properties`/`required` with every (possibly itself allOf-
+// bearing) branch of `schema.allOf`, into a single flat `{properties, required}` - every
+// generator handling allOf otherwise hand-rolls a one-level-only version of this same merge.
+// Merged property values keep the exact JS object identity of wherever they were declared (a
+// direct assignment of the branch's own property JSValue, never a copy/round-trip), so nameOf()/
+// kindOf() still work on them afterwards - e.g. a merged-in property that's a $ref to a named
+// schema still resolves via nameOf.
+void flattenAllOfInto(JSContext* ctx, JSValueConst schemaVal, JSValue propertiesObj, vector<string>& required,
+                      set<string>& seenRequired)
+{
+    auto allOfVal = JS_GetPropertyStr(ctx, schemaVal, "allOf");
+    if (JS_IsArray(ctx, allOfVal)) {
+        auto len = jsArrayLength(ctx, allOfVal);
+        for (int32_t i = 0; i < len; i++) {
+            auto branch = JS_GetPropertyUint32(ctx, allOfVal, (uint32_t)i);
+            flattenAllOfInto(ctx, branch, propertiesObj, required, seenRequired);
+            JS_FreeValue(ctx, branch);
+        }
+    }
+    JS_FreeValue(ctx, allOfVal);
+
+    auto propsVal = JS_GetPropertyStr(ctx, schemaVal, "properties");
+    if (JS_IsObject(propsVal)) {
+        jsIterateObjectProps(ctx, propsVal, [&](const string& name, const JSValue& value) {
+            setObjProperty(ctx, propertiesObj, name, JS_DupValue(ctx, value));
+        });
+    }
+    JS_FreeValue(ctx, propsVal);
+
+    auto reqVal = JS_GetPropertyStr(ctx, schemaVal, "required");
+    if (JS_IsArray(ctx, reqVal)) {
+        auto len = jsArrayLength(ctx, reqVal);
+        for (int32_t i = 0; i < len; i++) {
+            auto item = JS_GetPropertyUint32(ctx, reqVal, (uint32_t)i);
+            if (JS_IsString(item)) {
+                auto name = jsValueToString(ctx, item);
+                if (seenRequired.insert(name).second)
+                    required.push_back(name);
+            }
+            JS_FreeValue(ctx, item);
+        }
+    }
+    JS_FreeValue(ctx, reqVal);
+}
+
+JSValue flattenAllOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        if (argc < 1)
+            throw runtime_error("<d4e5f6a7> flattenAllOf requires 1 argument (schema: object)");
+
+        auto propertiesObj = JS_NewObject(ctx);
+        checkForException(ctx, propertiesObj, "<e5f6a7b8> Cannot create object");
+        vector<string> required;
+        set<string> seenRequired;
+        flattenAllOfInto(ctx, argv[0], propertiesObj, required, seenRequired);
+
+        auto requiredArr = JS_NewArray(ctx);
+        checkForException(ctx, requiredArr, "<f6a7b8c9> Cannot create array");
+        for (size_t i = 0; i < required.size(); i++)
+            JS_DefinePropertyValueUint32(ctx, requiredArr, (uint32_t)i,
+                                         JS_NewStringLen(ctx, required[i].data(), required[i].size()), JS_PROP_C_W_E);
+
+        auto result = JS_NewObject(ctx);
+        checkForException(ctx, result, "<a7b8c9d0> Cannot create object");
+        setObjProperty(ctx, result, "properties", propertiesObj);
+        setObjProperty(ctx, result, "required", requiredArr);
+        return result;
+    });
+}
+
+// Trims a discriminator.mapping ref string ("#/components/schemas/Cat") down to its trailing
+// component name ("Cat") - mapping values are never $ref-resolved by the engine (discriminator
+// isn't itself a schema - see Discriminator's C++ struct), so they stay literal strings all the
+// way to JS.
+string trailingRefName(const string& ref)
+{
+    auto pos = ref.find_last_of('/');
+    return pos == string::npos ? ref : ref.substr(pos + 1);
+}
+
+// Detects a discriminated oneOf/anyOf (discriminator.propertyName set, every variant a $ref to a
+// named schema - the one shape a target language with algebraic/discriminated-union support can
+// dispatch on a single literal property) and resolves each variant's component name plus its
+// discriminator literal (from discriminator.mapping, falling back to the component name itself
+// when a variant has no explicit mapping entry, per the OpenAPI spec's own default). Returns null
+// for anything else (no discriminator, or a variant that isn't a named $ref) - left for the caller
+// to register as an ordinary, non-dispatchable union instead. Needs `builder` (bound as `data`,
+// like nameOf) to check "is this variant a $ref to a named schema" by JS object identity.
+JSValue resolveDiscriminatorBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic,
+                                    JSValue* data)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        auto& builder = *jsValueToPtr<Generator::OpenApiJsGraphBuilder>(*data);
+        if (argc < 1)
+            throw runtime_error("<b8c9d0e1> resolveDiscriminator requires 1 argument (schema: object)");
+        auto schemaVal = argv[0];
+
+        auto variantsVal = JS_GetPropertyStr(ctx, schemaVal, "oneOf");
+        if (!JS_IsArray(ctx, variantsVal)) {
+            JS_FreeValue(ctx, variantsVal);
+            variantsVal = JS_GetPropertyStr(ctx, schemaVal, "anyOf");
+        }
+        if (!JS_IsArray(ctx, variantsVal)) {
+            JS_FreeValue(ctx, variantsVal);
+            return JS_NULL;
+        }
+
+        auto discVal = JS_GetPropertyStr(ctx, schemaVal, "discriminator");
+        auto propNameVal = JS_IsObject(discVal) ? JS_GetPropertyStr(ctx, discVal, "propertyName") : JS_UNDEFINED;
+        if (!JS_IsString(propNameVal)) {
+            JS_FreeValue(ctx, propNameVal);
+            JS_FreeValue(ctx, discVal);
+            JS_FreeValue(ctx, variantsVal);
+            return JS_NULL;
+        }
+        auto propertyName = jsValueToString(ctx, propNameVal);
+        JS_FreeValue(ctx, propNameVal);
+
+        map<string, string> nameToLiteral; // component name -> discriminator literal
+        auto mappingVal = JS_GetPropertyStr(ctx, discVal, "mapping");
+        if (JS_IsObject(mappingVal)) {
+            jsIterateObjectProps(ctx, mappingVal, [&](const string& literal, const JSValue& refValue) {
+                if (JS_IsString(refValue))
+                    nameToLiteral[trailingRefName(jsValueToString(ctx, refValue))] = literal;
+            });
+        }
+        JS_FreeValue(ctx, mappingVal);
+        JS_FreeValue(ctx, discVal);
+
+        auto len = jsArrayLength(ctx, variantsVal);
+        vector<pair<string, string>> variants; // (component name, discriminator literal)
+        variants.reserve(len);
+        for (int32_t i = 0; i < len; i++) {
+            auto variant = JS_GetPropertyUint32(ctx, variantsVal, (uint32_t)i);
+            auto name = builder.nameOf(variant);
+            JS_FreeValue(ctx, variant);
+            if (!name) {
+                JS_FreeValue(ctx, variantsVal);
+                return JS_NULL; // not every variant is a $ref to a named schema
+            }
+            auto it = nameToLiteral.find(*name);
+            variants.emplace_back(*name, it != nameToLiteral.end() ? it->second : *name);
+        }
+        JS_FreeValue(ctx, variantsVal);
+
+        auto variantsArr = JS_NewArray(ctx);
+        checkForException(ctx, variantsArr, "<c9d0e1f2> Cannot create array");
+        for (size_t i = 0; i < variants.size(); i++) {
+            auto obj = JS_NewObject(ctx);
+            checkForException(ctx, obj, "<d0e1f2a3> Cannot create object");
+            setObjProperty(ctx, obj, "name", JS_NewStringLen(ctx, variants[i].first.data(), variants[i].first.size()));
+            setObjProperty(ctx, obj, "literal",
+                           JS_NewStringLen(ctx, variants[i].second.data(), variants[i].second.size()));
+            JS_DefinePropertyValueUint32(ctx, variantsArr, (uint32_t)i, obj, JS_PROP_C_W_E);
+        }
+
+        auto result = JS_NewObject(ctx);
+        checkForException(ctx, result, "<e1f2a3b4> Cannot create object");
+        setObjProperty(ctx, result, "property", JS_NewStringLen(ctx, propertyName.data(), propertyName.size()));
+        setObjProperty(ctx, result, "variants", variantsArr);
+        return result;
+    });
+}
+
 // Copies a static file from the generator's own directory straight into the output directory,
 // without routing it through the template engine just to move bytes unchanged (previously the
 // only option - see e.g. how kotlin_ktor_server_generator/templates/validation.kt.j2 has no
@@ -467,6 +694,9 @@ void OpenApiGenerator::generate(const string& specPath)
             setObjFunction(ctx, globalObj, "nameOf", nameOfBuiltin, &*builder);
             collectOperationsCtx = { &*builder, &operations };
             setObjFunction(ctx, globalObj, "collectOperations", collectOperationsBuiltin, &collectOperationsCtx);
+            setObjFunction(ctx, globalObj, "firstSuccessResponse", firstSuccessResponseBuiltin);
+            setObjFunction(ctx, globalObj, "flattenAllOf", flattenAllOfBuiltin);
+            setObjFunction(ctx, globalObj, "resolveDiscriminator", resolveDiscriminatorBuiltin, &*builder);
 
             setObjProperty(ctx, globalObj, "vars", nodeToJSValue(ctx, vars));
 

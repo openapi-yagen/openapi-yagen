@@ -152,3 +152,27 @@ bool isValidIdentifier(const std::string& s);
 // before or after this as needed, and don't escape target-language keywords (e.g. wrapping
 // Kotlin's `class` in backticks) - that's still a per-language generator concern.
 std::string sanitizeIdentifier(const std::string& s);
+
+// Produces a JSON-style double-quoted, backslash-escaped string literal (`"` -> `\"`, `\` -> `\\`,
+// newline/tab/etc -> `\n`/`\t`/..., other control characters -> `\u00XX`). Also valid syntax for
+// most C-family languages' double-quoted string literals (C/C++/Java/Kotlin/JS/TS/C#/Go all treat
+// `\\`/`\"`/`\n`/`\r`/`\t` the same way) - saves every generator from hand-rolling this. Doesn't
+// add a target language's *extra* escaping needs beyond that (e.g. Kotlin also escapes `$` because
+// of string templates) - a generator combining this with such an extra rule still needs its own
+// thin wrapper for that one additional character.
+std::string toStringLiteral(const std::string& s);
+
+// One segment of a path template split by splitPathTemplate: either a literal path segment
+// (`literal` set) or a `{param}` placeholder (`param` set to the name with the braces stripped) -
+// never both.
+struct PathTemplateSegment {
+    bool isParam;
+    std::string value;
+};
+
+// Splits an OpenAPI path template ("/pets/{petId}/ratings") into its literal and `{param}`
+// segments, in order, skipping empty segments (a leading "/", or "//"). Every generator that
+// builds a path-interpolation expression for path parameters needs exactly this split - doing it
+// once in the engine keeps that regex/parsing logic from being reimplemented (and potentially
+// getting slightly out of sync) in every generator.
+std::vector<PathTemplateSegment> splitPathTemplate(const std::string& path);

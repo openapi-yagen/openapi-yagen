@@ -69,3 +69,35 @@ TEST_CASE("Identifier sanitization", "[common]")
         REQUIRE(isValidIdentifier(sanitizeIdentifier("pet/status@2")));
     }
 }
+
+TEST_CASE("toStringLiteral", "[common]")
+{
+    REQUIRE(toStringLiteral("foo") == "\"foo\"");
+    REQUIRE(toStringLiteral("") == "\"\"");
+    REQUIRE(toStringLiteral("foo\"bar") == "\"foo\\\"bar\"");
+    REQUIRE(toStringLiteral("foo\\bar") == "\"foo\\\\bar\"");
+    REQUIRE(toStringLiteral("line1\nline2") == "\"line1\\nline2\"");
+    REQUIRE(toStringLiteral("a\tb\rc") == "\"a\\tb\\rc\"");
+    REQUIRE(toStringLiteral(string(1, '\x01')) == "\"\\u0001\"");
+}
+
+TEST_CASE("splitPathTemplate", "[common]")
+{
+    auto segs = splitPathTemplate("/pets/{petId}/ratings");
+    REQUIRE(segs.size() == 3);
+    REQUIRE_FALSE(segs[0].isParam);
+    REQUIRE(segs[0].value == "pets");
+    REQUIRE(segs[1].isParam);
+    REQUIRE(segs[1].value == "petId");
+    REQUIRE_FALSE(segs[2].isParam);
+    REQUIRE(segs[2].value == "ratings");
+
+    SECTION("leading/trailing/doubled slashes produce no empty segments")
+    {
+        REQUIRE(splitPathTemplate("/pets/").size() == 1);
+        REQUIRE(splitPathTemplate("pets").size() == 1);
+        REQUIRE(splitPathTemplate("//pets//").size() == 1);
+        REQUIRE(splitPathTemplate("/").empty());
+        REQUIRE(splitPathTemplate("").empty());
+    }
+}

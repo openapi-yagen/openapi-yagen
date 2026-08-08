@@ -1,0 +1,92 @@
+openapi: "3.0.0"
+info:
+  version: "1.0"
+  title: allOf/discriminator/response-picking fixture for flattenAllOf/resolveDiscriminator/firstSuccessResponse
+paths:
+  /widgets:
+    get:
+      operationId: listWidgets
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Widget"
+        default:
+          description: unexpected error
+  /widgets/legacy:
+    get:
+      operationId: legacyOnlyDefault
+      responses:
+        default:
+          description: only a default response is declared, no 2xx at all
+components:
+  schemas:
+    Base:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+    WithSpecies:
+      type: object
+      required: [species]
+      properties:
+        species:
+          type: string
+    Widget:
+      description: allOf with a nested allOf branch, to exercise recursive flattening
+      allOf:
+        - allOf:
+            - $ref: "#/components/schemas/Base"
+            - $ref: "#/components/schemas/WithSpecies"
+        - type: object
+          required: [name, primaryShape]
+          properties:
+            name:
+              type: string
+            primaryShape:
+              $ref: "#/components/schemas/Circle"
+    Circle:
+      type: object
+      required: [shapeType, radius]
+      properties:
+        shapeType:
+          type: string
+        radius:
+          type: number
+    Square:
+      type: object
+      required: [shapeType, side]
+      properties:
+        shapeType:
+          type: string
+        side:
+          type: number
+    Triangle:
+      type: object
+      required: [shapeType, base]
+      properties:
+        shapeType:
+          type: string
+        base:
+          type: number
+    Shape:
+      description: >-
+        discriminated - Circle has an explicit mapping entry, Square doesn't (falls back to its
+        own component name, per the OpenAPI spec's own default)
+      oneOf:
+        - $ref: "#/components/schemas/Circle"
+        - $ref: "#/components/schemas/Square"
+      discriminator:
+        propertyName: shapeType
+        mapping:
+          circle: "#/components/schemas/Circle"
+    UndispatchableUnion:
+      description: no discriminator at all - resolveDiscriminator must return null
+      oneOf:
+        - $ref: "#/components/schemas/Circle"
+        - $ref: "#/components/schemas/Triangle"

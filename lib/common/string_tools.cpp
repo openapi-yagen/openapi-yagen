@@ -1,5 +1,6 @@
 #include "string_tools.h"
 
+#include <format>
 #include <ranges>
 
 using namespace std;
@@ -137,4 +138,55 @@ string sanitizeIdentifier(const string& s)
     if (res.empty() || isdigit(static_cast<unsigned char>(res[0])))
         res = "_" + res;
     return res;
+}
+
+string toStringLiteral(const string& s)
+{
+    string res = "\"";
+    for (unsigned char ch : s) {
+        switch (ch) {
+            case '"':
+                res += "\\\"";
+                break;
+            case '\\':
+                res += "\\\\";
+                break;
+            case '\n':
+                res += "\\n";
+                break;
+            case '\r':
+                res += "\\r";
+                break;
+            case '\t':
+                res += "\\t";
+                break;
+            case '\b':
+                res += "\\b";
+                break;
+            case '\f':
+                res += "\\f";
+                break;
+            default:
+                if (ch < 0x20)
+                    res += format("\\u{:04x}", ch);
+                else
+                    res += (char)ch;
+        }
+    }
+    res += "\"";
+    return res;
+}
+
+vector<PathTemplateSegment> splitPathTemplate(const string& path)
+{
+    vector<PathTemplateSegment> result;
+    for (const auto& segView : string_view(path) | split("/")) {
+        if (segView.empty())
+            continue;
+        if (segView.size() >= 2 && segView.front() == '{' && segView.back() == '}')
+            result.push_back({ true, string(segView.substr(1, segView.size() - 2)) });
+        else
+            result.push_back({ false, string(segView) });
+    }
+    return result;
 }

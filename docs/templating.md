@@ -8,7 +8,8 @@ how this project's built-in functions and generator-supplied data connect to it.
 
 The [common functions](javascript-api.md#common-functions-js-and-templates) (`dump`,
 `toCamelCase`/`toPascalCase`/`toSnakeCase`/`toScreamingSnakeCase`, `isValidIdentifier`,
-`sanitizeIdentifier`) are available in every template automatically:
+`sanitizeIdentifier`, `toStringLiteral`, `splitPathTemplate`) are available in every template
+automatically:
 
 ```jinja
 {% set value = toSnakeCase("FirstSecondThird") %}
@@ -27,11 +28,11 @@ renderTemplate("model.h.j2", { schemas }, "model.h", {
 {{ mapType(propValue.type) }} {{ propKey }};
 ```
 
-The OpenAPI-specific functions (`kindOf`, `constraintsOf`, `nameOf`, `collectOperations`) are
-**not** usable inside templates - they rely on JS object identity, which is gone by the time data
-reaches a template (see [`javascript-api.md`](javascript-api.md#openapi-specific-functions-js-only)).
-Resolve everything you need from them in `main.js` first, and pass the plain result into
-`data`/`renderTemplate`.
+The OpenAPI-specific functions (`kindOf`, `constraintsOf`, `nameOf`, `collectOperations`,
+`firstSuccessResponse`, `flattenAllOf`, `resolveDiscriminator`) are **not** usable inside templates
+- they rely on JS object identity, which is gone by the time data reaches a template (see
+[`javascript-api.md`](javascript-api.md#openapi-specific-functions-js-only)). Resolve everything
+you need from them in `main.js` first, and pass the plain result into `data`/`renderTemplate`.
 
 ## Basic control flow
 
