@@ -8,7 +8,8 @@ using namespace std;
 
 namespace OpenApi {
 
-const vector<Str> httpMethods = { "get", "put", "post", "delete", "options", "head", "patch", "trace" };
+const vector<Str> httpMethods
+    = { "get", "put", "post", "delete", "options", "head", "patch", "trace", "query" };
 
 namespace {
 const Str parameterRefPrefix = "#/components/parameters/";
@@ -71,6 +72,27 @@ vector<ParameterPtr> mergeParameters(const Document& doc, const vector<Parameter
 
 }
 
+namespace {
+
+ResolvedOperation resolveOneOperation(const Document& doc, const Str& method, const Str& path, const PathItem& pathItem,
+                                      const Operation& op)
+{
+    ResolvedOperation resolved;
+    resolved.method = method;
+    resolved.path = path;
+    resolved.operationId = op.operationId;
+    resolved.summary = op.summary;
+    resolved.description = op.description;
+    resolved.tags = op.tags;
+    resolved.parameters = mergeParameters(doc, pathItem.parameters, op.parameters);
+    resolved.requestBody = op.requestBody ? derefRequestBody(doc, op.requestBody) : nullptr;
+    for (const auto& [status, response] : op.responses)
+        resolved.responses[status] = derefResponse(doc, response);
+    return resolved;
+}
+
+}
+
 vector<ResolvedOperation> collectOperations(const Document& doc)
 {
     vector<ResolvedOperation> result;
@@ -79,22 +101,13 @@ vector<ResolvedOperation> collectOperations(const Document& doc)
             auto it = pathItem.operations.find(method);
             if (it == pathItem.operations.end())
                 continue;
-            const auto& op = it->second;
-
-            ResolvedOperation resolved;
-            resolved.method = method;
-            resolved.path = path;
-            resolved.operationId = op.operationId;
-            resolved.summary = op.summary;
-            resolved.description = op.description;
-            resolved.tags = op.tags;
-            resolved.parameters = mergeParameters(doc, pathItem.parameters, op.parameters);
-            resolved.requestBody = op.requestBody ? derefRequestBody(doc, op.requestBody) : nullptr;
-            for (const auto& [status, response] : op.responses)
-                resolved.responses[status] = derefResponse(doc, response);
-
-            result.push_back(std::move(resolved));
+            result.push_back(resolveOneOperation(doc, method, path, pathItem, it->second));
         }
+        // OAS 3.2+: operations under a non-standard method (PathItem::additionalOperations),
+        // keyed by that method's name exactly as written (not lowercased, unlike the fixed set
+        // above).
+        for (const auto& [method, op] : pathItem.additionalOperations)
+            result.push_back(resolveOneOperation(doc, method, path, pathItem, op));
     }
     return result;
 }

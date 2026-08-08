@@ -30,6 +30,8 @@ void resolveSchemaPtr(const SchemaMap& schemas, SchemaPtr& slot, set<const Schem
     for (auto& s : slot->anyOf)
         resolveSchemaPtr(schemas, s, visited);
     resolveSchemaPtr(schemas, slot->notSchema, visited);
+    for (auto& [name, def] : slot->defs) // $defs, OAS 3.1+
+        resolveSchemaPtr(schemas, def, visited);
 }
 
 void resolveHeaderPtr(const Document& doc, HeaderPtr& slot, set<const Schema*>& visited);
@@ -38,6 +40,7 @@ void resolveContent(const Document& doc, map<Str, MediaType>& content, set<const
 {
     for (auto& [mediaType, media] : content) {
         resolveSchemaPtr(doc.components.schemas, media.schema, visited);
+        resolveSchemaPtr(doc.components.schemas, media.itemSchema, visited);
         for (auto& [propName, encoding] : media.encoding)
             for (auto& [headerName, header] : encoding.headers)
                 resolveHeaderPtr(doc, header, visited);
@@ -93,24 +96,32 @@ void resolveRequestBodyPtr(const Document& doc, RequestBodyPtr& slot, set<const 
     resolveContent(doc, slot->content, visited);
 }
 
+void resolvePathItem(const Document& doc, PathItem& item, set<const Schema*>& visited);
+
+void resolveOperation(const Document& doc, Operation& op, set<const Schema*>& visited)
+{
+    resolveParameters(doc, op.parameters, visited);
+    if (op.requestBody)
+        resolveRequestBodyPtr(doc, op.requestBody, visited);
+    for (auto& [status, r] : op.responses)
+        resolveResponsePtr(doc, r, visited);
+    for (auto& [name, callback] : op.callbacks) {
+        callback = derefCallback(doc, callback);
+        if (!callback)
+            continue;
+        for (auto& [expr, pathItem] : callback->expressions)
+            if (pathItem)
+                resolvePathItem(doc, *pathItem, visited);
+    }
+}
+
 void resolvePathItem(const Document& doc, PathItem& item, set<const Schema*>& visited)
 {
     resolveParameters(doc, item.parameters, visited);
-    for (auto& [method, op] : item.operations) {
-        resolveParameters(doc, op.parameters, visited);
-        if (op.requestBody)
-            resolveRequestBodyPtr(doc, op.requestBody, visited);
-        for (auto& [status, r] : op.responses)
-            resolveResponsePtr(doc, r, visited);
-        for (auto& [name, callback] : op.callbacks) {
-            callback = derefCallback(doc, callback);
-            if (!callback)
-                continue;
-            for (auto& [expr, pathItem] : callback->expressions)
-                if (pathItem)
-                    resolvePathItem(doc, *pathItem, visited);
-        }
-    }
+    for (auto& [method, op] : item.operations)
+        resolveOperation(doc, op, visited);
+    for (auto& [method, op] : item.additionalOperations) // OAS 3.2+
+        resolveOperation(doc, op, visited);
 }
 
 }

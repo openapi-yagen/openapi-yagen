@@ -71,6 +71,13 @@ JSValue OpenApiJsGraphBuilder::buildSchemaValue(const SchemaPtr& schema)
             items.push_back(buildSchemaValue(s));
         setObjProperty(ctx, obj, "anyOf", buildSchemaArray(ctx, items));
     }
+    if (!schema->defs.empty()) { // $defs, OAS 3.1+
+        auto defsObj = JS_NewObject(ctx);
+        checkForException(ctx, defsObj, "<d9d9f6ab> Cannot create object");
+        for (const auto& [name, def] : schema->defs)
+            setObjProperty(ctx, defsObj, name, buildSchemaValue(def));
+        setObjProperty(ctx, obj, "$defs", defsObj);
+    }
 
     return obj;
 }
@@ -142,6 +149,8 @@ void OpenApiJsGraphBuilder::overwriteContentSchemas(JSValue contentObj, const ma
         auto entryObj = JS_GetPropertyStr(ctx, contentObj, mediaType.c_str());
         if (media.schema)
             setObjProperty(ctx, entryObj, "schema", buildSchemaValue(media.schema));
+        if (media.itemSchema) // OAS 3.2+
+            setObjProperty(ctx, entryObj, "itemSchema", buildSchemaValue(media.itemSchema));
         if (!media.encoding.empty()) {
             auto encodingObj = JS_GetPropertyStr(ctx, entryObj, "encoding");
             for (const auto& [propName, encoding] : media.encoding) {
@@ -266,6 +275,24 @@ void OpenApiJsGraphBuilder::overwriteParameterArray(JSValue parentObj, const str
     JS_FreeValue(ctx, arr);
 }
 
+void OpenApiJsGraphBuilder::overlayOperation(JSValue opObj, const Operation& op)
+{
+    if (!op.parameters.empty())
+        overwriteParameterArray(opObj, "parameters", op.parameters);
+    if (op.requestBody)
+        setObjProperty(ctx, opObj, "requestBody", buildRequestBodyValue(op.requestBody));
+    if (!op.responses.empty()) {
+        auto opResponsesObj = getOrCreateChildObject(opObj, "responses") | wrap(ctx);
+        for (const auto& [status, r] : op.responses)
+            setObjProperty(ctx, *opResponsesObj, status, buildResponseValue(r));
+    }
+    if (!op.callbacks.empty()) {
+        auto opCallbacksObj = getOrCreateChildObject(opObj, "callbacks") | wrap(ctx);
+        for (const auto& [name, cb] : op.callbacks)
+            setObjProperty(ctx, *opCallbacksObj, name, buildCallbackValue(cb));
+    }
+}
+
 void OpenApiJsGraphBuilder::overlayPathItem(JSValue pathItemObj, const PathItem& item)
 {
     if (!item.parameters.empty())
@@ -273,20 +300,13 @@ void OpenApiJsGraphBuilder::overlayPathItem(JSValue pathItemObj, const PathItem&
 
     for (const auto& [method, op] : item.operations) {
         auto opObj = getOrCreateChildObject(pathItemObj, method) | wrap(ctx);
-
-        if (!op.parameters.empty())
-            overwriteParameterArray(*opObj, "parameters", op.parameters);
-        if (op.requestBody)
-            setObjProperty(ctx, *opObj, "requestBody", buildRequestBodyValue(op.requestBody));
-        if (!op.responses.empty()) {
-            auto opResponsesObj = getOrCreateChildObject(*opObj, "responses") | wrap(ctx);
-            for (const auto& [status, r] : op.responses)
-                setObjProperty(ctx, *opResponsesObj, status, buildResponseValue(r));
-        }
-        if (!op.callbacks.empty()) {
-            auto opCallbacksObj = getOrCreateChildObject(*opObj, "callbacks") | wrap(ctx);
-            for (const auto& [name, cb] : op.callbacks)
-                setObjProperty(ctx, *opCallbacksObj, name, buildCallbackValue(cb));
+        overlayOperation(*opObj, op);
+    }
+    if (!item.additionalOperations.empty()) { // OAS 3.2+
+        auto additionalObj = getOrCreateChildObject(pathItemObj, "additionalOperations") | wrap(ctx);
+        for (const auto& [method, op] : item.additionalOperations) {
+            auto opObj = getOrCreateChildObject(*additionalObj, method) | wrap(ctx);
+            overlayOperation(*opObj, op);
         }
     }
 }

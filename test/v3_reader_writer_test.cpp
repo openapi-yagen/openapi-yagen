@@ -2,6 +2,8 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <algorithm>
+
 #include <lib/common/node_walker.h>
 #include <lib/common/yaml_or_json_parser.h>
 #include <lib/openapi/v3/reader.h>
@@ -16,6 +18,7 @@ using namespace OpenApi;
 
 namespace {
 Node loadFullSpec31() { return parseYamlOrJsonToNode(readResource("full_spec_3.1.yaml")); }
+Node loadFullSpec32() { return parseYamlOrJsonToNode(readResource("full_spec_3.2.yaml")); }
 }
 
 TEST_CASE("V3::Read parses every Stage 1 construct from the full reference spec", "[v3]")
@@ -246,4 +249,116 @@ TEST_CASE("Same-version conversion is unnecessary and V3::Write output is self-c
     REQUIRE(reparsed.components.schemas.at("Widget")->properties.at("rating")->constValue->get<Node::Int>() == 5);
     REQUIRE(reparsed.webhooks.contains("widgetPing"));
     REQUIRE(reparsed.components.pathItems.contains("SharedPathItem"));
+}
+
+TEST_CASE("V3::Read parses every Stage 2 (OAS 3.2) construct", "[v3]")
+{
+    auto doc = V3::Read(NodeWalker(loadFullSpec32()), OpenApiVersion::V3_2);
+
+    REQUIRE(doc.self == "https://example.com/openapi.json");
+
+    SECTION("Tag summary/parent/kind")
+    {
+        REQUIRE(doc.tags[0].summary == "Widget stuff");
+        REQUIRE(doc.tags[0].kind == "nav");
+        REQUIRE(doc.tags[1].parent == "widgets");
+        REQUIRE(doc.tags[1].kind == "badge");
+    }
+
+    SECTION("query operation and additionalOperations")
+    {
+        const auto& item = doc.paths.at("/widgets");
+        REQUIRE(item.operations.at("query").operationId == "queryWidgets");
+        REQUIRE(item.additionalOperations.at("PURGE").operationId == "purgeWidgets");
+
+        // collectOperations() flattens additionalOperations entries too, keyed by their exact
+        // (non-lowercased) method name.
+        auto ops = collectOperations(doc);
+        auto purge = find_if(ops.begin(), ops.end(), [](const auto& op) { return op.method == "PURGE"; });
+        REQUIRE(purge != ops.end());
+        REQUIRE(purge->operationId == "purgeWidgets");
+    }
+
+    SECTION("Schema: XML nodeType, discriminator.defaultMapping, JSON Schema 2020-12 keywords")
+    {
+        const auto& widget = *doc.components.schemas.at("Widget");
+        REQUIRE(widget.xml->nodeType == "attribute");
+        REQUIRE(widget.discriminator->defaultMapping == "#/components/schemas/Widget");
+        REQUIRE(widget.comment == "internal note for schema authors");
+        REQUIRE(widget.anchor == "WidgetAnchor");
+        REQUIRE(widget.dynamicAnchor == "WidgetDynamicAnchor");
+        REQUIRE(widget.defs.at("Inner")->type == vector<string> { "string" });
+    }
+
+    SECTION("Example dataValue/serializedValue")
+    {
+        const auto& ex = *doc.components.examples.at("WidgetExample");
+        REQUIRE(ex.dataValue.has_value());
+        REQUIRE(ex.serializedValue == "{\"id\":1,\"kind\":\"basic\"}");
+    }
+
+    SECTION("MediaType.itemSchema")
+    {
+        const auto& media = doc.components.requestBodies.at("WidgetStream")->content.at("application/jsonl");
+        REQUIRE(media.itemSchema->ref == "#/components/schemas/Widget");
+    }
+
+    SECTION("Security: deviceAuthorization flow, oauth2MetadataUrl, deprecated")
+    {
+        const auto& apiKey = *doc.components.securitySchemes.at("ApiKeyAuth");
+        REQUIRE(apiKey.deprecated == true);
+
+        const auto& oauth2 = *doc.components.securitySchemes.at("OAuth2");
+        REQUIRE(oauth2.oauth2MetadataUrl == "https://example.com/.well-known/oauth-authorization-server");
+        REQUIRE(oauth2.flows->deviceAuthorization->deviceAuthorizationUrl == "https://example.com/oauth/device");
+        REQUIRE(oauth2.flows->deviceAuthorization->tokenUrl == "https://example.com/oauth/token");
+    }
+}
+
+TEST_CASE("V3::Write denormalizes OAS 3.2 constructs for older targets", "[v3]")
+{
+    auto doc32 = V3::Read(NodeWalker(loadFullSpec32()), OpenApiVersion::V3_2);
+
+    SECTION("Targeting 3.1: 3.2-only fields dropped, JSON Schema 2020-12 keywords kept")
+    {
+        auto node31 = V3::Write(doc32, OpenApiVersion::V3_1);
+        auto doc31 = V3::Read(NodeWalker(node31), OpenApiVersion::V3_1);
+
+        REQUIRE_FALSE(doc31.self.has_value());
+        REQUIRE(doc31.tags[0].kind.value_or("") == ""); // dropped - no OAS 3.1 equivalent
+        REQUIRE(doc31.paths.at("/widgets").operations.contains("query")); // "query" always kept (additive)
+        REQUIRE(doc31.paths.at("/widgets").additionalOperations.empty()); // dropped - no OAS 3.1 equivalent
+
+        const auto& widget = *doc31.components.schemas.at("Widget");
+        REQUIRE_FALSE(widget.xml->nodeType.has_value()); // dropped
+        REQUIRE_FALSE(widget.discriminator->defaultMapping.has_value()); // dropped
+        // $comment/$anchor/$dynamicAnchor/$defs are 3.1+ JSON Schema keywords, not 3.2-only - kept.
+        REQUIRE(widget.comment == "internal note for schema authors");
+        REQUIRE(widget.defs.at("Inner")->type == vector<string> { "string" });
+
+        REQUIRE_FALSE(doc31.components.requestBodies.at("WidgetStream")->content.at("application/jsonl").itemSchema);
+
+        const auto& oauth2 = *doc31.components.securitySchemes.at("OAuth2");
+        REQUIRE_FALSE(oauth2.oauth2MetadataUrl.has_value());
+        REQUIRE_FALSE(oauth2.flows->deviceAuthorization.has_value());
+    }
+
+    SECTION("Targeting 3.0: security scheme deprecated folds into x-oai-deprecated")
+    {
+        auto node30 = V3::Write(doc32, OpenApiVersion::V3_0);
+        NodeWalker w(node30);
+        auto apiKeyNode = w["components"]["securitySchemes"]["ApiKeyAuth"];
+        REQUIRE_FALSE(apiKeyNode["deprecated"].optional<bool>().has_value());
+        REQUIRE(apiKeyNode["x-oai-deprecated"].required<bool>() == true);
+    }
+
+    SECTION("Targeting 3.0: Example.dataValue folds into value")
+    {
+        auto node30 = V3::Write(doc32, OpenApiVersion::V3_0);
+        auto doc30 = V3::Read(NodeWalker(node30), OpenApiVersion::V3_0);
+        const auto& ex = *doc30.components.examples.at("WidgetExample");
+        REQUIRE(ex.value.has_value());
+        REQUIRE_FALSE(ex.dataValue.has_value());
+        REQUIRE_FALSE(ex.serializedValue.has_value());
+    }
 }

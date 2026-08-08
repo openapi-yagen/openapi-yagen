@@ -69,11 +69,18 @@ matter which version was fed in - see [`javascript-api.md`](javascript-api.md) f
 and nullability show up in the `schema` object for the version you chose.
 
 Conversion is scoped to what the engine's own model represents (schema `type`/`nullable`/format/
-constraints/composition, and the standard document/operation/parameter/response/security shape) -
-things it doesn't model (vendor extensions aside, which always pass through untouched) are dropped
-when converting to an older version that has no equivalent (e.g. OAS 3.1's `webhooks` and
-`components.pathItems` have nothing to convert to in 3.0). Converting up a version (3.0 → 3.1) never
-loses anything, since every OAS 3.0 construct has a direct 3.1/3.2 equivalent.
+constraints/composition including the JSON Schema 2020-12 keywords OAS 3.1+ add, the standard
+document/operation/parameter/response/security shape, and OAS 3.2's additions - `additionalOperations`,
+the `query` operation, `$self`, richer tags (`summary`/`parent`/`kind`), streaming media types
+(`itemSchema`), `discriminator.defaultMapping`, `XML.nodeType`, `Example.dataValue`/
+`serializedValue`, and OAuth2's device authorization flow) - things the model doesn't cover at all
+(vendor extensions aside, which always pass through untouched) are dropped when converting to a
+version that has no equivalent (e.g. OAS 3.1's `webhooks` have nothing to convert to in 3.0; OAS
+3.2's `additionalOperations` has nothing to convert to in 3.0 or 3.1). A security scheme's
+`deprecated` flag is the one exception written back out rather than dropped: targeting a version
+older than 3.2 folds it into the community `x-oai-deprecated` vendor extension, the documented
+convention for that case. Converting up a version never loses anything, since every older
+construct has a direct newer-version equivalent.
 
 This conversion also doubles as the spec's structural validation: reading the spec into the
 engine's typed model requires the fields the specification itself requires (`openapi`, `info.title`,

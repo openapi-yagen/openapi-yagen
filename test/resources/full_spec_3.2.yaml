@@ -1,0 +1,89 @@
+# Reference spec exercising the OpenAPI 3.2-specific constructs added on top of Stage 1 (see
+# test/resources/full_spec_3.1.yaml for the Stage 1 construct set, already covered there) - used
+# by test/v3_reader_writer_test.cpp.
+openapi: "3.2.0"
+$self: https://example.com/openapi.json
+info:
+  title: Stage 2 Construct Test API
+  version: 1.0.0
+tags:
+  - name: widgets
+    summary: Widget stuff
+    kind: nav
+  - name: premium-widgets
+    parent: widgets
+    kind: badge
+paths:
+  /widgets:
+    get:
+      operationId: listWidgets
+      responses:
+        "200":
+          description: A list of widgets
+    query:
+      operationId: queryWidgets
+      responses:
+        "200":
+          description: Query results
+    additionalOperations:
+      PURGE:
+        operationId: purgeWidgets
+        responses:
+          "204":
+            description: Purged
+components:
+  schemas:
+    Widget:
+      type: object
+      required: [id, kind]
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          enum: [basic, premium]
+      xml:
+        nodeType: attribute
+      discriminator:
+        propertyName: kind
+        mapping:
+          basic: "#/components/schemas/Widget"
+        defaultMapping: "#/components/schemas/Widget"
+      $comment: internal note for schema authors
+      $anchor: WidgetAnchor
+      $dynamicAnchor: WidgetDynamicAnchor
+      # $defs are read/written losslessly but NOT ref-resolution-aware (a documented limitation -
+      # only "#/components/schemas/<Name>" refs are resolved) - so nothing below references this
+      # via $ref, to keep this fixture usable with OpenApi::resolveAllRefs too.
+      $defs:
+        Inner:
+          type: string
+  examples:
+    WidgetExample:
+      summary: A widget example
+      dataValue:
+        id: 1
+        kind: basic
+      serializedValue: '{"id":1,"kind":"basic"}'
+  requestBodies:
+    WidgetStream:
+      required: true
+      content:
+        application/jsonl:
+          itemSchema:
+            $ref: "#/components/schemas/Widget"
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      name: X-Api-Key
+      in: header
+      deprecated: true
+    OAuth2:
+      type: oauth2
+      oauth2MetadataUrl: https://example.com/.well-known/oauth-authorization-server
+      flows:
+        deviceAuthorization:
+          deviceAuthorizationUrl: https://example.com/oauth/device
+          tokenUrl: https://example.com/oauth/token
+          scopes:
+            read:widgets: Read widgets

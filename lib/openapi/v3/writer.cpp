@@ -11,6 +11,7 @@ namespace {
 LogFacade::Logger logger("OpenApi::V3::Write");
 
 bool isV31Plus(OpenApiVersion v) { return v == OpenApiVersion::V3_1 || v == OpenApiVersion::V3_2; }
+bool isV32(OpenApiVersion v) { return v == OpenApiVersion::V3_2; }
 
 Node mkStr(const Str& s) { return Node{ s }; }
 Node mkBool(bool b) { return Node{ b }; }
@@ -51,7 +52,7 @@ Node writeContentMap(const map<Str, MediaType>& content, OpenApiVersion to)
     return mkMap(std::move(m));
 }
 
-Node writeExample(const Example& e)
+Node writeExample(const Example& e, OpenApiVersion to)
 {
     if (e.ref)
         return mkMap({ { "$ref", mkStr(*e.ref) } });
@@ -64,14 +65,27 @@ Node writeExample(const Example& e)
         m["value"] = *e.value;
     if (e.externalValue)
         m["externalValue"] = mkStr(*e.externalValue);
+    if (isV32(to)) {
+        if (e.dataValue)
+            m["dataValue"] = *e.dataValue;
+        if (e.externalDataValue)
+            m["externalDataValue"] = mkStr(*e.externalDataValue);
+        if (e.serializedValue)
+            m["serializedValue"] = mkStr(*e.serializedValue);
+    } else if (e.dataValue && !e.value) {
+        // OAS <3.2 has no dataValue/serializedValue - dataValue is the structured-data
+        // replacement for value, so fold it down instead of dropping the example's content
+        // outright. serializedValue (the wire-format string) has no pre-3.2 equivalent at all.
+        m["value"] = *e.dataValue;
+    }
     return mkMap(std::move(m));
 }
 
-Node writeExampleMap(const ExampleMap& examples)
+Node writeExampleMap(const ExampleMap& examples, OpenApiVersion to)
 {
     Node::Map m;
     for (const auto& [name, e] : examples)
-        m[name] = writeExample(*e);
+        m[name] = writeExample(*e, to);
     return mkMap(std::move(m));
 }
 
@@ -131,7 +145,7 @@ void writeExclusiveBound(Node::Map& m, const char* boundKey, const char* exclusi
     }
 }
 
-Node writeDiscriminator(const Discriminator& d)
+Node writeDiscriminator(const Discriminator& d, OpenApiVersion to)
 {
     Node::Map m;
     m["propertyName"] = mkStr(d.propertyName);
@@ -141,10 +155,12 @@ Node writeDiscriminator(const Discriminator& d)
             mapping[k] = mkStr(v);
         m["mapping"] = mkMap(std::move(mapping));
     }
+    if (d.defaultMapping && isV32(to))
+        m["defaultMapping"] = mkStr(*d.defaultMapping); // OAS <3.2 has no "defaultMapping"
     return mkMap(std::move(m));
 }
 
-Node writeXML(const XML& x)
+Node writeXML(const XML& x, OpenApiVersion to)
 {
     Node::Map m;
     if (x.name)
@@ -157,6 +173,8 @@ Node writeXML(const XML& x)
         m["attribute"] = mkBool(*x.attribute);
     if (x.wrapped)
         m["wrapped"] = mkBool(*x.wrapped);
+    if (x.nodeType && isV32(to))
+        m["nodeType"] = mkStr(*x.nodeType); // OAS <3.2 has no "nodeType" - dropped otherwise
     return mkMap(std::move(m));
 }
 
@@ -257,9 +275,9 @@ Node writeSchema(const Schema& schema, OpenApiVersion to)
         m["not"] = writeSchema(*schema.notSchema, to);
 
     if (schema.discriminator)
-        m["discriminator"] = writeDiscriminator(*schema.discriminator);
+        m["discriminator"] = writeDiscriminator(*schema.discriminator, to);
     if (schema.xml)
-        m["xml"] = writeXML(*schema.xml);
+        m["xml"] = writeXML(*schema.xml, to);
     if (schema.externalDocs)
         m["externalDocs"] = writeExternalDocs(*schema.externalDocs);
 
@@ -275,6 +293,25 @@ Node writeSchema(const Schema& schema, OpenApiVersion to)
             // OAS 3.0 has no schema-level "examples" array - collapse the first entry into
             // "example" instead of dropping the data entirely.
             m["example"] = schema.examples.front();
+        }
+    }
+
+    // JSON Schema 2020-12 keywords - OAS 3.1+ only, dropped for an OAS 3.0 target (see the
+    // Schema::comment/anchor/... comment in schema.h).
+    if (isV31Plus(to)) {
+        if (schema.comment)
+            m["$comment"] = mkStr(*schema.comment);
+        if (schema.anchor)
+            m["$anchor"] = mkStr(*schema.anchor);
+        if (schema.dynamicRef)
+            m["$dynamicRef"] = mkStr(*schema.dynamicRef);
+        if (schema.dynamicAnchor)
+            m["$dynamicAnchor"] = mkStr(*schema.dynamicAnchor);
+        if (!schema.defs.empty()) {
+            Node::Map defs;
+            for (const auto& [name, s] : schema.defs)
+                defs[name] = writeSchema(*s, to);
+            m["$defs"] = mkMap(std::move(defs));
         }
     }
 
@@ -355,7 +392,7 @@ Node writeServer(const Server& s)
     return mkMap(std::move(m));
 }
 
-Node writeTag(const Tag& t)
+Node writeTag(const Tag& t, OpenApiVersion to)
 {
     Node::Map m;
     m["name"] = mkStr(t.name);
@@ -363,14 +400,24 @@ Node writeTag(const Tag& t)
         m["description"] = mkStr(*t.description);
     if (t.externalDocs)
         m["externalDocs"] = writeExternalDocs(*t.externalDocs);
+    if (isV32(to)) {
+        if (t.summary)
+            m["summary"] = mkStr(*t.summary);
+        if (t.parent)
+            m["parent"] = mkStr(*t.parent);
+        if (t.kind)
+            m["kind"] = mkStr(*t.kind);
+    }
     return mkMap(std::move(m));
 }
 
-Node writeOAuthFlow(const OAuthFlow& f)
+Node writeOAuthFlow(const OAuthFlow& f, OpenApiVersion to)
 {
     Node::Map m;
     if (f.authorizationUrl)
         m["authorizationUrl"] = mkStr(*f.authorizationUrl);
+    if (f.deviceAuthorizationUrl && isV32(to))
+        m["deviceAuthorizationUrl"] = mkStr(*f.deviceAuthorizationUrl); // OAS <3.2 has no device flow at all
     if (f.tokenUrl)
         m["tokenUrl"] = mkStr(*f.tokenUrl);
     if (f.refreshUrl)
@@ -382,21 +429,25 @@ Node writeOAuthFlow(const OAuthFlow& f)
     return mkMap(std::move(m));
 }
 
-Node writeOAuthFlows(const OAuthFlows& flows)
+Node writeOAuthFlows(const OAuthFlows& flows, OpenApiVersion to)
 {
     Node::Map m;
     if (flows.implicit_)
-        m["implicit"] = writeOAuthFlow(*flows.implicit_);
+        m["implicit"] = writeOAuthFlow(*flows.implicit_, to);
     if (flows.password)
-        m["password"] = writeOAuthFlow(*flows.password);
+        m["password"] = writeOAuthFlow(*flows.password, to);
     if (flows.clientCredentials)
-        m["clientCredentials"] = writeOAuthFlow(*flows.clientCredentials);
+        m["clientCredentials"] = writeOAuthFlow(*flows.clientCredentials, to);
     if (flows.authorizationCode)
-        m["authorizationCode"] = writeOAuthFlow(*flows.authorizationCode);
+        m["authorizationCode"] = writeOAuthFlow(*flows.authorizationCode, to);
+    if (flows.deviceAuthorization && isV32(to))
+        // OAS <3.2 has no deviceAuthorization flow at all - dropped, not folded into anything
+        // (unlike e.g. Example.dataValue, there's no pre-3.2 flow this one can stand in for).
+        m["deviceAuthorization"] = writeOAuthFlow(*flows.deviceAuthorization, to);
     return mkMap(std::move(m));
 }
 
-Node writeSecurityScheme(const SecurityScheme& s)
+Node writeSecurityScheme(const SecurityScheme& s, OpenApiVersion to)
 {
     if (s.ref)
         return mkMap({ { "$ref", mkStr(*s.ref) } });
@@ -413,9 +464,19 @@ Node writeSecurityScheme(const SecurityScheme& s)
     if (s.bearerFormat)
         m["bearerFormat"] = mkStr(*s.bearerFormat);
     if (s.flows)
-        m["flows"] = writeOAuthFlows(*s.flows);
+        m["flows"] = writeOAuthFlows(*s.flows, to);
     if (s.openIdConnectUrl)
         m["openIdConnectUrl"] = mkStr(*s.openIdConnectUrl);
+    if (s.oauth2MetadataUrl && isV32(to))
+        m["oauth2MetadataUrl"] = mkStr(*s.oauth2MetadataUrl); // OAS <3.2 has no "oauth2MetadataUrl"
+    if (s.deprecated) {
+        if (isV32(to))
+            m["deprecated"] = mkBool(*s.deprecated);
+        else if (*s.deprecated)
+            // Official pre-3.2 back-compat convention (per the OAI registry) for a security
+            // scheme's "deprecated" flag.
+            m["x-oai-deprecated"] = mkBool(true);
+    }
     return mkMap(std::move(m));
 }
 
@@ -462,10 +523,12 @@ Node writeMediaType(const MediaType& mt, OpenApiVersion to)
     Node::Map m;
     if (mt.schema)
         m["schema"] = writeSchema(*mt.schema, to);
+    if (mt.itemSchema && isV32(to))
+        m["itemSchema"] = writeSchema(*mt.itemSchema, to); // OAS <3.2 has no "itemSchema"
     if (mt.example)
         m["example"] = *mt.example;
     if (!mt.examples.empty())
-        m["examples"] = writeExampleMap(mt.examples);
+        m["examples"] = writeExampleMap(mt.examples, to);
     if (!mt.encoding.empty()) {
         Node::Map enc;
         for (const auto& [name, e] : mt.encoding)
@@ -501,7 +564,7 @@ Node writeHeader(const Header& h, OpenApiVersion to)
     if (h.example)
         m["example"] = *h.example;
     if (!h.examples.empty())
-        m["examples"] = writeExampleMap(h.examples);
+        m["examples"] = writeExampleMap(h.examples, to);
     return mkMap(std::move(m));
 }
 
@@ -533,7 +596,7 @@ Node writeParameter(const Parameter& p, OpenApiVersion to)
     if (p.example)
         m["example"] = *p.example;
     if (!p.examples.empty())
-        m["examples"] = writeExampleMap(p.examples);
+        m["examples"] = writeExampleMap(p.examples, to);
     return mkMap(std::move(m));
 }
 
@@ -670,6 +733,16 @@ Node writePathItem(const PathItem& item, OpenApiVersion to)
         m["parameters"] = writeParameterList(item.parameters, to);
     for (const auto& [method, op] : item.operations)
         m[method] = writeOperation(op, to);
+    if (!item.additionalOperations.empty()) {
+        if (isV32(to)) {
+            Node::Map additional;
+            for (const auto& [method, op] : item.additionalOperations)
+                additional[method] = writeOperation(op, to);
+            m["additionalOperations"] = mkMap(std::move(additional));
+        } else
+            logger.info("<f7a8b9c0> Dropping {} additionalOperations entry(ies) for OAS <3.2 output - no equivalent",
+                        item.additionalOperations.size());
+    }
     return mkMap(std::move(m));
 }
 
@@ -703,7 +776,7 @@ Node writeComponents(const Components& c, OpenApiVersion to)
         m["parameters"] = mkMap(std::move(parameters));
     }
     if (!c.examples.empty())
-        m["examples"] = writeExampleMap(c.examples);
+        m["examples"] = writeExampleMap(c.examples, to);
     if (!c.requestBodies.empty()) {
         Node::Map requestBodies;
         for (const auto& [name, rb] : c.requestBodies)
@@ -719,7 +792,7 @@ Node writeComponents(const Components& c, OpenApiVersion to)
     if (!c.securitySchemes.empty()) {
         Node::Map schemes;
         for (const auto& [name, s] : c.securitySchemes)
-            schemes[name] = writeSecurityScheme(*s);
+            schemes[name] = writeSecurityScheme(*s, to);
         m["securitySchemes"] = mkMap(std::move(schemes));
     }
     if (!c.links.empty()) {
@@ -750,6 +823,8 @@ Node Write(const Document& doc, OpenApiVersion to)
 {
     Node::Map m;
     m["openapi"] = mkStr(string(toVersionString(to)));
+    if (doc.self && isV32(to))
+        m["$self"] = mkStr(*doc.self); // OAS <3.2 has no "$self"
     m["info"] = writeInfo(doc.info, to);
     if (!doc.servers.empty())
         m["servers"] = writeServers(doc.servers);
@@ -768,7 +843,7 @@ Node Write(const Document& doc, OpenApiVersion to)
     if (!doc.tags.empty()) {
         Node::Vec tags;
         for (const auto& t : doc.tags)
-            tags.push_back(writeTag(t));
+            tags.push_back(writeTag(t, to));
         m["tags"] = mkVec(std::move(tags));
     }
     if (doc.externalDocs)

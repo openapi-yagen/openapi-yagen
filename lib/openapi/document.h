@@ -23,6 +23,13 @@ struct Example {
     std::optional<Node> value;
     OptStr externalValue; // mutually exclusive with value, per spec
 
+    // OAS 3.2+: a structured alternative to value/externalValue (dataValue/externalDataValue),
+    // plus the value's wire/serialized form (serializedValue) - see writer.cpp for how these fold
+    // back into value/externalValue when targeting an older version.
+    std::optional<Node> dataValue;
+    OptStr externalDataValue;
+    OptStr serializedValue;
+
     Node raw;
 };
 using ExamplePtr = std::shared_ptr<Example>;
@@ -45,6 +52,7 @@ struct Encoding {
 
 struct MediaType {
     SchemaPtr schema;
+    SchemaPtr itemSchema; // OAS 3.2+: per-item schema for a streaming media type (e.g. application/jsonl)
     std::optional<Node> example;
     ExampleMap examples;
     std::map<Str, Encoding> encoding;
@@ -172,13 +180,18 @@ struct PathItem {
     OptStr description;
     std::vector<Server> servers;
     std::vector<ParameterPtr> parameters; // common to every operation on this path
-    std::map<Str, Operation> operations; // keyed by lowercase HTTP method
+    std::map<Str, Operation> operations; // keyed by lowercase HTTP method (see httpMethods)
+    // OAS 3.2+: operations under a non-standard HTTP method, keyed by that method's name verbatim
+    // (case as written - unlike `operations`, which is always lowercased). Dropped when writing
+    // an OAS 3.0/3.1 target (see writer.cpp) - neither has anywhere to put an arbitrary method.
+    std::map<Str, Operation> additionalOperations;
 };
 using Paths = std::map<Str, PathItem>;
 
-// Every HTTP method OpenAPI allows on a Path Item Object. Whether a given target framework
-// supports all of them (e.g. some HTTP libraries have no `trace` builder) is a generator concern,
-// not a parsing one - PathItem::operations only contains methods the spec actually declared.
+// Every HTTP method OpenAPI allows on a Path Item Object as a fixed, named field - "query" (OAS
+// 3.2+) is included unconditionally since it's purely additive (harmless if present in older-
+// version output; see the OpenAPI 3.0/3.1/3.2 diff notes in the design doc). Arbitrary/custom
+// methods go through `PathItem::additionalOperations` instead (OAS 3.2+ only).
 extern const std::vector<Str> httpMethods;
 
 struct Components {
@@ -196,6 +209,7 @@ struct Components {
 
 struct Document {
     OpenApiVersion version = OpenApiVersion::V3_0;
+    OptStr self; // OAS 3.2+: $self, the document's own self-assigned base URI
     Info info;
     std::vector<Server> servers;
     Paths paths;

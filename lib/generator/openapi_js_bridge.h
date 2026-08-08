@@ -59,9 +59,10 @@ private:
                                  const std::vector<OpenApi::ParameterPtr>& params);
     void overwriteContentSchemas(JSValue contentObj, const std::map<OpenApi::Str, OpenApi::MediaType>& content);
     // Patches `pathItemObj` (an existing, raw-based JS object for a Path Item Object) in place:
-    // resolves its `parameters` array and each operation's `parameters`/`requestBody`/
-    // `responses`/`callbacks`.
+    // resolves its `parameters` array and each operation's (including each entry of OAS 3.2+'s
+    // `additionalOperations`) `parameters`/`requestBody`/`responses`/`callbacks`.
     void overlayPathItem(JSValue pathItemObj, const OpenApi::PathItem& item);
+    void overlayOperation(JSValue opObj, const OpenApi::Operation& op);
 
     JSContext* ctx;
     std::map<const void*, JS::JSValueWrapper> schemaMemo;

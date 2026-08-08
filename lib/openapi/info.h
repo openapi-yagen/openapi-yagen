@@ -50,6 +50,10 @@ struct Tag {
     Str name;
     OptStr description;
     std::optional<ExternalDocs> externalDocs;
+    // OAS 3.2+.
+    OptStr summary;
+    OptStr parent; // name of the tag this one nests under
+    OptStr kind; // free-form category (conventional values: "nav", "badge", "audience", ...)
 };
 
 }

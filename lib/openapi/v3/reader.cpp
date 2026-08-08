@@ -45,6 +45,9 @@ ExampleMap parseExampleMap(const NodeWalker& w)
                e->description = cw["description"].optional<Str>();
                e->value = cw["value"].optional<Node>();
                e->externalValue = cw["externalValue"].optional<Str>();
+               e->dataValue = cw["dataValue"].optional<Node>(); // OAS 3.2+
+               e->externalDataValue = cw["externalDataValue"].optional<Str>();
+               e->serializedValue = cw["serializedValue"].optional<Str>();
                return e;
            })
         .value_or(ExampleMap());
@@ -97,6 +100,7 @@ Discriminator parseDiscriminator(const NodeWalker& w)
     d.propertyName = w["propertyName"].required<Str>();
     d.mapping
         = w["mapping"].optionalMap([](const NodeWalker& cw) { return cw.required<Str>(); }).value_or(map<Str, Str>());
+    d.defaultMapping = w["defaultMapping"].optional<Str>(); // OAS 3.2+
     return d;
 }
 
@@ -108,6 +112,7 @@ XML parseXML(const NodeWalker& w)
     x.prefix = w["prefix"].optional<Str>();
     x.attribute = w["attribute"].optional<bool>();
     x.wrapped = w["wrapped"].optional<bool>();
+    x.nodeType = w["nodeType"].optional<Str>(); // OAS 3.2+
     return x;
 }
 
@@ -188,6 +193,14 @@ SchemaPtr parseSchema(const NodeWalker& w)
     schema->example = w["example"].optional<Node>();
     schema->examples = w["examples"].optionalList([](const NodeWalker& cw) { return cw.required<Node>(); }).value_or(vector<Node>());
 
+    // JSON Schema 2020-12 keywords (OAS 3.1+) - see the Schema::comment/anchor/... comment in
+    // schema.h for why $dynamicRef/$dynamicAnchor are kept opaque rather than resolved.
+    schema->comment = w["$comment"].optional<Str>();
+    schema->anchor = w["$anchor"].optional<Str>();
+    schema->dynamicRef = w["$dynamicRef"].optional<Str>();
+    schema->dynamicAnchor = w["$dynamicAnchor"].optional<Str>();
+    schema->defs = w["$defs"].optionalMap(parseSchema).value_or(SchemaMap());
+
     return schema;
 }
 
@@ -262,6 +275,9 @@ Tag parseTag(const NodeWalker& w)
     auto edw = w["externalDocs"];
     if (!edw.isEmpty())
         t.externalDocs = parseExternalDocs(edw);
+    t.summary = w["summary"].optional<Str>(); // OAS 3.2+
+    t.parent = w["parent"].optional<Str>();
+    t.kind = w["kind"].optional<Str>();
     return t;
 }
 
@@ -271,6 +287,7 @@ OAuthFlow parseOAuthFlow(const NodeWalker& w)
 {
     OAuthFlow f;
     f.authorizationUrl = w["authorizationUrl"].optional<Str>();
+    f.deviceAuthorizationUrl = w["deviceAuthorizationUrl"].optional<Str>(); // OAS 3.2+
     f.tokenUrl = w["tokenUrl"].optional<Str>();
     f.refreshUrl = w["refreshUrl"].optional<Str>();
     f.scopes = w["scopes"].optionalMap([](const NodeWalker& cw) { return cw.required<Str>(); }).value_or(map<Str, Str>());
@@ -292,6 +309,9 @@ OAuthFlows parseOAuthFlows(const NodeWalker& w)
     fw = w["authorizationCode"];
     if (!fw.isEmpty())
         flows.authorizationCode = parseOAuthFlow(fw);
+    fw = w["deviceAuthorization"]; // OAS 3.2+
+    if (!fw.isEmpty())
+        flows.deviceAuthorization = parseOAuthFlow(fw);
     return flows;
 }
 
@@ -312,6 +332,8 @@ SecuritySchemePtr parseSecurityScheme(const NodeWalker& w)
     if (!fw.isEmpty())
         s->flows = parseOAuthFlows(fw);
     s->openIdConnectUrl = w["openIdConnectUrl"].optional<Str>();
+    s->oauth2MetadataUrl = w["oauth2MetadataUrl"].optional<Str>(); // OAS 3.2+
+    s->deprecated = w["deprecated"].optional<bool>();
     return s;
 }
 
@@ -345,6 +367,9 @@ MediaType parseMediaType(const NodeWalker& w)
     auto sw = w["schema"];
     if (!sw.isEmpty())
         mt.schema = parseSchema(sw);
+    auto isw = w["itemSchema"]; // OAS 3.2+
+    if (!isw.isEmpty())
+        mt.itemSchema = parseSchema(isw);
     mt.example = w["example"].optional<Node>();
     mt.examples = parseExampleMap(w["examples"]);
     mt.encoding = w["encoding"].optionalMap(parseEncoding).value_or(map<Str, Encoding>());
@@ -512,6 +537,7 @@ PathItem parsePathItem(const NodeWalker& w)
         if (!opWalker.isEmpty())
             item.operations[method] = parseOperation(opWalker);
     }
+    item.additionalOperations = w["additionalOperations"].optionalMap(parseOperation).value_or(map<Str, Operation>());
     return item;
 }
 
@@ -542,6 +568,7 @@ Document Read(const NodeWalker& w, OpenApiVersion version)
 {
     Document doc;
     doc.version = version;
+    doc.self = w["$self"].optional<Str>(); // OAS 3.2+
     doc.info = parseInfo(w["info"]);
     doc.servers = parseServers(w["servers"]);
     doc.paths = parsePaths(w["paths"]);

@@ -23,15 +23,21 @@ using SchemaMap = std::map<Str, SchemaPtr>;
 struct Discriminator {
     Str propertyName;
     std::map<Str, Str> mapping;
+    // OAS 3.2+: fallback schema (a mapping-style name/ref string) to use when the discriminator
+    // property is absent or its value matches nothing in `mapping`.
+    OptStr defaultMapping;
 };
 
-// XML Object - metadata for XML representation of a schema/property.
+// XML Object - metadata for XML representation of a schema/property. `attribute`/`wrapped` are
+// the pre-3.2 fields; `nodeType` (OAS 3.2+: "element" | "attribute" | "text" | "cdata" | "none")
+// supersedes them but both pre-3.2 fields remain valid/kept for compatibility, per spec.
 struct XML {
     OptStr name;
     OptStr namespace_; // "namespace" is a C++ keyword
     OptStr prefix;
     std::optional<bool> attribute;
     std::optional<bool> wrapped;
+    OptStr nodeType; // OAS 3.2+
 };
 
 // External Documentation Object - defined here (rather than in document.h, which includes this
@@ -118,6 +124,17 @@ struct Schema {
 
     std::optional<Node> example;
     std::vector<Node> examples;
+
+    // JSON Schema 2020-12 keywords (OAS 3.1+ only - see lib/openapi/v3/writer.cpp, dropped when
+    // writing an OAS 3.0 target). `dynamicRef`/`dynamicAnchor` are kept as opaque strings - this
+    // engine never resolves them (that requires tracking a dynamic validation scope, meaningful
+    // for a JSON Schema *validator*, not for a code generator deciding what type to emit); it just
+    // preserves them across a same-or-higher-version conversion.
+    OptStr comment; // $comment
+    OptStr anchor; // $anchor
+    OptStr dynamicRef; // $dynamicRef, opaque
+    OptStr dynamicAnchor; // $dynamicAnchor, opaque
+    SchemaMap defs; // $defs
 
     // Unmodified source node for this schema, so vendor extensions (`x-*`) and any spec field
     // not modeled above are still reachable without falling all the way back to hand-walking the
