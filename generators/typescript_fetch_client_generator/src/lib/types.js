@@ -94,13 +94,13 @@ function registerEnum(registry, name, schema) {
 // allOf branches are frequently inline (not all named $refs, so `extends` can't cleanly apply to
 // every branch) and because TS's `&` silently collapses incompatible primitive types to `never`
 // instead of erroring, which would turn a spec authoring mistake into a confusing generated type.
+// Uses the engine's flattenAllOf() (see docs/javascript-api.md), which recursively merges nested
+// allOf branches - handles a branch that itself uses allOf, which a one-level-only merge would
+// silently drop properties from.
 function registerMergedAllOf(registry, name, schema, variantOpts) {
   if (registry.models.has(name)) return;
-  const merged = { type: "object", properties: {}, required: [], description: schema.description || null };
-  for (const sub of schema.allOf || []) {
-    Object.assign(merged.properties, sub.properties || {});
-    merged.required.push(...(sub.required || []));
-  }
+  const flat = flattenAllOf(schema);
+  const merged = { type: "object", properties: flat.properties, required: flat.required, description: schema.description || null };
   registerInterface(registry, name, merged, variantOpts);
 }
 
@@ -256,7 +256,9 @@ export function buildModelRegistry(root) {
   const registry = newRegistry();
   const schemas = (root.components && root.components.schemas) || {};
 
-  // Pass 1: find discriminated unions (a discriminator.propertyName plus $ref-only variants),
+  // Pass 1: find discriminated unions via the engine's resolveDiscriminator() (see
+  // docs/javascript-api.md - it already resolves each variant's component name and discriminator
+  // literal, including the mapping-less "falls back to the component name itself" default),
   // register them immediately as a plain union alias (unlike a nominally-typed generator, the
   // alias's right-hand side is already fully known - no forward-declared marker needed), and
   // record which variant schemas need their discriminator property forced to a literal type
@@ -268,20 +270,11 @@ export function buildModelRegistry(root) {
   const discriminatedUnionNames = new Set();
   const variantInfo = new Map();
   for (const [rawName, schema] of Object.entries(schemas)) {
-    const variants = schema.oneOf || schema.anyOf;
-    if (!variants) continue;
-    if (!schema.discriminator || !schema.discriminator.propertyName) continue;
-    if (!variants.every((v) => nameOf(v))) continue;
+    const disc = resolveDiscriminator(schema);
+    if (!disc) continue;
 
     const name = typeName(rawName);
-    const discProp = schema.discriminator.propertyName;
-    // discriminator.mapping's values are still literal ref strings (discriminator isn't itself a
-    // schema, so the engine's $ref resolution doesn't touch it) - match by the ref's trailing
-    // name segment against nameOf(variant) rather than resolving the ref ourselves.
-    const mapping = schema.discriminator.mapping || {};
-    const nameToLiteral = new Map(Object.entries(mapping).map(([value, ref]) => [ref.split("/").pop(), value]));
-
-    const memberNames = variants.map((v) => typeName(nameOf(v)));
+    const memberNames = disc.variants.map((v) => typeName(v.name));
     addModel(registry, name, {
       name,
       kind: "alias",
@@ -291,11 +284,9 @@ export function buildModelRegistry(root) {
     });
     discriminatedUnionNames.add(name);
 
-    for (const variant of variants) {
-      const variantRawName = nameOf(variant);
-      const variantName = typeName(variantRawName);
-      const literal = nameToLiteral.get(variantRawName) || variantRawName;
-      variantInfo.set(variantName, { property: discProp, literal });
+    for (const variant of disc.variants) {
+      const variantName = typeName(variant.name);
+      variantInfo.set(variantName, { property: disc.property, literal: variant.literal });
     }
   }
 

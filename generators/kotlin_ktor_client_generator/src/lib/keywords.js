@@ -15,12 +15,15 @@ export function escapeKeyword(name) {
   return KOTLIN_KEYWORDS.has(name) ? "`" + name + "`" : name;
 }
 
-// Escapes the content of a Kotlin string template literal (no surrounding quotes).
+// Escapes the content of a Kotlin string template literal (no surrounding quotes). Builds on the
+// engine's toStringLiteral() (see docs/javascript-api.md) for the JSON-style escaping every
+// C-like language shares (\\, \", \n, ...), stripping its surrounding quotes since this result is
+// meant to be embedded inside an existing Kotlin string template, then adds the one extra rule
+// toStringLiteral doesn't know about: Kotlin's `$` needs escaping too, since it introduces string
+// template interpolation.
 export function escapeKotlinStringContent(s) {
-  return String(s)
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\$/g, "\\$");
+  const jsonEscaped = toStringLiteral(String(s));
+  return jsonEscaped.slice(1, -1).replace(/\$/g, "\\$");
 }
 
 // Escapes and quotes a value for use as a Kotlin string literal, e.g. `foo"bar` -> `"foo\"bar"`.

@@ -102,13 +102,13 @@ function registerEnum(registry, name, schema) {
   addModel(registry, name, { name, kind: "enum", baseType, entries, description: schema.description || null });
 }
 
+// Uses the engine's flattenAllOf() (see docs/javascript-api.md), which recursively merges nested
+// allOf branches - a real improvement over this generator's previous one-level-only merge, which
+// silently dropped properties from a branch that itself used allOf.
 function registerMerged(registry, name, schema, variantOpts) {
   if (registry.models.has(name)) return;
-  const merged = { type: "object", properties: {}, required: [], description: schema.description || null };
-  for (const sub of schema.allOf) {
-    Object.assign(merged.properties, sub.properties || {});
-    merged.required.push(...(sub.required || []));
-  }
+  const flat = flattenAllOf(schema);
+  const merged = { type: "object", properties: flat.properties, required: flat.required, description: schema.description || null };
   registerObject(registry, name, merged, variantOpts);
 }
 
@@ -332,36 +332,28 @@ export function buildModelRegistry(root) {
   const registry = newRegistry();
   const schemas = (root.components && root.components.schemas) || {};
 
-  // Pass 1: find discriminated sealed parents (a discriminator.propertyName plus $ref-only
-  // variants), register their markers, and record which variants need to implement them (must
-  // happen before pass 2 registers the variants). Anything else shaped like oneOf/anyOf - no
-  // discriminator, or variants that aren't a reference to a named schema - is left for pass 2 to
-  // pick up as a "union" model instead (see registerUnion).
+  // Pass 1: find discriminated sealed parents via the engine's resolveDiscriminator() (see
+  // docs/javascript-api.md - it already resolves each variant's component name and discriminator
+  // literal, including the mapping-less "falls back to the component name itself" default),
+  // register their markers, and record which variants need to implement them (must happen before
+  // pass 2 registers the variants). Anything else shaped like oneOf/anyOf - no discriminator, or
+  // variants that aren't a reference to a named schema - is left for pass 2 to pick up as a
+  // "union" model instead (see registerUnion).
   const variantInfo = new Map();
   for (const [rawName, schema] of Object.entries(schemas)) {
-    const variants = schema.oneOf || schema.anyOf;
-    if (!variants) continue;
-    if (!schema.discriminator || !schema.discriminator.propertyName) continue;
-    if (!variants.every((v) => nameOf(v))) continue;
+    const disc = resolveDiscriminator(schema);
+    if (!disc) continue;
 
     const name = className(rawName);
-    const discProp = schema.discriminator.propertyName;
-    // discriminator.mapping's values are still literal ref strings (discriminator isn't itself a
-    // schema, so the engine's $ref resolution doesn't touch it) - match by the ref's trailing
-    // name segment against nameOf(variant) rather than resolving the ref ourselves.
-    const mapping = schema.discriminator.mapping || {};
-    const nameToSerialName = new Map(Object.entries(mapping).map(([value, ref]) => [ref.split("/").pop(), value]));
     addModel(registry, name, {
       name,
       kind: "sealed",
-      discriminatorProperty: discProp,
+      discriminatorProperty: disc.property,
       description: schema.description || null,
     });
-    for (const variant of variants) {
-      const variantRawName = nameOf(variant);
-      const variantName = className(variantRawName);
-      const serialName = nameToSerialName.get(variantRawName) || variantRawName;
-      variantInfo.set(variantName, { implements: name, serialName, skipProperty: discProp });
+    for (const variant of disc.variants) {
+      const variantName = className(variant.name);
+      variantInfo.set(variantName, { implements: name, serialName: variant.literal, skipProperty: disc.property });
     }
   }
 

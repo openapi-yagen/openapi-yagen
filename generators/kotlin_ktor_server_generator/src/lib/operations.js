@@ -4,8 +4,9 @@
 // of re-deriving logic.
 //
 // Everything here runs before any renderTemplate call (see main.js), while schema/parameter/
-// response objects still have real JS identity - kindOf/constraintsOf/nameOf only work up to that
-// point (see README's "renderTemplate" docs on the Node round-trip that erases it afterwards).
+// response objects still have real JS identity - kindOf/constraintsOf/nameOf/firstSuccessResponse
+// only work up to that point (see README's "renderTemplate" docs on the Node round-trip that
+// erases it afterwards).
 
 import { className, fieldName, operationName } from "./naming.js";
 import { ktType, buildValidationCalls } from "./types.js";
@@ -68,40 +69,36 @@ function buildSignature(allParams, body) {
   return { signatureParams: parts.join(", "), handlerArgs: args.join(", ") };
 }
 
+// Uses the engine's splitPathTemplate() (see docs/javascript-api.md) instead of hand-rolling the
+// same "/"-split + `{param}` regex every path-based generator otherwise needs.
 function buildPathExpr(pathStr) {
   return (
     "/" +
-    pathStr
-      .split("/")
-      .filter((s) => s.length > 0)
-      .map((seg) => {
-        const m = /^\{(.+)\}$/.exec(seg);
-        if (m) return "${" + fieldName(m[1]).kotlinName + "}";
-        return escapeKotlinStringContent(seg);
-      })
+    splitPathTemplate(pathStr)
+      .map((seg) => ("param" in seg ? "${" + fieldName(seg.param).kotlinName + "}" : escapeKotlinStringContent(seg.literal)))
       .join("/")
   );
 }
 
+// `required` correctly defaults to OpenAPI 3.0's actual default (`false` when absent) - the
+// engine's requestBody.required has no "true unless explicitly false" special case.
 function buildRequestBody(registry, hintBase, requestBody) {
   if (!requestBody) return null;
   const jsonContent = (requestBody.content || {})["application/json"];
   if (!jsonContent) return null;
   const t = ktType(registry, jsonContent.schema || {}, hintBase + "Body");
   const model = registry.models.get(t.type);
-  return { type: t.type, required: requestBody.required !== false, hasValidate: !!model && model.kind === "object" };
+  return { type: t.type, required: requestBody.required === true, hasValidate: !!model && model.kind === "object" };
 }
 
+// Uses the engine's firstSuccessResponse() (see docs/javascript-api.md) instead of hand-rolling
+// the same "first declared 2xx, else default" pick every response-handling generator otherwise
+// needs.
 function buildResponse(registry, hintBase, responses) {
-  if (!responses) return { type: "Unit", statusCode: 200 };
-  const codes = Object.keys(responses)
-    .filter((c) => /^2\d\d$/.test(c))
-    .sort();
-  const codeKey = codes[0] || (responses["default"] ? "default" : null);
-  if (!codeKey) return { type: "Unit", statusCode: 200 };
-  const statusCode = /^\d+$/.test(codeKey) ? parseInt(codeKey, 10) : 200;
-  const resp = responses[codeKey];
-  const content = (resp.content || {})["application/json"];
+  const picked = firstSuccessResponse(responses || {});
+  if (!picked) return { type: "Unit", statusCode: 200 };
+  const statusCode = /^\d+$/.test(picked.statusCode) ? parseInt(picked.statusCode, 10) : 200;
+  const content = (picked.response.content || {})["application/json"];
   if (!content) return { type: "Unit", statusCode };
   const t = ktType(registry, content.schema || {}, hintBase + "Response");
   return { type: t.type, statusCode };

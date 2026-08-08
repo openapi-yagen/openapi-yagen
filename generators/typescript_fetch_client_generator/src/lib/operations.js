@@ -4,7 +4,8 @@
 // instead of re-deriving logic - same discipline as the Kotlin client generator's lib/operations.js.
 //
 // Everything here runs before any renderTemplate call (see main.js), while schema/parameter/
-// response objects still have real JS identity - kindOf/nameOf only work up to that point.
+// response objects still have real JS identity - kindOf/nameOf/firstSuccessResponse only work up
+// to that point.
 //
 // Deliberately much thinner than a server-side or nominally-typed-language generator's equivalent:
 // - No PARAM_CONVERTERS/extractFn table - that machinery (in the Kotlin *client* generator, mostly
@@ -102,21 +103,22 @@ function buildQueryParam(registry, hintBase, p) {
 // Turns "/pets/{petId}/ratings" into a TS template-literal path expression referencing the
 // already-computed path parameter TS names, e.g. "/pets/${encodeURIComponent(String(petId))}/ratings".
 // encodeURIComponent guards against a path param value containing "/" or other reserved characters.
+// Uses the engine's splitPathTemplate() (see docs/javascript-api.md) instead of hand-rolling the
+// same "/"-split + `{param}` regex every path-based generator otherwise needs; literal segments
+// still need their own escaping here (backtick/`$`/backslash, for safe embedding inside a TS
+// template literal) since that's specific to this target, not something the engine can know.
 function buildPathExpr(pathStr, pathParams) {
   const byWireName = new Map(pathParams.map((p) => [p.wireName, p]));
   return (
     "/" +
-    pathStr
-      .split("/")
-      .filter((s) => s.length > 0)
+    splitPathTemplate(pathStr)
       .map((seg) => {
-        const m = /^\{(.+)\}$/.exec(seg);
-        if (m) {
-          const p = byWireName.get(m[1]);
-          if (!p) throw Error(`<a8b9c0d1> Path parameter "{${m[1]}}" in "${pathStr}" has no matching parameter definition`);
+        if ("param" in seg) {
+          const p = byWireName.get(seg.param);
+          if (!p) throw Error(`<a8b9c0d1> Path parameter "{${seg.param}}" in "${pathStr}" has no matching parameter definition`);
           return "${encodeURIComponent(String(" + p.tsName + "))}";
         }
-        return seg.replace(/[`$\\]/g, "\\$&");
+        return seg.literal.replace(/[`$\\]/g, "\\$&");
       })
       .join("/")
   );
@@ -124,8 +126,7 @@ function buildPathExpr(pathStr, pathParams) {
 
 // Only `application/json` bodies are handled; anything else is silently ignored (see README's
 // Known Limitations). `required` correctly defaults to OpenAPI 3.0's actual default (`false` when
-// absent) - unlike the Kotlin reference generator's `requestBody.required !== false`, which
-// defaults an absent `required` to `true`, the opposite of spec.
+// absent).
 function buildRequestBody(registry, hintBase, requestBody) {
   if (!requestBody) return null;
   const jsonContent = (requestBody.content || {})["application/json"];
@@ -134,17 +135,16 @@ function buildRequestBody(registry, hintBase, requestBody) {
   return { tsType: t.type, required: requestBody.required === true };
 }
 
+// Uses the engine's firstSuccessResponse() (see docs/javascript-api.md) instead of hand-rolling
+// the same "first declared 2xx, else default" pick every response-handling generator otherwise
+// needs.
 function buildResponse(registry, hintBase, responses) {
-  if (!responses) return { tsType: "void", statusCode: null, descriptor: null };
-  const codes = Object.keys(responses)
-    .filter((c) => /^2\d\d$/.test(c))
-    .sort();
-  const codeKey = codes[0] || (responses["default"] ? "default" : null);
-  if (!codeKey) return { tsType: "void", statusCode: null, descriptor: null };
-  const content = (responses[codeKey].content || {})["application/json"];
-  if (!content) return { tsType: "void", statusCode: codeKey, descriptor: null };
+  const picked = firstSuccessResponse(responses || {});
+  if (!picked) return { tsType: "void", statusCode: null, descriptor: null };
+  const content = (picked.response.content || {})["application/json"];
+  if (!content) return { tsType: "void", statusCode: picked.statusCode, descriptor: null };
   const t = tsType(registry, content.schema || {}, hintBase + "Response");
-  return { tsType: t.type, statusCode: codeKey, descriptor: t.descriptor };
+  return { tsType: t.type, statusCode: picked.statusCode, descriptor: t.descriptor };
 }
 
 // When `validateResponses` is enabled, builds the expression passed as request()'s `validate`
