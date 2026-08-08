@@ -1,0 +1,7 @@
+{% if model.description %}/** {{ model.description }} */
+{% endif -%}
+export enum {{ model.name }} {
+{% for e in model.entries -%}
+  {{ e.memberName }} = {{ e.valueLiteral }},
+{% endfor -%}
+}

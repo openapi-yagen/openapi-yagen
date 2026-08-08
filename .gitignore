@@ -5,3 +5,7 @@
 /generators/out
 /generators/*/test/.gradle
 /generators/*/test/build
+/generators/*/test/node_modules
+/generators/*/test/dist
+/generators/*/test/generated
+/generators/*/test/generated-default

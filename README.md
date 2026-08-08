@@ -95,6 +95,9 @@ Generators are located in the `generators` folder:
   iOS/Native, JS, Wasm).
 - [`kotlin_ktor_server_generator`](generators/kotlin_ktor_server_generator/README.md) - Ktor server
   routing + a handler interface you implement, with request validation.
+- [`typescript_fetch_client_generator`](generators/typescript_fetch_client_generator/README.md) -
+  browser-first TypeScript API client using native `fetch`, zero third-party runtime dependencies,
+  works unchanged from any web framework.
 
 ## Development
 

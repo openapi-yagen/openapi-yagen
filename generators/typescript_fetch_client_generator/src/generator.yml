@@ -1,0 +1,34 @@
+# Generator name
+name: typescript_fetch_client
+
+# Generator description
+description: >-
+  Browser-first TypeScript API client generator using native fetch, with zero third-party runtime
+  dependencies. Generates one .ts interface/enum/type alias per OpenAPI schema plus one client
+  class per tag; the generated code owns no HTTP engine, framework state, or hooks, so it works
+  unchanged from React, Vue, Angular, Svelte, vanilla TS/JS, or Node with a fetch polyfill.
+
+# Main JavaScript file (entrypoint).
+mainScriptPath: main.js
+
+# Json schema for input data validation (official OpenAPI 3.0.x meta-schema).
+jsonSchemaPath: openapi_v3_schema.json
+
+# Variables that can be used to customize script execution
+variables:
+  - name: strict
+    description: >-
+      When "true" (default), a schema or operation the generator can't handle aborts generation
+      with an error. Set to "false" to instead skip it with a printed warning and generate
+      everything else - useful for large real-world specs where a handful of unsupported
+      constructs shouldn't block the rest of the generated code.
+    defaultValue: "true"
+  - name: importExtension
+    description: >-
+      Suffix appended to every relative import between generated files (e.g. `from "./Pet"` vs
+      `from "./Pet.js"`). Defaults to "" (extensionless), which works out of the box with every
+      common bundler/dev-server (Vite, webpack, esbuild, Next.js, Angular CLI, SvelteKit) and
+      tsc's "bundler" moduleResolution. Set to ".js" if your build uses Node's ESM-strict
+      resolution ("moduleResolution": "NodeNext"/"Node16"), which requires the *compiled* output
+      extension even inside .ts source.
+    defaultValue: ""

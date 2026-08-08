@@ -1,0 +1,14 @@
+{
+  "name": "typescript-fetch-client-generator-tests",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "build": "tsc -p tsconfig.default.json && tsc -p tsconfig.json",
+    "test": "npm run generate && npm run build && cd dist && node --test"
+  }
+}

@@ -53,10 +53,25 @@ real network or socket is involved in either.
 to this checkout's own `dist/openapi-yagen` - make sure that's up to date (`./build-musl.sh` or a
 local `cmake --build`) before relying on the fallback, or just set `OPENAPI_YAGEN` explicitly.
 
+`typescript_fetch_client_generator`'s test suite follows the same idea with a different toolchain
+(npm/TypeScript instead of Gradle/JUnit5, since there's nothing Gradle-shaped to generate here):
+
+```bash
+cd generators/typescript_fetch_client_generator/test
+OPENAPI_YAGEN=/path/to/openapi-yagen npm install && npm test
+```
+
+It regenerates from its own `test/resources/kitchensink.yaml`, typechecks the result with `tsc`
+(once against the default extensionless import style, once against `-v importExtension=.js`), and
+runs the `.js`-extension variant with Node's built-in `node:test` against a hand-rolled `fetch`
+stub (`test/src/support/fetchStub.ts`) - no mocking library, same `OPENAPI_YAGEN`-env-var-with-
+`dist/openapi-yagen`-fallback convention as the Gradle projects.
+
 A generator's `test/` project has exactly one relative reference back into this repo: `../src`,
-pointing at its own sibling generator directory. That's it - no root `settings.gradle.kts`, no
-Gradle composite build, no shared build logic. This is deliberate: a `test/` project must stay
-runnable completely on its own, with zero awareness of being inside this particular checkout.
+pointing at its own sibling generator directory. That's it - no root `settings.gradle.kts`/
+`package.json`, no composite build, no shared build logic. This is deliberate: a `test/` project
+must stay runnable completely on its own, with zero awareness of being inside this particular
+checkout.
 
 ## Extracting a generator into its own repository
 
@@ -79,12 +94,14 @@ in this repo.
 ## Reference example
 
 `generators/kotlin_ktor_client_generator/` and `generators/kotlin_ktor_server_generator/` are the
-fullest worked example of this convention - read their `test/` directories if you're adding a test
-suite to another generator. `generators/sample_cpp_models_generator/` follows the `README.md`/`src/`
+fullest worked example of this convention for a Gradle/JVM toolchain - read their `test/`
+directories if you're adding a Gradle-based test suite to another generator.
+`generators/typescript_fetch_client_generator/` is the worked example for an npm/TypeScript
+toolchain instead. `generators/sample_cpp_models_generator/` follows the `README.md`/`src/`
 convention but doesn't have a `test/` yet (an open item, not specific to any one language or
-toolchain - a future C++ generator test suite doesn't need Gradle, or any particular tool at all;
-it just needs to live in that generator's own `test/` directory and regenerate-then-verify on its
-own).
+toolchain - a future C++ generator test suite doesn't need Gradle or npm, or any particular tool
+at all; it just needs to live in that generator's own `test/` directory and
+regenerate-then-verify on its own).
 
 ## Running every generator's tests
 
@@ -92,6 +109,7 @@ own).
 ./scripts/test-all-generators.sh
 ```
 
-Globs `generators/*/test/build.gradle.kts` and runs `./gradlew test` in each directory found. Pure
-convenience glue, not a build dependency of anything else - see that script for why it's not a
-Gradle composite build.
+Globs `generators/*/test/build.gradle.kts` (running `./gradlew test` in each) and
+`generators/*/test/package.json` (running `npm install && npm test` in each). Pure convenience
+glue, not a build dependency of anything else - new generators are auto-discovered by either glob,
+no registration needed anywhere.

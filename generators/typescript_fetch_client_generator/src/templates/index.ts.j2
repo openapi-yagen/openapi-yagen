@@ -1,0 +1,24 @@
+{% for m in models -%}
+export * from "./models/{{ m }}{{ importExt }}";
+{% endfor -%}
+{% for g in tagGroups -%}
+export * from "./apis/{{ g.tagClass }}{{ importExt }}";
+{% endfor -%}
+export * from "./runtime{{ importExt }}";
+
+import type { ApiClientConfig } from "./runtime{{ importExt }}";
+{% for g in tagGroups -%}
+import { {{ g.tagClass }} } from "./apis/{{ g.tagClass }}{{ importExt }}";
+{% endfor %}
+/** Bundles one instance of every tag's client class, constructed once from a shared config. */
+export class ApiClient {
+{% for g in tagGroups -%}
+  readonly {{ g.propertyName }}: {{ g.tagClass }};
+{% endfor -%}
+
+  constructor(config: ApiClientConfig) {
+{% for g in tagGroups -%}
+    this.{{ g.propertyName }} = new {{ g.tagClass }}(config);
+{% endfor -%}
+  }
+}

@@ -29,9 +29,23 @@ for build_file in "$REPO_ROOT"/generators/*/test/build.gradle.kts; do
     fi
 done
 
+for pkg_file in "$REPO_ROOT"/generators/*/test/package.json; do
+    [ -e "$pkg_file" ] || continue
+    FOUND=$((FOUND + 1))
+    dir="$(dirname "$pkg_file")"
+    name="$(basename "$(dirname "$dir")")"
+
+    echo
+    echo "=== $name ==="
+    if ! (cd "$dir" && npm install --no-audit --no-fund && npm test); then
+        echo "FAIL ($name)" >&2
+        FAILURES=$((FAILURES + 1))
+    fi
+done
+
 echo
 if [ "$FOUND" -eq 0 ]; then
-    echo "No generator test suites found (generators/*/test/build.gradle.kts)."
+    echo "No generator test suites found (generators/*/test/build.gradle.kts or generators/*/test/package.json)."
     exit 0
 elif [ "$FAILURES" -eq 0 ]; then
     echo "All $FOUND generator test suite(s) passed."

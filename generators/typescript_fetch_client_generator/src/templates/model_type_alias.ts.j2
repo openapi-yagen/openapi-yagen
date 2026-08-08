@@ -1,0 +1,6 @@
+{% for m in modelImports -%}
+import type { {{ m }} } from "./{{ m }}{{ importExt }}";
+{% endfor -%}
+{% if model.description %}/** {{ model.description }} */
+{% endif -%}
+export type {{ model.name }} = {{ model.targetType }};

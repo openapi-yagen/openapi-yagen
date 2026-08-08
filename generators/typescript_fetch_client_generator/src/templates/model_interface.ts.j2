@@ -1,0 +1,12 @@
+{% for m in modelImports -%}
+import type { {{ m }} } from "./{{ m }}{{ importExt }}";
+{% endfor -%}
+{% if model.description %}/** {{ model.description }} */
+{% endif -%}
+export interface {{ model.name }} {
+{% for p in model.properties -%}
+  {% if p.description %}/** {{ p.description }} */
+  {% endif -%}
+  {{ p.keyLiteral }}{% if not p.required %}?{% endif %}: {{ p.tsType }}{% if p.nullable %} | null{% endif %};
+{% endfor -%}
+}
