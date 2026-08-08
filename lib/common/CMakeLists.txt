@@ -1,6 +1,7 @@
 set(TARGET openapi-yagen-lib-common)
 
 find_package(yaml-cpp REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 set(SOURCES
   finalize.h
@@ -21,6 +22,7 @@ set(SOURCES
 
 set(DEPS
   yaml-cpp::yaml-cpp
+  nlohmann_json::nlohmann_json
   openapi-yagen-lib-logger
 )
 

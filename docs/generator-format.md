@@ -41,12 +41,10 @@ description: Example of C++ model generator from OpenAPI v3 specification
 # Main JavaScript file (entrypoint).
 mainScriptPath: main.js
 
-# Json schema for input data validation. Point this at the official OpenAPI schema for the
-# exact version(s) your generator supports (e.g. the OpenAPI 3.0 or 3.1 meta-schema) - the engine
-# has no separate/hardcoded version check of its own, and the official schemas already pin the
-# "openapi" field itself (e.g. `^3\.0\.\d(-.+)?$`), so an unsupported spec version is rejected as
-# part of this same validation, with no extra mechanism needed.
-jsonSchemaPath: openapi_v3_schema.json
+# The OpenAPI version this generator's main.js/templates are written to consume: "3.0", "3.1", or
+# "3.2" (patch suffixes like "3.0.3" are accepted but not distinguished - see "Spec versions and
+# conversion" below). Optional; defaults to "3.0" if omitted.
+openApiVersion: "3.0"
 
 # Variables that can be used to customize script execution
 variables:
@@ -58,6 +56,36 @@ variables:
 
 Reading a variable in JS: `vars.namespace` (see [`javascript-api.md`](javascript-api.md)'s
 "Global values"). Setting it on the command line: `-v namespace=MyModels`.
+
+## Spec versions and conversion
+
+The engine understands OpenAPI 3.0, 3.1, and 3.2 (Swagger/OpenAPI 2.0 isn't supported yet). Before
+running your generator, it reads the input spec's own `openapi:` field, compares it against your
+generator's declared `openApiVersion`, and - if they differ - converts the spec to your declared
+version first. Your `main.js`/templates always see a spec shaped like the version you declared,
+regardless of what version the user's input spec actually was; you don't need to handle both
+dialects yourself. This is what makes `kindOf`/a `.nullable` check/etc. behave consistently no
+matter which version was fed in - see [`javascript-api.md`](javascript-api.md) for how `type`
+and nullability show up in the `schema` object for the version you chose.
+
+Conversion is scoped to what the engine's own model represents (schema `type`/`nullable`/format/
+constraints/composition, and the standard document/operation/parameter/response/security shape) -
+things it doesn't model (vendor extensions aside, which always pass through untouched) are dropped
+when converting to an older version that has no equivalent (e.g. OAS 3.1's `webhooks` and
+`components.pathItems` have nothing to convert to in 3.0). Converting up a version (3.0 → 3.1) never
+loses anything, since every OAS 3.0 construct has a direct 3.1/3.2 equivalent.
+
+This conversion also doubles as the spec's structural validation: reading the spec into the
+engine's typed model requires the fields the specification itself requires (`openapi`, `info.title`,
+`info.version`, `parameter.name`/`in`, ...), so a malformed spec fails fast with a clear error
+naming the missing/misshapen field - there's no separate JSON-schema validation step to configure.
+This isn't as exhaustive as a full JSON-Schema-meta-schema validator (it won't, for instance, catch
+an invalid `parameter.in` enum value or a malformed `pattern` regex) - it validates the shape the
+engine's model actually covers.
+
+The same conversion is available as a standalone command, independent of any generator - see the
+root [`README.md`](../README.md#cli-reference)'s `convert` subcommand, e.g. to pin a spec to one
+version before checking it in, or to inspect what a 3.1 spec looks like once folded down to 3.0.
 
 ## Loading a generator
 
@@ -90,4 +118,4 @@ one for everything else).
 
 See the root [`README.md`](../README.md#cli-reference) for the complete `generate`/`g` subcommand
 reference (all flags, including `-o/--out-dir` and `-c/--clear` which aren't specific to writing a
-generator).
+generator) and the `convert` subcommand (standalone spec version conversion).

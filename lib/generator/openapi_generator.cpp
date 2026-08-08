@@ -9,7 +9,6 @@
 #include <stdexcept>
 #include <utility>
 
-#include <nlohmann/json-schema.hpp>
 #include <quickjs/quickjs-libc.h>
 #include <quickjs/quickjs.h>
 
@@ -25,10 +24,13 @@
 #include "../js/tools.h"
 #include "../logger/logger.h"
 #include "../openapi/resolve.h"
+#include "../openapi/v3/reader.h"
+#include "../openapi/version_convert.h"
 #include "../templates/template_renderer.h"
 #include "functions.h"
 #include "generator_metadata.h"
 #include "openapi_js_bridge.h"
+#include "spec_file.h"
 
 using namespace std;
 using namespace std::ranges;
@@ -87,88 +89,36 @@ Node getFinalVars(const vector<string>& vars, const GeneratorMetadata& metadata)
     return { res };
 }
 
-Node readSpecFile(const string& filePath)
-{
-    try {
-        auto specFile = FS::readFile(filePath);
-        return parseYamlOrJsonToNode(specFile);
-    } catch (const exception& e) {
-        throw runtime_error(format("<2b4ec139> Cannot read spec file \"{}\". Error: {}", filePath, e.what()));
-    }
-}
+// Determines what OpenAPI version the generator was written for (GeneratorMetadata::openApiVersion,
+// default "3.0" - matching every generator that predates this field) and what version the input
+// spec actually declares, then converts the spec to the generator's version if they differ. This
+// both unblocks generators written for one version being fed a spec in another, and doubles as
+// the spec's structural validation (see OpenApi::V3::Read) - there's no separate JSON-schema
+// validation step anymore.
+struct VersionedSpec {
+    Node node;
+    OpenApi::OpenApiVersion version;
+};
 
-nlohmann::json nodeToJson(const Node& n)
+VersionedSpec convertToGeneratorVersion(const GeneratorMetadata& metadata, const Node& specNode)
 {
-    return visit(
-        [](auto&& v) -> nlohmann::json {
-            using T = decay_t<decltype(v)>;
-            if constexpr (is_same_v<T, Node::Null>) {
-                return nullptr;
-            } else if constexpr (is_same_v<T, Node::Vec>) {
-                auto arr = nlohmann::json::array();
-                for (const auto& e : v)
-                    arr.push_back(nodeToJson(e));
-                return arr;
-            } else if constexpr (is_same_v<T, Node::Map>) {
-                auto obj = nlohmann::json::object();
-                for (const auto& [key, value] : v)
-                    obj[key] = nodeToJson(value);
-                return obj;
-            } else {
-                return v; // Bool, Int, String all convert implicitly to nlohmann::json
-            }
-        },
-        n.value);
-}
+    auto detected = OpenApi::detectVersion(specNode);
+    if (!detected)
+        throw runtime_error("<a1b1c1d1> Cannot determine the spec's OpenAPI version - expected a top-level "
+                             "\"openapi\" (3.x) or \"swagger\" (2.0) field with a recognized value");
 
-// nlohmann-json-schema-validator's built-in format checker throws for a handful of
-// draft-07 `format` values it recognizes but hasn't implemented (e.g. "uri-reference", used by
-// the official OpenAPI schema's `$ref` definition) - treating an unimplemented/unrecognized
-// format as a hard failure would reject every spec that uses those, including the schema's own
-// $ref-bearing Reference Object. Per the JSON Schema spec, `format` is an annotation unless a
-// validator specifically implements assertion for it, so unimplemented/unknown formats are
-// treated as a no-op here; formats the library does implement (date-time, uri, email, ...) still
-// fail validation on genuinely malformed values.
-void checkStringFormat(const string& format, const string& value)
-{
-    try {
-        nlohmann::json_schema::default_string_format_check(format, value);
-    } catch (const logic_error&) {
-        // Unimplemented or unrecognized format - ignore.
-    }
-}
-
-// Validates the parsed spec against the generator's declared `jsonSchemaPath` (see
-// GeneratorMetadata / the "Json schema for input data validation" field in generator.yml docs).
-// A no-op when the generator didn't declare one.
-void validateSpecAgainstJsonSchema(const FS::FileReaderPtr& fileReader, const GeneratorMetadata& metadata,
-                                   const Node& specNode)
-{
-    if (!metadata.jsonSchemaPath)
-        return;
-    const auto& jsonSchemaPath = *metadata.jsonSchemaPath;
-
-    nlohmann::json schemaJson;
-    try {
-        schemaJson = nlohmann::json::parse(fileReader->read(jsonSchemaPath));
-    } catch (const exception& e) {
+    auto targetStr = metadata.openApiVersion.value_or("3.0");
+    auto target = OpenApi::parseVersionString(targetStr);
+    if (!target)
         throw runtime_error(
-            format("<a1b1c1d1> Cannot read/parse JSON schema \"{}\". Error: {}", jsonSchemaPath, e.what()));
-    }
+            format("<b2c2d2e2> Generator declares an unrecognized openApiVersion \"{}\"", targetStr));
 
-    nlohmann::json_schema::json_validator validator(nullptr, checkStringFormat);
-    try {
-        validator.set_root_schema(schemaJson);
-    } catch (const exception& e) {
-        throw runtime_error(format("<b2c2d2e2> Invalid JSON schema \"{}\". Error: {}", jsonSchemaPath, e.what()));
-    }
+    if (*detected == *target)
+        return { specNode, *target };
 
-    try {
-        validator.validate(nodeToJson(specNode));
-    } catch (const exception& e) {
-        throw runtime_error(
-            format("<c3d3e3f3> Spec file does not conform to JSON schema \"{}\". Error: {}", jsonSchemaPath, e.what()));
-    }
+    logger.info("<c3d3e3f3> Converting spec from OpenAPI {} to {} (generator's declared openApiVersion)",
+                OpenApi::toVersionString(*detected), OpenApi::toVersionString(*target));
+    return { OpenApi::convertVersion(specNode, *detected, *target), *target };
 }
 
 GeneratorMetadata readMetadata(const FS::FileReaderPtr& fileReader, const string& metadataPath)
@@ -246,13 +196,22 @@ bool jsObjectHasOwnKeys(JSContext* ctx, JSValueConst v)
 // sync with OpenApi::kindOf if that precedence ever changes.
 string kindOfShallow(JSContext* ctx, JSValueConst v)
 {
-    auto getStr = [&](const char* key) -> optional<string> {
-        auto val = JS_GetPropertyStr(ctx, v, key);
-        optional<string> res;
+    // `type` is a plain string for a spec/generator on OAS 3.0's dialect, but a JSON Schema type
+    // array (e.g. ["string", "null"]) for one on OAS 3.1/3.2's - accept either shape.
+    auto hasType = [&](const char* wanted) {
+        auto val = JS_GetPropertyStr(ctx, v, "type");
+        finalize { JS_FreeValue(ctx, val); };
         if (JS_IsString(val))
-            res = jsValueToString(ctx, val);
-        JS_FreeValue(ctx, val);
-        return res;
+            return jsValueToString(ctx, val) == wanted;
+        if (auto len = jsArrayLength(ctx, val); len > 0) {
+            for (uint32_t i = 0; i < (uint32_t)len; i++) {
+                auto item = JS_GetPropertyUint32(ctx, val, i);
+                finalize { JS_FreeValue(ctx, item); };
+                if (JS_IsString(item) && jsValueToString(ctx, item) == wanted)
+                    return true;
+            }
+        }
+        return false;
     };
     auto getArrLen = [&](const char* key) {
         auto val = JS_GetPropertyStr(ctx, v, key);
@@ -267,8 +226,6 @@ string kindOfShallow(JSContext* ctx, JSValueConst v)
         return has;
     };
 
-    auto type = getStr("type");
-
     if (getArrLen("enum") > 0)
         return "Enum";
     if (getArrLen("allOf") > 0)
@@ -277,7 +234,7 @@ string kindOfShallow(JSContext* ctx, JSValueConst v)
         return "OneOf";
     if (getArrLen("anyOf") > 0)
         return "AnyOf";
-    if (type == "array")
+    if (hasType("array"))
         return "Array";
     if (getObjHasKeys("properties"))
         return "Object";
@@ -285,10 +242,10 @@ string kindOfShallow(JSContext* ctx, JSValueConst v)
     auto apVal = JS_GetPropertyStr(ctx, v, "additionalProperties");
     bool hasAdditionalProperties = !JS_IsUndefined(apVal);
     JS_FreeValue(ctx, apVal);
-    if (type == "object" || hasAdditionalProperties)
+    if (hasType("object") || hasAdditionalProperties)
         return "Map";
 
-    if (type == "string" || type == "integer" || type == "number" || type == "boolean")
+    if (hasType("string") || hasType("integer") || hasType("number") || hasType("boolean"))
         return "Primitive";
     return "Unknown";
 }
@@ -312,8 +269,9 @@ JSValue constraintsOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSV
             throw runtime_error("<c2d3e4f5> constraintsOf requires 1 argument (schema: object)");
         auto obj = JS_NewObject(ctx);
         checkForException(ctx, obj, "<d3e4f5a6> Cannot create object");
-        for (const char* key :
-             { "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems", "pattern", "uniqueItems" }) {
+        for (const char* key : { "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+                                 "minLength", "maxLength", "minItems", "maxItems", "minProperties", "maxProperties",
+                                 "pattern", "uniqueItems" }) {
             auto val = JS_GetPropertyStr(ctx, argv[0], key);
             if (!JS_IsUndefined(val))
                 setObjProperty(ctx, obj, key, val);
@@ -659,10 +617,10 @@ void OpenApiGenerator::generate(const string& specPath)
         opts.fileWriter->clear();
     auto metadata = readMetadata(opts.fileReader, opts.metadataPath);
     auto mainScriptPath = metadata.mainScriptPath.value_or(opts.defaultMainSciptPath);
-    auto schemaNode = readSpecFile(specPath);
-    validateSpecAgainstJsonSchema(opts.fileReader, metadata, schemaNode);
+    auto versioned = convertToGeneratorVersion(metadata, readSpecFile(specPath));
+    auto& schemaNode = versioned.node;
 
-    auto doc = OpenApi::parseDocument(NodeWalker(schemaNode));
+    auto doc = OpenApi::V3::Read(NodeWalker(schemaNode), versioned.version);
     OpenApi::resolveAllRefs(doc);
     auto operations = OpenApi::collectOperations(doc);
 

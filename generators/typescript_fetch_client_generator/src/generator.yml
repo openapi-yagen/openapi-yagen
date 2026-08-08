@@ -11,8 +11,9 @@ description: >-
 # Main JavaScript file (entrypoint).
 mainScriptPath: main.js
 
-# Json schema for input data validation (official OpenAPI 3.0.x meta-schema).
-jsonSchemaPath: openapi_v3_schema.json
+# The OpenAPI version this generator's main.js/templates are written to consume - the engine
+# converts the input spec to this version before running main.js if it declares a different one.
+openApiVersion: "3.0"
 
 # Variables that can be used to customize script execution
 variables:

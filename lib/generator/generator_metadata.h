@@ -20,7 +20,11 @@ struct GeneratorMetadata {
     Str name;
     OptStr description;
     OptStr mainScriptPath;
-    OptStr jsonSchemaPath;
+    // The OpenAPI version this generator's main.js/templates are written to consume (e.g.
+    // "3.0", "3.1", "3.2") - defaults to "3.0" if absent, matching every generator that predates
+    // this field. The engine converts the input spec to this version before running main.js if
+    // it declares a different one - see OpenApiGenerator::generate().
+    OptStr openApiVersion;
     std::vector<VariableDescriptor> variables;
 };
 

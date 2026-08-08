@@ -16,6 +16,9 @@ Main features:
 - possibility to extend existing generators by overriding some files from a specified directory
 - post-processing of output files using custom tools (code formatters, linters, checkers...)
 - using generators available via HTTP/S (directly from GitHub, or other sources). The `curl` tool is required.
+- understands OpenAPI 3.0, 3.1, and 3.2, converting between them automatically so a generator only
+  needs to be written against one version (see `convert` below, and
+  [`generator-format.md`](docs/generator-format.md#spec-versions-and-conversion))
 
 ## Installation
 
@@ -39,6 +42,7 @@ Options:
 
 Subcommands:
   generate, g                 Generate sources from openapi specification
+  convert                     Convert an OpenAPI spec from one version to another
 ```
 
 Generate subcommand:
@@ -61,6 +65,34 @@ Options:
   -c,--clear                  Clear output directory before generating
   -v,--var TEXT ...           Set variable. Syntax is: -v (var_name)=(var_value)
 ```
+
+Convert subcommand:
+
+```
+Convert an OpenAPI spec from one version to another
+Usage: ./openapi-yagen convert [OPTIONS] spec-file
+
+Positionals:
+  spec-file TEXT REQUIRED     Specification file to convert
+
+Options:
+  -h,--help                   Print this help message and exit
+  --from TEXT                 Source OpenAPI version (e.g. 3.0, 3.1, 3.2) - auto-detected from the spec's own "openapi"/"swagger" field if omitted
+  --to TEXT REQUIRED          Target OpenAPI version (e.g. 3.0, 3.1, 3.2)
+  -o,--out TEXT REQUIRED      Output file path
+  --format TEXT               Output format: "yaml" or "json" - inferred from --out's extension if omitted
+```
+
+```bash
+openapi-yagen convert openapi-3.1.yaml --to 3.0 -o openapi-3.0.yaml
+```
+
+This is the same version conversion `generate` runs automatically when a spec's version doesn't
+match a generator's declared `openApiVersion` (see
+[`generator-format.md`](docs/generator-format.md#spec-versions-and-conversion)), exposed as a
+standalone tool - useful to inspect what a spec looks like in another version, or to pin a spec to
+one version before checking it in. It's scoped to the constructs the engine itself models (see the
+same doc section) rather than a fully lossless converter for every possible spec field.
 
 ### Running a generator directly from GitHub
 

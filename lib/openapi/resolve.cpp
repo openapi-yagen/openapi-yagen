@@ -29,20 +29,87 @@ void resolveSchemaPtr(const SchemaMap& schemas, SchemaPtr& slot, set<const Schem
         resolveSchemaPtr(schemas, s, visited);
     for (auto& s : slot->anyOf)
         resolveSchemaPtr(schemas, s, visited);
+    resolveSchemaPtr(schemas, slot->notSchema, visited);
 }
 
-void resolveContent(const SchemaMap& schemas, map<Str, MediaType>& content, set<const Schema*>& visited)
+void resolveHeaderPtr(const Document& doc, HeaderPtr& slot, set<const Schema*>& visited);
+
+void resolveContent(const Document& doc, map<Str, MediaType>& content, set<const Schema*>& visited)
 {
-    for (auto& [mediaType, media] : content)
-        resolveSchemaPtr(schemas, media.schema, visited);
+    for (auto& [mediaType, media] : content) {
+        resolveSchemaPtr(doc.components.schemas, media.schema, visited);
+        for (auto& [propName, encoding] : media.encoding)
+            for (auto& [headerName, header] : encoding.headers)
+                resolveHeaderPtr(doc, header, visited);
+    }
+}
+
+void resolveHeaderPtr(const Document& doc, HeaderPtr& slot, set<const Schema*>& visited)
+{
+    if (!slot)
+        return;
+    if (slot->ref)
+        slot = derefHeader(doc, slot);
+    if (!slot)
+        return;
+    resolveSchemaPtr(doc.components.schemas, slot->schema, visited);
+    resolveContent(doc, slot->content, visited);
+}
+
+void resolveParameterPtr(const Document& doc, ParameterPtr& slot, set<const Schema*>& visited)
+{
+    slot = derefParameter(doc, slot);
+    if (!slot)
+        return;
+    resolveSchemaPtr(doc.components.schemas, slot->schema, visited);
+    resolveContent(doc, slot->content, visited);
 }
 
 void resolveParameters(const Document& doc, vector<ParameterPtr>& params, set<const Schema*>& visited)
 {
-    for (auto& p : params) {
-        p = derefParameter(doc, p);
-        if (p)
-            resolveSchemaPtr(doc.components.schemas, p->schema, visited);
+    for (auto& p : params)
+        resolveParameterPtr(doc, p, visited);
+}
+
+void resolveResponsePtr(const Document& doc, ResponsePtr& slot, set<const Schema*>& visited)
+{
+    slot = derefResponse(doc, slot);
+    if (!slot)
+        return;
+    for (auto& [name, header] : slot->headers)
+        resolveHeaderPtr(doc, header, visited);
+    resolveContent(doc, slot->content, visited);
+    // Link objects don't carry a Schema (their `parameters`/`requestBody` are runtime
+    // expressions, not schemas) - only their own $ref (if any) needs resolving, which
+    // `derefChain`-based lookups elsewhere already handle when a generator calls for it; nothing
+    // schema-shaped to walk here.
+}
+
+void resolveRequestBodyPtr(const Document& doc, RequestBodyPtr& slot, set<const Schema*>& visited)
+{
+    slot = derefRequestBody(doc, slot);
+    if (!slot)
+        return;
+    resolveContent(doc, slot->content, visited);
+}
+
+void resolvePathItem(const Document& doc, PathItem& item, set<const Schema*>& visited)
+{
+    resolveParameters(doc, item.parameters, visited);
+    for (auto& [method, op] : item.operations) {
+        resolveParameters(doc, op.parameters, visited);
+        if (op.requestBody)
+            resolveRequestBodyPtr(doc, op.requestBody, visited);
+        for (auto& [status, r] : op.responses)
+            resolveResponsePtr(doc, r, visited);
+        for (auto& [name, callback] : op.callbacks) {
+            callback = derefCallback(doc, callback);
+            if (!callback)
+                continue;
+            for (auto& [expr, pathItem] : callback->expressions)
+                if (pathItem)
+                    resolvePathItem(doc, *pathItem, visited);
+        }
     }
 }
 
@@ -55,37 +122,29 @@ void resolveAllRefs(Document& doc)
     for (auto& [name, s] : doc.components.schemas)
         resolveSchemaPtr(doc.components.schemas, s, visited);
 
-    for (auto& [name, p] : doc.components.parameters) {
-        p = derefParameter(doc, p);
-        if (p)
-            resolveSchemaPtr(doc.components.schemas, p->schema, visited);
+    for (auto& [name, p] : doc.components.parameters)
+        resolveParameterPtr(doc, p, visited);
+    for (auto& [name, rb] : doc.components.requestBodies)
+        resolveRequestBodyPtr(doc, rb, visited);
+    for (auto& [name, r] : doc.components.responses)
+        resolveResponsePtr(doc, r, visited);
+    for (auto& [name, h] : doc.components.headers)
+        resolveHeaderPtr(doc, h, visited);
+    for (auto& [name, cb] : doc.components.callbacks) {
+        cb = derefCallback(doc, cb);
+        if (!cb)
+            continue;
+        for (auto& [expr, pathItem] : cb->expressions)
+            if (pathItem)
+                resolvePathItem(doc, *pathItem, visited);
     }
-    for (auto& [name, rb] : doc.components.requestBodies) {
-        rb = derefRequestBody(doc, rb);
-        if (rb)
-            resolveContent(doc.components.schemas, rb->content, visited);
-    }
-    for (auto& [name, r] : doc.components.responses) {
-        r = derefResponse(doc, r);
-        if (r)
-            resolveContent(doc.components.schemas, r->content, visited);
-    }
+    for (auto& [path, item] : doc.components.pathItems)
+        resolvePathItem(doc, item, visited);
 
-    for (auto& [path, item] : doc.paths) {
-        resolveParameters(doc, item.parameters, visited);
-        for (auto& [method, op] : item.operations) {
-            resolveParameters(doc, op.parameters, visited);
-            if (op.requestBody) {
-                op.requestBody = derefRequestBody(doc, op.requestBody);
-                resolveContent(doc.components.schemas, op.requestBody->content, visited);
-            }
-            for (auto& [status, r] : op.responses) {
-                r = derefResponse(doc, r);
-                if (r)
-                    resolveContent(doc.components.schemas, r->content, visited);
-            }
-        }
-    }
+    for (auto& [path, item] : doc.paths)
+        resolvePathItem(doc, item, visited);
+    for (auto& [path, item] : doc.webhooks)
+        resolvePathItem(doc, item, visited);
 }
 
 }

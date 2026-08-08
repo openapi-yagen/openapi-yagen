@@ -7,6 +7,7 @@
 #include <lib/logger/console_logger.h>
 #include <lib/logger/logger.h>
 
+#include "commands/convert_command.h"
 #include "commands/generate_command.h"
 #include "config.h"
 
@@ -25,6 +26,7 @@ int main(int argc, char** argv)
     try {
         Commands commands = {
             make_shared<GenerateCommand>(),
+            make_shared<ConvertCommand>(),
         };
 
         CLI::App app { format("OpenAPI Yet Another Generator (v{})", APP_VERSION) };

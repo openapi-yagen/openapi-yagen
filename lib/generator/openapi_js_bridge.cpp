@@ -92,17 +92,70 @@ JSValue OpenApiJsGraphBuilder::buildParameterValue(const ParameterPtr& parameter
 
     if (parameter->schema)
         setObjProperty(ctx, obj, "schema", buildSchemaValue(parameter->schema));
+    if (!parameter->content.empty()) {
+        auto contentObj = JS_GetPropertyStr(ctx, obj, "content");
+        overwriteContentSchemas(contentObj, parameter->content);
+        JS_FreeValue(ctx, contentObj);
+    }
 
     return obj;
+}
+
+JSValue OpenApiJsGraphBuilder::buildHeaderValue(const HeaderPtr& header)
+{
+    if (!header)
+        return JS_NULL;
+    if (header->ref)
+        throw runtime_error(
+            "<b1c2d3e4> Unresolved $ref reached the JS graph builder (header) - OpenApi::resolveAllRefs must run first");
+
+    const void* key = header.get();
+    if (auto it = headerMemo.find(key); it != headerMemo.end())
+        return JS_DupValue(ctx, *it->second);
+
+    auto obj = nodeToJSValue(ctx, header->raw);
+    headerMemo.emplace(key, JSValueWrapper(ctx, JS_DupValue(ctx, obj)));
+
+    if (header->schema)
+        setObjProperty(ctx, obj, "schema", buildSchemaValue(header->schema));
+    if (!header->content.empty()) {
+        auto contentObj = JS_GetPropertyStr(ctx, obj, "content");
+        overwriteContentSchemas(contentObj, header->content);
+        JS_FreeValue(ctx, contentObj);
+    }
+
+    return obj;
+}
+
+JSValue OpenApiJsGraphBuilder::buildLinkValue(const Link& link) { return nodeToJSValue(ctx, link.raw); }
+
+JSValue OpenApiJsGraphBuilder::buildExampleValue(const Example& example) { return nodeToJSValue(ctx, example.raw); }
+
+JSValue OpenApiJsGraphBuilder::buildSecuritySchemeValue(const SecurityScheme& scheme)
+{
+    return nodeToJSValue(ctx, scheme.raw);
 }
 
 void OpenApiJsGraphBuilder::overwriteContentSchemas(JSValue contentObj, const map<Str, MediaType>& content)
 {
     for (const auto& [mediaType, media] : content) {
-        if (!media.schema)
-            continue;
         auto entryObj = JS_GetPropertyStr(ctx, contentObj, mediaType.c_str());
-        setObjProperty(ctx, entryObj, "schema", buildSchemaValue(media.schema));
+        if (media.schema)
+            setObjProperty(ctx, entryObj, "schema", buildSchemaValue(media.schema));
+        if (!media.encoding.empty()) {
+            auto encodingObj = JS_GetPropertyStr(ctx, entryObj, "encoding");
+            for (const auto& [propName, encoding] : media.encoding) {
+                if (encoding.headers.empty())
+                    continue;
+                auto encEntryObj = JS_GetPropertyStr(ctx, encodingObj, propName.c_str());
+                auto headersObj = JS_GetPropertyStr(ctx, encEntryObj, "headers");
+                for (const auto& [headerName, header] : encoding.headers)
+                    setObjProperty(ctx, headersObj, headerName, buildHeaderValue(header));
+                JS_FreeValue(ctx, headersObj);
+                JS_FreeValue(ctx, encEntryObj);
+            }
+            JS_FreeValue(ctx, encodingObj);
+        }
         JS_FreeValue(ctx, entryObj);
     }
 }
@@ -146,10 +199,47 @@ JSValue OpenApiJsGraphBuilder::buildResponseValue(const ResponsePtr& response)
     auto obj = nodeToJSValue(ctx, response->raw);
     responseMemo.emplace(key, JSValueWrapper(ctx, JS_DupValue(ctx, obj)));
 
+    if (!response->headers.empty()) {
+        auto headersObj = JS_GetPropertyStr(ctx, obj, "headers");
+        for (const auto& [name, h] : response->headers)
+            setObjProperty(ctx, headersObj, name, buildHeaderValue(h));
+        JS_FreeValue(ctx, headersObj);
+    }
     if (!response->content.empty()) {
         auto contentObj = JS_GetPropertyStr(ctx, obj, "content");
         overwriteContentSchemas(contentObj, response->content);
         JS_FreeValue(ctx, contentObj);
+    }
+    if (!response->links.empty()) {
+        auto linksObj = JS_GetPropertyStr(ctx, obj, "links");
+        for (const auto& [name, l] : response->links)
+            setObjProperty(ctx, linksObj, name, buildLinkValue(*l));
+        JS_FreeValue(ctx, linksObj);
+    }
+
+    return obj;
+}
+
+JSValue OpenApiJsGraphBuilder::buildCallbackValue(const CallbackPtr& callback)
+{
+    if (!callback)
+        return JS_NULL;
+    if (callback->ref)
+        throw runtime_error("<c2d3e4f5> Unresolved $ref reached the JS graph builder (callback) - "
+                            "OpenApi::resolveAllRefs must run first");
+
+    const void* key = callback.get();
+    if (auto it = callbackMemo.find(key); it != callbackMemo.end())
+        return JS_DupValue(ctx, *it->second);
+
+    auto obj = nodeToJSValue(ctx, callback->raw);
+    callbackMemo.emplace(key, JSValueWrapper(ctx, JS_DupValue(ctx, obj)));
+
+    for (const auto& [expr, item] : callback->expressions) {
+        if (!item)
+            continue;
+        auto pathItemObj = getOrCreateChildObject(obj, expr) | wrap(ctx);
+        overlayPathItem(*pathItemObj, *item);
     }
 
     return obj;
@@ -174,6 +264,31 @@ void OpenApiJsGraphBuilder::overwriteParameterArray(JSValue parentObj, const str
     for (size_t i = 0; i < params.size(); i++)
         JS_SetPropertyUint32(ctx, arr, (uint32_t)i, buildParameterValue(params[i]));
     JS_FreeValue(ctx, arr);
+}
+
+void OpenApiJsGraphBuilder::overlayPathItem(JSValue pathItemObj, const PathItem& item)
+{
+    if (!item.parameters.empty())
+        overwriteParameterArray(pathItemObj, "parameters", item.parameters);
+
+    for (const auto& [method, op] : item.operations) {
+        auto opObj = getOrCreateChildObject(pathItemObj, method) | wrap(ctx);
+
+        if (!op.parameters.empty())
+            overwriteParameterArray(*opObj, "parameters", op.parameters);
+        if (op.requestBody)
+            setObjProperty(ctx, *opObj, "requestBody", buildRequestBodyValue(op.requestBody));
+        if (!op.responses.empty()) {
+            auto opResponsesObj = getOrCreateChildObject(*opObj, "responses") | wrap(ctx);
+            for (const auto& [status, r] : op.responses)
+                setObjProperty(ctx, *opResponsesObj, status, buildResponseValue(r));
+        }
+        if (!op.callbacks.empty()) {
+            auto opCallbacksObj = getOrCreateChildObject(*opObj, "callbacks") | wrap(ctx);
+            for (const auto& [name, cb] : op.callbacks)
+                setObjProperty(ctx, *opCallbacksObj, name, buildCallbackValue(cb));
+        }
+    }
 }
 
 JSValue OpenApiJsGraphBuilder::buildDocumentValue(const Node& schemaNode, const Document& doc)
@@ -210,25 +325,61 @@ JSValue OpenApiJsGraphBuilder::buildDocumentValue(const Node& schemaNode, const 
         setObjProperty(ctx, *responsesCompObj, name, value);
     }
 
+    if (!doc.components.headers.empty()) {
+        auto headersCompObj = getOrCreateChildObject(*componentsObj, "headers") | wrap(ctx);
+        for (const auto& [name, h] : doc.components.headers) {
+            auto value = buildHeaderValue(h);
+            componentNames.emplace(JS_VALUE_GET_PTR(value), name);
+            setObjProperty(ctx, *headersCompObj, name, value);
+        }
+    }
+
+    if (!doc.components.securitySchemes.empty()) {
+        auto securitySchemesObj = getOrCreateChildObject(*componentsObj, "securitySchemes") | wrap(ctx);
+        for (const auto& [name, s] : doc.components.securitySchemes)
+            setObjProperty(ctx, *securitySchemesObj, name, buildSecuritySchemeValue(*s));
+    }
+
+    if (!doc.components.links.empty()) {
+        auto linksObj = getOrCreateChildObject(*componentsObj, "links") | wrap(ctx);
+        for (const auto& [name, l] : doc.components.links)
+            setObjProperty(ctx, *linksObj, name, buildLinkValue(*l));
+    }
+
+    if (!doc.components.examples.empty()) {
+        auto examplesObj = getOrCreateChildObject(*componentsObj, "examples") | wrap(ctx);
+        for (const auto& [name, e] : doc.components.examples)
+            setObjProperty(ctx, *examplesObj, name, buildExampleValue(*e));
+    }
+
+    if (!doc.components.callbacks.empty()) {
+        auto callbacksObj = getOrCreateChildObject(*componentsObj, "callbacks") | wrap(ctx);
+        for (const auto& [name, cb] : doc.components.callbacks) {
+            auto value = buildCallbackValue(cb);
+            componentNames.emplace(JS_VALUE_GET_PTR(value), name);
+            setObjProperty(ctx, *callbacksObj, name, value);
+        }
+    }
+
+    if (!doc.components.pathItems.empty()) {
+        auto pathItemsObj = getOrCreateChildObject(*componentsObj, "pathItems") | wrap(ctx);
+        for (const auto& [path, item] : doc.components.pathItems) {
+            auto pathItemObj = getOrCreateChildObject(*pathItemsObj, path) | wrap(ctx);
+            overlayPathItem(*pathItemObj, item);
+        }
+    }
+
     auto pathsObj = getOrCreateChildObject(obj, "paths") | wrap(ctx);
     for (const auto& [path, item] : doc.paths) {
         auto pathItemObj = getOrCreateChildObject(*pathsObj, path) | wrap(ctx);
+        overlayPathItem(*pathItemObj, item);
+    }
 
-        if (!item.parameters.empty())
-            overwriteParameterArray(*pathItemObj, "parameters", item.parameters);
-
-        for (const auto& [method, op] : item.operations) {
-            auto opObj = getOrCreateChildObject(*pathItemObj, method) | wrap(ctx);
-
-            if (!op.parameters.empty())
-                overwriteParameterArray(*opObj, "parameters", op.parameters);
-            if (op.requestBody)
-                setObjProperty(ctx, *opObj, "requestBody", buildRequestBodyValue(op.requestBody));
-            if (!op.responses.empty()) {
-                auto opResponsesObj = getOrCreateChildObject(*opObj, "responses") | wrap(ctx);
-                for (const auto& [status, r] : op.responses)
-                    setObjProperty(ctx, *opResponsesObj, status, buildResponseValue(r));
-            }
+    if (!doc.webhooks.empty()) {
+        auto webhooksObj = getOrCreateChildObject(obj, "webhooks") | wrap(ctx);
+        for (const auto& [path, item] : doc.webhooks) {
+            auto pathItemObj = getOrCreateChildObject(*webhooksObj, path) | wrap(ctx);
+            overlayPathItem(*pathItemObj, item);
         }
     }
 

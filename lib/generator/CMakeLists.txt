@@ -2,7 +2,6 @@ set(TARGET openapi-yagen-lib-generator)
 
 find_package(quickjs REQUIRED)
 find_package(nlohmann_json REQUIRED)
-find_package(nlohmann_json_schema_validator REQUIRED)
 
 set(SOURCES
   functions.cpp
@@ -13,12 +12,13 @@ set(SOURCES
   openapi_generator.h
   openapi_js_bridge.cpp
   openapi_js_bridge.h
+  spec_file.cpp
+  spec_file.h
 )
 
 set(DEPS
   quickjs::quickjs
   nlohmann_json::nlohmann_json
-  nlohmann_json_schema_validator
   openapi-yagen-lib-common
   openapi-yagen-lib-fs
   openapi-yagen-lib-js

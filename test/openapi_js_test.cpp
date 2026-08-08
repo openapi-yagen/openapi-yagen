@@ -9,6 +9,8 @@
 #include <lib/generator/openapi_js_bridge.h>
 #include <lib/js/tools.h>
 #include <lib/openapi/resolve.h>
+#include <lib/openapi/v3/reader.h>
+#include <lib/openapi/version.h>
 
 #include "common/tools.h"
 
@@ -21,7 +23,15 @@ namespace {
 Document parseDoc(const string& content)
 {
     auto node = parseYamlOrJsonToNode(content);
-    return parseDocument(NodeWalker(node));
+    auto m = node.getIf<Node::Map>() ? *node.getIf<Node::Map>() : Node::Map();
+    if (!m.contains("openapi"))
+        m["openapi"] = Node { string("3.0.0") };
+    if (!m.contains("info"))
+        m["info"] = Node { Node::Map {
+            { "title", Node { string("Test") } },
+            { "version", Node { string("1.0.0") } },
+        } };
+    return V3::Read(NodeWalker(Node { m }), OpenApiVersion::V3_0);
 }
 
 bool evalBool(JSContext* ctx, const string& code)
@@ -142,7 +152,7 @@ components:
 TEST_CASE("OpenApiJsGraphBuilder builds the whole document, resolving $ref by identity", "[openapi_js]")
 {
     auto rawNode = parseYamlOrJsonToNode(readResource("petstore.yaml"));
-    auto doc = parseDocument(NodeWalker(rawNode));
+    auto doc = V3::Read(NodeWalker(rawNode), OpenApiVersion::V3_0);
     resolveAllRefs(doc);
 
     auto runtime = JS_NewRuntime();

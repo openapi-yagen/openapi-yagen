@@ -1,5 +1,6 @@
 #include "schema.h"
 
+#include <algorithm>
 #include <stdexcept>
 
 #include "ref.h"
@@ -8,79 +9,16 @@ using namespace std;
 
 namespace OpenApi {
 
+bool isNullable(const Schema& schema)
+{
+    return find(schema.type.begin(), schema.type.end(), "null") != schema.type.end();
+}
+
 namespace {
-
-vector<Str> parseStringList(const NodeWalker& w)
+bool hasType(const Schema& schema, const Str& t)
 {
-    return w.optionalList([](const NodeWalker& cw) { return cw.required<Str>(); }).value_or(vector<Str>());
+    return find(schema.type.begin(), schema.type.end(), t) != schema.type.end();
 }
-
-Discriminator parseDiscriminator(const NodeWalker& w)
-{
-    Discriminator d;
-    d.propertyName = w["propertyName"].required<Str>();
-    d.mapping
-        = w["mapping"].optionalMap([](const NodeWalker& cw) { return cw.required<Str>(); }).value_or(map<Str, Str>());
-    return d;
-}
-
-}
-
-SchemaPtr parseSchema(const NodeWalker& w)
-{
-    auto schema = make_shared<Schema>();
-    schema->raw = w.required<Node>();
-
-    schema->ref = w["$ref"].optional<Str>();
-    if (schema->ref)
-        return schema;
-
-    schema->type = w["type"].optional<Str>();
-    schema->format = w["format"].optional<Str>();
-    schema->description = w["description"].optional<Str>();
-    schema->nullable = w["nullable"].optional<bool>();
-
-    schema->properties = w["properties"].optionalMap(parseSchema).value_or(SchemaMap());
-    schema->required = parseStringList(w["required"]);
-
-    auto itemsWalker = w["items"];
-    if (!itemsWalker.isEmpty())
-        schema->items = parseSchema(itemsWalker);
-
-    auto additionalPropertiesWalker = w["additionalProperties"];
-    if (auto raw = additionalPropertiesWalker.optional<Node>()) {
-        if (auto b = raw->getIf<Node::Bool>())
-            schema->additionalPropertiesBool = *b;
-        else if (raw->getIf<Node::Map>())
-            schema->additionalPropertiesSchema = parseSchema(additionalPropertiesWalker);
-    }
-
-    // A plain required<Node>() would reject a literal `null` entry (e.g. `enum: [foo, bar, null]`,
-    // a real-world pattern for "nullable enum" some specs use alongside `nullable: true`) since
-    // NodeWalker treats a Null node the same as an absent one - fall back to Null explicitly
-    // instead of throwing on what's a perfectly valid enum member.
-    schema->enumValues = w["enum"]
-                             .optionalList([](const NodeWalker& cw) { return cw.optional<Node>().value_or(Node{ Node::NullValue }); })
-                             .value_or(vector<Node>());
-
-    schema->allOf = w["allOf"].optionalList(parseSchema).value_or(vector<SchemaPtr>());
-    schema->oneOf = w["oneOf"].optionalList(parseSchema).value_or(vector<SchemaPtr>());
-    schema->anyOf = w["anyOf"].optionalList(parseSchema).value_or(vector<SchemaPtr>());
-
-    auto discriminatorWalker = w["discriminator"];
-    if (!discriminatorWalker.isEmpty())
-        schema->discriminator = parseDiscriminator(discriminatorWalker);
-
-    schema->minimum = w["minimum"].optional<Node>();
-    schema->maximum = w["maximum"].optional<Node>();
-    schema->minLength = w["minLength"].optional<Node::Int>();
-    schema->maxLength = w["maxLength"].optional<Node::Int>();
-    schema->minItems = w["minItems"].optional<Node::Int>();
-    schema->maxItems = w["maxItems"].optional<Node::Int>();
-    schema->pattern = w["pattern"].optional<Str>();
-    schema->uniqueItems = w["uniqueItems"].optional<bool>();
-
-    return schema;
 }
 
 SchemaKind kindOf(const Schema& schema)
@@ -95,16 +33,16 @@ SchemaKind kindOf(const Schema& schema)
         return SchemaKind::OneOf;
     if (!schema.anyOf.empty())
         return SchemaKind::AnyOf;
-    if (schema.type == "array")
+    if (hasType(schema, "array"))
         return SchemaKind::Array;
     // A fixed set of named properties makes it an Object regardless of whether `type: object` was
     // spelled out; `type: object` with no properties (an explicit or implicit free-form map) is
-    // Map instead - so the two need checking in this order, not "type == object" first.
+    // Map instead - so the two need checking in this order, not "type includes object" first.
     if (!schema.properties.empty())
         return SchemaKind::Object;
-    if (schema.type == "object" || schema.additionalPropertiesSchema || schema.additionalPropertiesBool)
+    if (hasType(schema, "object") || schema.additionalPropertiesSchema || schema.additionalPropertiesBool)
         return SchemaKind::Map;
-    if (schema.type == "string" || schema.type == "integer" || schema.type == "number" || schema.type == "boolean")
+    if (hasType(schema, "string") || hasType(schema, "integer") || hasType(schema, "number") || hasType(schema, "boolean"))
         return SchemaKind::Primitive;
     return SchemaKind::Unknown;
 }
@@ -138,7 +76,8 @@ string_view toString(SchemaKind kind)
 
 bool Constraints::any() const
 {
-    return minimum || maximum || minLength || maxLength || minItems || maxItems || pattern || uniqueItems;
+    return minimum || maximum || exclusiveMinimum || exclusiveMaximum || multipleOf || minLength || maxLength
+        || minItems || maxItems || minProperties || maxProperties || pattern || uniqueItems;
 }
 
 Constraints constraintsOf(const Schema& schema)
@@ -146,10 +85,15 @@ Constraints constraintsOf(const Schema& schema)
     return {
         .minimum = schema.minimum,
         .maximum = schema.maximum,
+        .exclusiveMinimum = schema.exclusiveMinimum,
+        .exclusiveMaximum = schema.exclusiveMaximum,
+        .multipleOf = schema.multipleOf,
         .minLength = schema.minLength,
         .maxLength = schema.maxLength,
         .minItems = schema.minItems,
         .maxItems = schema.maxItems,
+        .minProperties = schema.minProperties,
+        .maxProperties = schema.maxProperties,
         .pattern = schema.pattern,
         .uniqueItems = schema.uniqueItems,
     };

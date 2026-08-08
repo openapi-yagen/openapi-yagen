@@ -9,6 +9,8 @@
 #include <lib/openapi/document.h>
 #include <lib/openapi/resolve.h>
 #include <lib/openapi/schema.h>
+#include <lib/openapi/v3/reader.h>
+#include <lib/openapi/version.h>
 
 #include "common/tools.h"
 
@@ -16,10 +18,21 @@ using namespace std;
 using namespace OpenApi;
 
 namespace {
+// Injects a minimal "openapi"/"info" (required by V3::Read - see docs/generator-format.md) if the
+// fixture doesn't already declare one, so every other test case below can stay focused on just
+// the fragment it's actually testing.
 Document parseDoc(const string& content)
 {
     auto node = parseYamlOrJsonToNode(content);
-    return parseDocument(NodeWalker(node));
+    auto m = node.getIf<Node::Map>() ? *node.getIf<Node::Map>() : Node::Map();
+    if (!m.contains("openapi"))
+        m["openapi"] = Node { string("3.0.0") };
+    if (!m.contains("info"))
+        m["info"] = Node { Node::Map {
+            { "title", Node { string("Test") } },
+            { "version", Node { string("1.0.0") } },
+        } };
+    return V3::Read(NodeWalker(Node { m }), OpenApiVersion::V3_0);
 }
 }
 
@@ -32,18 +45,18 @@ TEST_CASE("Parse OpenAPI schemas", "[openapi]")
     {
         auto pet = schemas.at("Pet");
         REQUIRE(pet->ref == nullopt);
-        REQUIRE(pet->type == "object");
+        REQUIRE(pet->type == vector<string> { "object" });
         REQUIRE(pet->required == vector<string> { "id", "name" });
         REQUIRE(pet->properties.size() == 3);
-        REQUIRE(pet->properties.at("id")->type == "integer");
+        REQUIRE(pet->properties.at("id")->type == vector<string> { "integer" });
         REQUIRE(pet->properties.at("id")->format == "int64");
-        REQUIRE(pet->properties.at("name")->type == "string");
+        REQUIRE(pet->properties.at("name")->type == vector<string> { "string" });
     }
 
     SECTION("Array schema with $ref items and constraints")
     {
         auto pets = schemas.at("Pets");
-        REQUIRE(pets->type == "array");
+        REQUIRE(pets->type == vector<string> { "array" });
         REQUIRE(pets->maxItems == 100);
         REQUIRE(pets->items != nullptr);
         REQUIRE(pets->items->ref == "#/components/schemas/Pet");
@@ -53,7 +66,7 @@ TEST_CASE("Parse OpenAPI schemas", "[openapi]")
     {
         auto petsItems = schemas.at("Pets")->items;
         REQUIRE(petsItems->ref == "#/components/schemas/Pet");
-        REQUIRE(petsItems->type == nullopt);
+        REQUIRE(petsItems->type.empty());
         REQUIRE(petsItems->properties.empty());
     }
 
@@ -62,7 +75,7 @@ TEST_CASE("Parse OpenAPI schemas", "[openapi]")
         auto petsItems = schemas.at("Pets")->items;
         auto resolved = deref(schemas, petsItems);
         REQUIRE(resolved == schemas.at("Pet"));
-        REQUIRE(resolved->type == "object");
+        REQUIRE(resolved->type == vector<string> { "object" });
     }
 
     SECTION("deref is a no-op on a non-$ref schema")
@@ -133,7 +146,7 @@ components:
         auto extended = doc.components.schemas.at("Extended");
         REQUIRE(extended->allOf.size() == 2);
         REQUIRE(extended->allOf[0]->ref == "#/components/schemas/Base");
-        REQUIRE(extended->allOf[1]->properties.at("name")->type == "string");
+        REQUIRE(extended->allOf[1]->properties.at("name")->type == vector<string> { "string" });
     }
 
     SECTION("discriminated oneOf")
@@ -182,7 +195,7 @@ components:
         auto mapOfInts = doc.components.schemas.at("MapOfInts");
         REQUIRE(mapOfInts->additionalPropertiesBool == nullopt);
         REQUIRE(mapOfInts->additionalPropertiesSchema != nullptr);
-        REQUIRE(mapOfInts->additionalPropertiesSchema->type == "integer");
+        REQUIRE(mapOfInts->additionalPropertiesSchema->type == vector<string> { "integer" });
     }
 
     SECTION("constraints")
@@ -486,9 +499,9 @@ components:
         REQUIRE(listPets != ops.end());
         auto responseSchema = listPets->responses.at("200")->content.at("application/json").schema;
         REQUIRE(responseSchema->ref == nullopt);
-        REQUIRE(responseSchema->type == "array");
+        REQUIRE(responseSchema->type == vector<string> { "array" });
         REQUIRE(responseSchema->items->ref == nullopt);
-        REQUIRE(responseSchema->items->type == "object");
+        REQUIRE(responseSchema->items->type == vector<string> { "object" });
     }
 
     SECTION("idempotent: calling twice is a no-op the second time")

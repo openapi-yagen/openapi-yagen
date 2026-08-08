@@ -123,7 +123,7 @@ no `$ref` string to read anymore), and merging path-level + operation-level para
 
 ```typescript
 kindOf(schema: object): "Object" | "Array" | "Enum" | "AllOf" | "OneOf" | "AnyOf" | "Map" | "Primitive" | "Unknown"
-constraintsOf(schema: object): { minimum?, maximum?, minLength?, maxLength?, minItems?, maxItems?, pattern?, uniqueItems? }
+constraintsOf(schema: object): { minimum?, maximum?, exclusiveMinimum?, exclusiveMaximum?, multipleOf?, minLength?, maxLength?, minItems?, maxItems?, minProperties?, maxProperties?, pattern?, uniqueItems? }
 nameOf(x: object): string | null // null if x is an inline/anonymous definition, never reached via $ref
 collectOperations(): Operation[] // { method, path, operationId, summary, description, tags, parameters, requestBody, responses }
 ```
@@ -137,6 +137,14 @@ for (const op of collectOperations()) {
   const typeName = responseSchema && nameOf(responseSchema); // null -> anonymous/inline type
 }
 ```
+
+`kindOf` reads `schema.type` however your generator's declared `openApiVersion` shapes it (see
+[`generator-format.md`](generator-format.md#spec-versions-and-conversion)): a plain string for a
+generator on OAS 3.0 (`"string"`), or - for a generator that declared `openApiVersion: "3.1"`/
+`"3.2"` - either a string or a JSON Schema type array (`["string", "null"]`); either way `kindOf`
+classifies correctly. Nullability follows the same split: OAS 3.0-targeting generators see a
+`schema.nullable` boolean, OAS 3.1/3.2-targeting ones see `"null"` inside the `type` array instead
+- there's no `nullable` key on that dialect.
 
 #### `firstSuccessResponse`
 

@@ -13,6 +13,7 @@ set(SOURCES
     openapi_js_test.cpp
     openapi_test.cpp
     parser_test.cpp
+    v3_reader_writer_test.cpp
     vfs_test.cpp
 )
 

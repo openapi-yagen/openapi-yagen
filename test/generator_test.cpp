@@ -255,16 +255,15 @@ renderTemplate("test_template", {
     REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("legacyRespStatusCode=default"));
 }
 
-TEST_CASE("Generate validates spec against jsonSchemaPath when declared", "[generator]")
+TEST_CASE("Generate validates the spec structurally while parsing (no external JSON-schema step anymore)", "[generator]")
 {
     auto fileWriter = make_shared<MockedFileWriter>();
     auto templateRenderer = make_shared<MockedTemplateRenderer>();
 
-    auto makeGen = [&](const string& jsonSchemaContent) {
+    auto makeGen = [&] {
         MockedFileReaderBackend::Files files = {
             { "main.js", "renderTemplate(\"test_template\", schema, \"outfile\")" },
-            { "generator.yml", "name: test_generator\nmainScriptPath: main.js\njsonSchemaPath: schema.json\n" },
-            { "schema.json", jsonSchemaContent },
+            { "generator.yml", readResource("generator.yml") },
         };
         auto fileReader
             = make_shared<FileReader>(FileReader::Opts { .backends = { make_shared<MockedFileReaderBackend>(files) } });
@@ -281,22 +280,56 @@ TEST_CASE("Generate validates spec against jsonSchemaPath when declared", "[gene
         });
     };
 
-    SECTION("Happy path: spec satisfies the declared schema")
+    SECTION("Happy path: well-formed spec generates fine")
     {
-        auto gen
-            = makeGen(R"({"type": "object", "required": ["openapi"], "properties": {"openapi": {"type": "string"}}})");
+        auto gen = makeGen();
         REQUIRE_NOTHROW(gen.generate(getResourcePath("petstore.yaml")));
     }
 
-    SECTION("Unhappy path: spec violates the declared schema")
+    SECTION("Unhappy path: spec missing the required info.title/info.version throws")
     {
-        auto gen = makeGen(R"({"type": "object", "required": ["thisFieldDoesNotExistInPetstore"]})");
-        REQUIRE_THROWS(gen.generate(getResourcePath("petstore.yaml")));
+        auto gen = makeGen();
+        REQUIRE_THROWS(gen.generate(getResourcePath("petstore_missing_info.yaml")));
     }
+}
 
-    SECTION("The declared JSON schema file itself is malformed")
-    {
-        auto gen = makeGen("{ not valid json");
-        REQUIRE_THROWS(gen.generate(getResourcePath("petstore.yaml")));
-    }
+TEST_CASE("Generate converts a spec to the generator's declared openApiVersion", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js",
+          "const pet = schema.components.schemas.Pet;\n"
+          "renderTemplate(\"test_template\", {\n"
+          "  tagKind: kindOf(pet.properties.tag),\n"
+          "  tagType: pet.properties.tag.type,\n"
+          "  tagNullable: pet.properties.tag.nullable,\n"
+          "}, \"outfile\")" },
+        // No explicit openApiVersion - defaults to "3.0", so a 3.1 input spec must be converted.
+        { "generator.yml", "name: test_generator\nmainScriptPath: main.js\n" },
+    };
+    auto fileReader
+        = make_shared<FileReader>(FileReader::Opts { .backends = { make_shared<MockedFileReaderBackend>(files) } });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .clearOutDir = false,
+        .vars = { },
+    });
+
+    // petstore_31.yaml declares "openapi: 3.1.0" and Pet.tag as `type: [string, "null"]` - the
+    // exact construct that used to crash generation outright before version conversion existed.
+    REQUIRE_NOTHROW(gen.generate(getResourcePath("petstore_31.yaml")));
+
+    auto& out = fileWriter->files["outfile"];
+    // Converted to OAS 3.0 shape: nullable+scalar type, not a type array.
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("tagKind=Primitive"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("tagType=string"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("tagNullable=1"));
 }

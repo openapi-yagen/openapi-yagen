@@ -15,6 +15,8 @@ configure_file(config.h.in config.h)
 set(SOURCES
     main.cpp
     commands/base_command.h
+    commands/convert_command.h
+    commands/convert_command.cpp
     commands/generate_command.h
     commands/generate_command.cpp
 )
