@@ -9,3 +9,4 @@
 /generators/*/test/dist
 /generators/*/test/generated
 /generators/*/test/generated-default
+/generators/*/test/generated-validated

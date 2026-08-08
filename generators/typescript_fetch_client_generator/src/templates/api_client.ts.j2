@@ -1,6 +1,12 @@
+{% if validateResponses -%}
+{% for m in modelImports -%}
+import { type {{ m }}, is{{ m }} } from "../models/{{ m }}{{ importExt }}";
+{% endfor -%}
+{% else -%}
 {% for m in modelImports -%}
 import type { {{ m }} } from "../models/{{ m }}{{ importExt }}";
 {% endfor -%}
+{% endif -%}
 import { request } from "../runtime{{ importExt }}";
 import type { ApiClientConfig } from "../runtime{{ importExt }}";
 
@@ -36,6 +42,9 @@ export class {{ tagClass }} {
       body: options.body,
 {% endif -%}
       signal: options.signal,
+{% if op.response.hasValidator -%}
+      validate: {{ op.response.validatorExpr }},
+{% endif -%}
     });
   }
 {% endfor %}

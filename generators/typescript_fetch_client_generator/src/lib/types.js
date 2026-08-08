@@ -13,11 +13,12 @@
 // property to a string-literal type (e.g. `shapeType: "circle"`, not `shapeType: string`) so that
 // narrowing actually works - see registerInterface's `variantOpts` handling below.
 //
-// Trade-off accepted: there is no runtime validation that a JSON.parse'd response actually matches
-// its declared TS type (same as most real-world TS OpenAPI generators, and the only option
-// consistent with "zero third-party runtime dependencies" - a real validator would need either a
-// hand-rolled per-union check, comparable complexity to the dispatcher being avoided, or a
-// disallowed dependency like zod).
+// Every type-mapping function returns not just a printable TS type string but also a structural
+// "descriptor" (see lib/validation.js) describing the same type as a small tagged object
+// ({kind:"primitive"|"literal"|"ref"|"array"|"record"|"union"|"unknown", ...}). This is what lets
+// the optional `validateResponses` mode (see generator.yml) generate a recursive runtime type
+// guard per model without re-parsing the printed TS type string - the descriptor is the type
+// mapper's own "AST", kept alongside the string it printed.
 //
 // `schema` (global) has no `$ref` anywhere - every reference is already the actual target object.
 // `nameOf(x)` recovers the components.schemas name a resolved schema was reached through (null for
@@ -49,20 +50,25 @@ function registerInterface(registry, name, schema, variantOpts) {
   for (const [propName, propSchema] of Object.entries(schema.properties || {})) {
     const isDiscriminator = !!variantOpts && variantOpts.property === propName;
     let tsTypeStr;
+    let descriptor;
     let nullable;
     let isRequired;
     if (isDiscriminator) {
       tsTypeStr = JSON.stringify(variantOpts.literal);
+      descriptor = { kind: "literal", value: variantOpts.literal };
       nullable = false;
       isRequired = true;
     } else {
-      tsTypeStr = tsType(registry, propSchema, name + typeName(propName)).type;
+      const t = tsType(registry, propSchema, name + typeName(propName));
+      tsTypeStr = t.type;
+      descriptor = t.descriptor;
       nullable = propSchema.nullable === true;
       isRequired = required.has(propName);
     }
     props.push({
       keyLiteral: propertyKeyLiteral(propName),
       tsType: tsTypeStr,
+      descriptor,
       required: isRequired,
       nullable,
       description: propSchema.description || null,
@@ -102,16 +108,17 @@ function registerMergedAllOf(registry, name, schema, variantOpts) {
 function registerUnionAlias(registry, name, schema) {
   if (registry.models.has(name)) return;
   const variants = schema.oneOf || schema.anyOf || [];
-  const memberTypes = variants.map((variant, index) => {
+  const members = variants.map((variant, index) => {
     const variantRawName = nameOf(variant);
     const hint = name + (variantRawName ? typeName(variantRawName) : `Variant${index + 1}`);
-    return tsType(registry, variant, hint).type;
+    return tsType(registry, variant, hint);
   });
   addModel(registry, name, {
     name,
     kind: "alias",
     description: schema.description || null,
-    targetType: memberTypes.length ? memberTypes.join(" | ") : "unknown",
+    targetType: members.length ? members.map((m) => m.type).join(" | ") : "unknown",
+    targetDescriptor: members.length ? { kind: "union", members: members.map((m) => m.descriptor) } : { kind: "unknown" },
   });
 }
 
@@ -128,46 +135,50 @@ function primitiveTsType(s) {
   return null;
 }
 
-// Maps a schema appearing in a property/parameter/array-item position to a TS type string,
-// registering any newly-discovered named model along the way. `hintName` is only used if an
-// inline (non-named) schema needs to be turned into its own named model.
+// Maps a schema appearing in a property/parameter/array-item position to a TS type string plus
+// its structural descriptor (see this file's header comment), registering any newly-discovered
+// named model along the way. `hintName` is only used if an inline (non-named) schema needs to be
+// turned into its own named model.
 export function tsType(registry, schema, hintName) {
   const s = schema || {};
 
   const name = nameOf(s);
-  if (name) return { type: typeName(name) };
+  if (name) {
+    const n = typeName(name);
+    return { type: n, descriptor: { kind: "ref", refName: n } };
+  }
 
   const kind = kindOf(s);
   if (kind === "Enum") {
     registerEnum(registry, hintName, s);
-    return { type: hintName };
+    return { type: hintName, descriptor: { kind: "ref", refName: hintName } };
   }
   if (kind === "OneOf" || kind === "AnyOf") {
     registerUnionAlias(registry, hintName, s);
-    return { type: hintName };
+    return { type: hintName, descriptor: { kind: "ref", refName: hintName } };
   }
   if (kind === "AllOf") {
     registerMergedAllOf(registry, hintName, s);
-    return { type: hintName };
+    return { type: hintName, descriptor: { kind: "ref", refName: hintName } };
   }
   if (kind === "Array") {
     const itemType = tsType(registry, s.items || {}, hintName + "Item");
-    return { type: `${itemType.type}[]`, isArray: true };
+    return { type: `${itemType.type}[]`, descriptor: { kind: "array", item: itemType.descriptor } };
   }
   if (kind === "Object") {
     registerInterface(registry, hintName, s);
-    return { type: hintName };
+    return { type: hintName, descriptor: { kind: "ref", refName: hintName } };
   }
   if (kind === "Map") {
     if (s.additionalProperties && typeof s.additionalProperties === "object") {
       const valueType = tsType(registry, s.additionalProperties, hintName + "Value");
-      return { type: `Record<string, ${valueType.type}>` };
+      return { type: `Record<string, ${valueType.type}>`, descriptor: { kind: "record", value: valueType.descriptor } };
     }
-    return { type: "Record<string, unknown>" };
+    return { type: "Record<string, unknown>", descriptor: { kind: "record", value: null } };
   }
   const prim = primitiveTsType(s);
-  if (prim) return { type: prim };
-  return { type: "unknown" };
+  if (prim) return { type: prim, descriptor: { kind: "primitive", type: prim } };
+  return { type: "unknown", descriptor: { kind: "unknown" } };
 }
 
 function registerTopLevel(registry, name, schema, variantOpts) {
@@ -186,7 +197,13 @@ function registerTopLevel(registry, name, schema, variantOpts) {
   }
   if (kind === "Array") {
     const itemType = tsType(registry, schema.items || {}, name + "Item");
-    addModel(registry, name, { name, kind: "alias", targetType: `${itemType.type}[]`, description: schema.description || null });
+    addModel(registry, name, {
+      name,
+      kind: "alias",
+      targetType: `${itemType.type}[]`,
+      targetDescriptor: { kind: "array", item: itemType.descriptor },
+      description: schema.description || null,
+    });
     return;
   }
   if (kind === "Object") {
@@ -196,15 +213,33 @@ function registerTopLevel(registry, name, schema, variantOpts) {
   if (kind === "Map") {
     if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
       const valueType = tsType(registry, schema.additionalProperties, name + "Value");
-      addModel(registry, name, { name, kind: "alias", targetType: `Record<string, ${valueType.type}>`, description: schema.description || null });
+      addModel(registry, name, {
+        name,
+        kind: "alias",
+        targetType: `Record<string, ${valueType.type}>`,
+        targetDescriptor: { kind: "record", value: valueType.descriptor },
+        description: schema.description || null,
+      });
     } else {
-      addModel(registry, name, { name, kind: "alias", targetType: "Record<string, unknown>", description: schema.description || null });
+      addModel(registry, name, {
+        name,
+        kind: "alias",
+        targetType: "Record<string, unknown>",
+        targetDescriptor: { kind: "record", value: null },
+        description: schema.description || null,
+      });
     }
     return;
   }
   const prim = primitiveTsType(schema);
   if (prim) {
-    addModel(registry, name, { name, kind: "alias", targetType: prim, description: schema.description || null });
+    addModel(registry, name, {
+      name,
+      kind: "alias",
+      targetType: prim,
+      targetDescriptor: { kind: "primitive", type: prim },
+      description: schema.description || null,
+    });
     return;
   }
   // Fallback: an unrecognized/free-form shape becomes an (empty-ish) interface, mirroring the
@@ -246,8 +281,14 @@ export function buildModelRegistry(root) {
     const mapping = schema.discriminator.mapping || {};
     const nameToLiteral = new Map(Object.entries(mapping).map(([value, ref]) => [ref.split("/").pop(), value]));
 
-    const memberTypes = variants.map((v) => typeName(nameOf(v)));
-    addModel(registry, name, { name, kind: "alias", description: schema.description || null, targetType: memberTypes.join(" | ") });
+    const memberNames = variants.map((v) => typeName(nameOf(v)));
+    addModel(registry, name, {
+      name,
+      kind: "alias",
+      description: schema.description || null,
+      targetType: memberNames.join(" | "),
+      targetDescriptor: { kind: "union", members: memberNames.map((n) => ({ kind: "ref", refName: n })) },
+    });
     discriminatedUnionNames.add(name);
 
     for (const variant of variants) {
@@ -270,7 +311,14 @@ export function buildModelRegistry(root) {
     withResilience(
       `schema "${rawName}"`,
       () => registerTopLevel(registry, name, schemas[rawName], variantInfo.get(name)),
-      () => addModel(registry, name, { name, kind: "alias", targetType: "unknown", description: null })
+      () =>
+        addModel(registry, name, {
+          name,
+          kind: "alias",
+          targetType: "unknown",
+          targetDescriptor: { kind: "unknown" },
+          description: null,
+        })
     );
   }
 

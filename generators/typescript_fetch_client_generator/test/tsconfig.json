@@ -9,5 +9,5 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["generated/**/*.ts", "src/**/*.ts"]
+  "include": ["generated/**/*.ts", "generated-validated/**/*.ts", "src/**/*.ts"]
 }

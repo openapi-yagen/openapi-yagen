@@ -33,6 +33,11 @@ export interface RequestOptions {
   /** JSON-serializable request body; entirely omitted from the request when `undefined`. */
   body?: unknown;
   signal?: AbortSignal;
+  /** Only present when the generator was run with `-v validateResponses=true` - a runtime check
+   * of the parsed response body against the operation's declared response type (see `request()`
+   * below). Absent (not just a no-op function) when validation is off, so that mode has zero
+   * runtime cost beyond the property being `undefined`. */
+  validate?: (value: unknown) => boolean;
 }
 
 /** Thrown by `request()` whenever the response status is not in the 2xx range. */
@@ -49,6 +54,22 @@ export class ApiError extends Error {
     this.status = status;
     this.statusText = statusText;
     this.body = body;
+  }
+}
+
+/** Thrown by `request()` when `-v validateResponses=true` was used and a 2xx response body
+ * doesn't structurally match its declared TypeScript type - i.e. the server responded successfully
+ * but with a shape the spec doesn't promise. Never thrown when the generator was run without
+ * `validateResponses` (there is no way to construct this error in that build at all - `options.
+ * validate` is simply never set). */
+export class ResponseValidationError extends Error {
+  /** The parsed response body that failed validation. */
+  readonly value: unknown;
+
+  constructor(message: string, value: unknown) {
+    super(message);
+    this.name = "ResponseValidationError";
+    this.value = value;
   }
 }
 
@@ -105,5 +126,11 @@ export async function request<T>(config: ApiClientConfig, options: RequestOption
   const response = await doFetch(url, { method: options.method, headers, body, signal: options.signal });
   const parsed = await parseBody(response);
   if (!response.ok) throw new ApiError(response.status, response.statusText, parsed);
+  if (options.validate && !options.validate(parsed)) {
+    throw new ResponseValidationError(
+      `Response body for ${options.method} ${options.path} does not match the expected type`,
+      parsed
+    );
+  }
   return parsed as T;
 }

@@ -20,6 +20,7 @@
 import { typeName, paramName, operationName, propertyKeyLiteral } from "./naming.js";
 import { tsType } from "./types.js";
 import { collectReferencedModelNames } from "./imports.js";
+import { buildValidationExpr } from "./validation.js";
 import { withResilience } from "./strict.js";
 
 // Resolves a schema to a TS type string usable as an HTTP wire value (path/header/query scalar),
@@ -134,21 +135,35 @@ function buildRequestBody(registry, hintBase, requestBody) {
 }
 
 function buildResponse(registry, hintBase, responses) {
-  if (!responses) return { tsType: "void", statusCode: null };
+  if (!responses) return { tsType: "void", statusCode: null, descriptor: null };
   const codes = Object.keys(responses)
     .filter((c) => /^2\d\d$/.test(c))
     .sort();
   const codeKey = codes[0] || (responses["default"] ? "default" : null);
-  if (!codeKey) return { tsType: "void", statusCode: null };
+  if (!codeKey) return { tsType: "void", statusCode: null, descriptor: null };
   const content = (responses[codeKey].content || {})["application/json"];
-  if (!content) return { tsType: "void", statusCode: codeKey };
+  if (!content) return { tsType: "void", statusCode: codeKey, descriptor: null };
   const t = tsType(registry, content.schema || {}, hintBase + "Response");
-  return { tsType: t.type, statusCode: codeKey };
+  return { tsType: t.type, statusCode: codeKey, descriptor: t.descriptor };
+}
+
+// When `validateResponses` is enabled, builds the expression passed as request()'s `validate`
+// argument for a response: a direct reference to the response type's own is<Name> guard when it's
+// a named model (the common case - cheapest and most readable generated code), or an inline arrow
+// function built from the descriptor for an anonymous/inline response schema (e.g. an inline
+// `{type: array, items: {$ref: ...}}` with no named schema of its own - still perfectly capable of
+// referencing other models' guards for its nested items, since buildValidationExpr recurses).
+function buildResponseValidatorExpr(response) {
+  if (!response.descriptor || response.tsType === "void") return null;
+  if (response.descriptor.kind === "ref") return `is${response.descriptor.refName}`;
+  return `(value: unknown): boolean => ${buildValidationExpr(response.descriptor, "value")}`;
 }
 
 // Returns a Map<tag, { tagClass, propertyName, operations: [...], modelImports: [...] }> in
-// path-declaration order.
-export function collectOperationsByTag(registry) {
+// path-declaration order. `validateResponses` mirrors the generator.yml variable of the same name
+// - only when true does every operation get a precomputed response.validatorExpr (see above) and
+// the tag group's modelImports include the guard functions referenced by generated validators.
+export function collectOperationsByTag(registry, validateResponses) {
   const groups = new Map();
   for (const op of collectOperations()) {
     // TRACE is rejected outright by the Fetch spec (browsers refuse to send it) - a generated
@@ -194,6 +209,8 @@ export function collectOperationsByTag(registry) {
         ];
         for (const m of collectReferencedModelNames(referencedTypeStrings, registry, null)) group.modelImportsSet.add(m);
 
+        const validatorExpr = validateResponses ? buildResponseValidatorExpr(response) : null;
+
         group.operations.push({
           name: opName,
           method: op.method.toUpperCase(),
@@ -208,7 +225,7 @@ export function collectOperationsByTag(registry) {
           hasBody: !!body,
           optionsFields,
           optionsRequired,
-          response,
+          response: { ...response, validatorExpr, hasValidator: validatorExpr !== null },
         });
       },
       () => {} // permissive mode: drop this operation, keep the rest of the group as-is

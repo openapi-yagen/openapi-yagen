@@ -23,6 +23,7 @@ system to parameterize, and the output layout below is fixed.
 |--------------------|----------|-------------|
 | `strict`           | no (default `true`) | `true`: an unsupported schema/operation aborts generation with an error. `false`: skip it with a printed warning and generate everything else - useful for large real-world specs (see "Known limitations" below). |
 | `importExtension`  | no (default `""`) | Suffix appended to every relative import between generated files (`from "./Pet"` vs `from "./Pet.js"`). The default (extensionless) works out of the box with every common bundler/dev-server (Vite, webpack, esbuild, Next.js, Angular CLI, SvelteKit) and `tsc`'s `"bundler"` module resolution. Set to `.js` if your build uses Node's ESM-strict resolution (`"moduleResolution": "NodeNext"`/`"Node16"`), which requires the *compiled* output extension even inside `.ts` source. |
+| `validateResponses` | no (default `false`) | `false`: response bodies are trusted as-is (`JSON.parse(...) as T`), zero runtime footprint. `true`: also generate a recursive type-guard function per schema (`isPet`, `isPetStatus`, `isShape`, ...) and have every client method validate its response against one before returning, throwing `ResponseValidationError` on a mismatch - see "Response validation" below. |
 
 ## Output layout
 
@@ -107,11 +108,44 @@ schema), the discriminator property on each variant is typed as its literal valu
 with inline variants) is still a perfectly usable TS union - narrow it with `typeof`, `in`, or
 your own property checks instead of a single discriminator.
 
-**Trade-off**: there is no runtime validation that a `JSON.parse`'d response body actually matches
-its declared TS type - same as most real-world TS OpenAPI generators, and the only option
-consistent with "zero third-party runtime dependencies" (a real validator would need either a
-hand-rolled per-union check or a disallowed dependency like `zod`). A non-2xx HTTP status always
-throws `ApiError` regardless of body shape; a mismatched-shape 2xx response does not.
+**By default**, there is no runtime validation that a `JSON.parse`'d response body actually matches
+its declared TS type - same as most real-world TS OpenAPI generators, and the cheapest option
+consistent with "zero third-party runtime dependencies." A non-2xx HTTP status always throws
+`ApiError` regardless of body shape; a mismatched-shape 2xx response does not, unless you opt into
+the next section.
+
+## Response validation (opt-in)
+
+Set `-v validateResponses=true` to additionally generate a recursive type-guard function per
+schema - `export function isPet(value: unknown): value is Pet`, and likewise `isPetStatus`,
+`isShape`, `isPets`, etc. Every client method calls the guard matching its own response type
+before returning; if the parsed body doesn't structurally match, it throws `ResponseValidationError`
+instead of returning data that only *looks* like it has the right type:
+
+```ts
+import { ResponseValidationError } from "./out/runtime";
+
+try {
+  const pet = await api.pets.getPetById("123");
+} catch (err) {
+  if (err instanceof ResponseValidationError) {
+    // the server returned 2xx, but the body doesn't match Pet - err.value is the raw parsed body
+  }
+}
+```
+
+The guards are hand-generated structural checks (`typeof`/`Array.isArray`/property presence,
+recursing into nested objects, arrays, and union members) - still zero third-party dependencies,
+just more generated code and one extra function call per response. They're also plain exported
+functions, usable on their own outside the client wherever you have an `unknown` value to narrow
+(e.g. data from `localStorage`, a webhook payload, or a different API entirely).
+
+This is off by default because it's a real trade-off, not a strict improvement: every model file
+gets bigger (one guard function alongside its type), and every response pays for a recursive
+structural walk. Turn it on when you don't fully trust the server to honor its own spec (a
+third-party API, a backend team that iterates faster than its OpenAPI doc, a public API you don't
+control) or while integrating against a not-yet-stable backend; leave it off once you trust the
+contract, or for a high-volume internal API where the extra walk isn't worth paying on every call.
 
 ## Formatting generated sources
 
@@ -145,9 +179,10 @@ npx prettier --write "out/**/*.ts"
 - `string` schemas with format `date`/`date-time`/`byte`/`binary` all map to plain `string` - no
   `Date` object, no base64/binary decoding.
 - `integer`/`number` (any format) map to `number` - values beyond 2^53 lose precision.
-- No runtime validation of response bodies against generated types (see "oneOf/anyOf support"
-  above).
-- `uniqueItems: true` is not enforced at the type level (still emitted as `T[]`, not `Set<T>`).
+- No runtime validation of response bodies against generated types unless `-v
+  validateResponses=true` (see "Response validation" above) - off by default.
+- `uniqueItems: true` is not enforced at the type level (still emitted as `T[]`, not `Set<T>`),
+  including by the `validateResponses` guards.
 - Generated files are not run through a formatter - see "Formatting generated sources" above.
 
 ## Try it

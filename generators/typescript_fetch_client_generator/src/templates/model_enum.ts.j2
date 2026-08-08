@@ -5,3 +5,7 @@ export enum {{ model.name }} {
   {{ e.memberName }} = {{ e.valueLiteral }},
 {% endfor -%}
 }
+{% if validateResponses %}
+
+{{ guardSource }}
+{% endif -%}

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Regenerates the TypeScript client from resources/kitchensink.yaml via the openapi-yagen CLI,
-// twice - see the two execFileSync calls below for why. OPENAPI_YAGEN points at a prebuilt binary,
+// three times - see the three execFileSync calls below for why. OPENAPI_YAGEN points at a prebuilt binary,
 // falling back to this checkout's own dist/openapi-yagen (mirrors
 // generators/kotlin_ktor_client_generator/test/build.gradle.kts's same convention) - make sure
 // that's up to date (./build-musl.sh or a local cmake --build) before relying on the fallback, or
@@ -41,5 +41,28 @@ execFileSync(
 execFileSync(
   bin,
   ["g", "-o", path.join(__dirname, "..", "generated"), "-g", generatorSrc, "-c", spec, "-v", "importExtension=.js"],
+  { stdio: "inherit" }
+);
+
+// 3. importExtension=".js" + validateResponses=true - a separate output tree (not the default)
+//    so the two `validateResponses` states can be regression-tested side by side: test/src/*.test.ts
+//    exercises the default (off) behavior against ../generated/, and
+//    test/src/validated/*.test.ts exercises the opt-in runtime-guard behavior against
+//    ../../generated-validated/.
+execFileSync(
+  bin,
+  [
+    "g",
+    "-o",
+    path.join(__dirname, "..", "generated-validated"),
+    "-g",
+    generatorSrc,
+    "-c",
+    spec,
+    "-v",
+    "importExtension=.js",
+    "-v",
+    "validateResponses=true",
+  ],
   { stdio: "inherit" }
 );

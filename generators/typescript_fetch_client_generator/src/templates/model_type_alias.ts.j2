@@ -1,6 +1,16 @@
+{% if validateResponses -%}
+{% for m in modelImports -%}
+import { type {{ m }}, is{{ m }} } from "./{{ m }}{{ importExt }}";
+{% endfor -%}
+{% else -%}
 {% for m in modelImports -%}
 import type { {{ m }} } from "./{{ m }}{{ importExt }}";
 {% endfor -%}
+{% endif -%}
 {% if model.description %}/** {{ model.description }} */
 {% endif -%}
 export type {{ model.name }} = {{ model.targetType }};
+{% if validateResponses %}
+
+{{ guardSource }}
+{% endif -%}

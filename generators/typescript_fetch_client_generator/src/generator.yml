@@ -32,3 +32,13 @@ variables:
       resolution ("moduleResolution": "NodeNext"/"Node16"), which requires the *compiled* output
       extension even inside .ts source.
     defaultValue: ""
+  - name: validateResponses
+    description: >-
+      When "false" (default), response bodies are trusted as-is (`JSON.parse(...) as T`) - the
+      generated code has zero runtime footprint beyond parsing JSON. Set to "true" to additionally
+      generate a recursive type-guard function per schema (isPet, isPetStatus, isShape, ...) and
+      have every client method call the one matching its response type before returning, throwing
+      ResponseValidationError (see runtime.ts) if the server's response doesn't actually match the
+      declared TypeScript type. Still zero third-party dependencies either way - the guards are
+      hand-generated structural checks, not a validation library.
+    defaultValue: "false"
