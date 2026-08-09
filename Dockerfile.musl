@@ -2,7 +2,7 @@
 FROM alpine:3.21
 
 RUN set -x && \
-    apk add cmake py3-pip g++ make ninja-build git upx && \
+    apk add cmake py3-pip g++ make samurai git upx && \
     pip install conan --break-system-packages
 
 RUN --mount=type=cache,target=/root/.conan2 \
@@ -19,6 +19,6 @@ COPY . /sources/
 
 RUN --mount=type=cache,target=/root/.conan2 set -x && \
     cd /build && \
-    cmake /sources -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build . -- -j 8 && \
+    cmake /sources -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release -G Ninja && \
+    cmake --build . && \
     upx --best --lzma cli/openapi-yagen
