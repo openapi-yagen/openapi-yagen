@@ -124,6 +124,56 @@ function buildPathExpr(pathStr, pathParams) {
   );
 }
 
+// Turns an operation's already-resolved `security` (see collectOperations() in
+// docs/javascript-api.md) into the object literal passed as request()'s `auth` option (see
+// runtime.ts's AuthRequirement), or null if the operation needs no auth. `security` is an array of
+// alternative requirement objects (OR between entries, AND between the scheme names within one) -
+// only a single alternative with a single scheme is supported (the common case: one way to
+// authenticate) - a client-side ApiClientConfig.auth field staying simple (one bearer/apiKey
+// provider, not an array) matters more here than full spec coverage; see also the Kotlin server
+// generator's buildAuthParams, which supports AND (multiple simultaneous schemes) since a Kotlin
+// handler parameter list has no such ergonomic cost.
+function buildAuthLiteral(op) {
+  const reqs = op.security || [];
+  if (reqs.length === 0) return null;
+  if (reqs.length > 1) {
+    throw Error(
+      `<b1c2d3e4> Operation has ${reqs.length} alternative security requirements (OR) - only a single ` +
+        `requirement is supported`
+    );
+  }
+  const schemeNames = Object.keys(reqs[0]);
+  if (schemeNames.length === 0) return null; // an empty requirement object = anonymous access is allowed
+  if (schemeNames.length > 1) {
+    throw Error(
+      `<c2d3e4f5> Operation requires ${schemeNames.length} security schemes simultaneously (AND) - only a ` +
+        `single scheme per operation is supported`
+    );
+  }
+  const schemeName = schemeNames[0];
+  const scheme = ((schema.components && schema.components.securitySchemes) || {})[schemeName];
+  if (!scheme) {
+    throw Error(`<d3e4f5a6> security references scheme "${schemeName}", not declared in components.securitySchemes`);
+  }
+  if (scheme.type === "http" && String(scheme.scheme || "").toLowerCase() === "bearer") {
+    return `{ kind: "bearer" }`;
+  }
+  if (scheme.type === "apiKey") {
+    const loc = scheme.in;
+    if (loc !== "header" && loc !== "query") {
+      throw Error(
+        `<e4f5a6b7> apiKey security scheme "${schemeName}" has an unsupported location "in: ${loc}" - a ` +
+          `browser-first fetch client can only send it as a header or query parameter`
+      );
+    }
+    return `{ kind: "apiKey", location: ${JSON.stringify(loc)}, name: ${JSON.stringify(scheme.name)} }`;
+  }
+  throw Error(
+    `<f5a6b7c8> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer and ` +
+      `apiKey are currently supported`
+  );
+}
+
 // Only `application/json` bodies are handled; anything else is silently ignored (see README's
 // Known Limitations). `required` correctly defaults to OpenAPI 3.0's actual default (`false` when
 // absent).
@@ -211,6 +261,21 @@ export function collectOperationsByTag(registry, validateResponses) {
 
         const validatorExpr = validateResponses ? buildResponseValidatorExpr(response) : null;
 
+        // An unsupported security scheme (oauth2/openIdConnect/cookie-apiKey), multiple OR
+        // alternatives, or multiple simultaneous (AND) schemes only drops the auth wiring for this
+        // one operation (non-strict mode) - not the whole operation, unlike the outer
+        // withResilience this block runs inside of.
+        let authLiteral = null;
+        withResilience(
+          `security for operation ${op.method.toUpperCase()} ${op.path}`,
+          () => {
+            authLiteral = buildAuthLiteral(op);
+          },
+          () => {
+            authLiteral = null;
+          }
+        );
+
         group.operations.push({
           name: opName,
           method: op.method.toUpperCase(),
@@ -225,6 +290,7 @@ export function collectOperationsByTag(registry, validateResponses) {
           hasBody: !!body,
           optionsFields,
           optionsRequired,
+          authLiteral,
           response: { ...response, validatorExpr, hasValidator: validatorExpr !== null },
         });
       },

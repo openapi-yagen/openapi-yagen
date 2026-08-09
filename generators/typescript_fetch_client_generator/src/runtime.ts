@@ -12,6 +12,17 @@
  * once at construction goes stale. */
 export type HeaderProvider = Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>);
 
+/** Supplies credentials for whichever operations declare a `security` requirement (see each
+ * generated method's doc comment / the spec's `components.securitySchemes`) - a callback (not a
+ * plain string) for the same reason as `HeaderProvider`: a token can expire and needs re-fetching.
+ * Provide whichever of `bearer`/`apiKey` the spec's securitySchemes actually use; an operation
+ * whose required kind isn't provided throws instead of silently sending an unauthenticated
+ * request. */
+export type AuthProvider = {
+  bearer?: () => string | Promise<string>;
+  apiKey?: () => string | Promise<string>;
+};
+
 export interface ApiClientConfig {
   /** Base URL every operation's path is resolved against, e.g. "https://api.example.com/v1". */
   baseUrl: string;
@@ -21,6 +32,17 @@ export interface ApiClientConfig {
   fetch?: typeof fetch;
   /** Headers merged into every request (a per-operation header of the same name wins). */
   headers?: HeaderProvider;
+  /** Credentials for operations declared with a `security` requirement - see AuthProvider. */
+  auth?: AuthProvider;
+}
+
+/** Which securityScheme an operation needs (see the spec's `security`/`components.securitySchemes`)
+ * - generated per-operation from those, never written by hand. `location`/`name` are only set for
+ * `kind: "apiKey"` (an `http`/`bearer` scheme always targets the Authorization header). */
+export interface AuthRequirement {
+  kind: "bearer" | "apiKey";
+  location?: "header" | "query";
+  name?: string;
 }
 
 export interface RequestOptions {
@@ -38,6 +60,9 @@ export interface RequestOptions {
    * below). Absent (not just a no-op function) when validation is off, so that mode has zero
    * runtime cost beyond the property being `undefined`. */
   validate?: (value: unknown) => boolean;
+  /** Only present when the spec declares a non-empty `security` for this operation - see
+   * AuthRequirement/ApiClientConfig.auth. */
+  auth?: AuthRequirement;
 }
 
 /** Thrown by `request()` whenever the response status is not in the 2xx range. */
@@ -103,12 +128,42 @@ async function parseBody(response: Response): Promise<unknown> {
   }
 }
 
+/** Resolves `options.auth` (if the operation needs it) against `config.auth`, applying the
+ * credential either as an Authorization header (bearer) or wherever the apiKey scheme's `in` says
+ * (header/query - see AuthRequirement; a `cookie`-located apiKey scheme is rejected at generation
+ * time, see the generator's operations.js). Mutates `headers` and returns a possibly-extended
+ * `query` (an apiKey in query position can't be added to `headers`, so it's merged into the query
+ * object instead, before buildUrl turns it into the URL). */
+async function applyAuth(
+  config: ApiClientConfig,
+  options: RequestOptions,
+  headers: Record<string, string>
+): Promise<RequestOptions["query"]> {
+  if (!options.auth) return options.query;
+  const { kind } = options.auth;
+  const provide = config.auth?.[kind];
+  if (!provide) {
+    throw new Error(
+      `${options.method} ${options.path} requires "${kind}" authentication, but ApiClientConfig.auth.${kind} was not provided`
+    );
+  }
+  const value = await provide();
+  if (kind === "bearer") {
+    headers["Authorization"] = `Bearer ${value}`;
+    return options.query;
+  }
+  if (options.auth.location === "query") {
+    return { ...options.query, [options.auth.name!]: value };
+  }
+  headers[options.auth.name!] = value;
+  return options.query;
+}
+
 /** Performs one HTTP request and returns the parsed JSON response body as `T`. Throws `ApiError`
  * for any non-2xx response - the parsed (or raw-text) body is still attached to the error, so
  * callers can inspect it (e.g. a structured error payload) without a second request. */
 export async function request<T>(config: ApiClientConfig, options: RequestOptions): Promise<T> {
   const doFetch = config.fetch ?? fetch;
-  const url = buildUrl(config.baseUrl, options.path, options.query);
 
   const headers: Record<string, string> = { ...(await resolveHeaders(config.headers)) };
   if (options.headers) {
@@ -116,6 +171,9 @@ export async function request<T>(config: ApiClientConfig, options: RequestOption
       if (value !== undefined) headers[key] = value;
     }
   }
+
+  const query = await applyAuth(config, options, headers);
+  const url = buildUrl(config.baseUrl, options.path, query);
 
   let body: string | undefined;
   if (options.body !== undefined) {

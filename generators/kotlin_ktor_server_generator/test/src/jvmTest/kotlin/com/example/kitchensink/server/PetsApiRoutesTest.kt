@@ -39,8 +39,8 @@ class PetsApiRoutesTest {
         assertTrue(pets.isEmpty())
     }
 
-    // README's "Known limitations": numeric parameter conversion throws NumberFormatException,
-    // not BadRequestException - still mapped to 400 here, but via a separate StatusPages entry.
+    // Validation.kt wraps the NumberFormatException from a non-numeric value as a
+    // BadRequestException itself - no separate StatusPages entry needed (see support/TestApp.kt).
     @Test
     fun `listPets with a non-numeric limit returns 400`() = testApplication {
         installKitchenSinkApp()
@@ -87,6 +87,50 @@ class PetsApiRoutesTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
+    // Recursive validate(): an array-of-primitive-with-constraints property (nicknames: string
+    // items with maxLength) gets each element checked, not just the model's own direct fields.
+    @Test
+    fun `createPet with a nickname longer than its item maxLength returns 400`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Fido","nicknames":["${"x".repeat(11)}"]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `createPet with all nicknames within the item maxLength returns 201`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Fido","nicknames":["Fi","Do"]}""")
+        }
+        assertEquals(HttpStatusCode.Created, response.status)
+    }
+
+    // Recursive validate(): an array-of-object property (ratings: Rating items) calls each
+    // element's own generated validate() - Rating's score is constrained to 1..5.
+    @Test
+    fun `createPet with a nested rating outside its min-max range returns 400`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Fido","ratings":[{"score":9,"label":"ok"}]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `createPet with a valid nested rating returns 201`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Fido","ratings":[{"score":4,"label":"good"}]}""")
+        }
+        assertEquals(HttpStatusCode.Created, response.status)
+    }
+
     @Test
     fun `getPetById for a known id returns 200`() = testApplication {
         installKitchenSinkApp()
@@ -108,15 +152,29 @@ class PetsApiRoutesTest {
     @Test
     fun `deletePet for a known id returns 204`() = testApplication {
         installKitchenSinkApp()
-        val response = client.delete("/pets/1")
+        val response = client.delete("/pets/1") {
+            header("Authorization", "Bearer secret-token")
+        }
         assertEquals(HttpStatusCode.NoContent, response.status)
     }
 
     @Test
     fun `deletePet for an unknown id returns 404`() = testApplication {
         installKitchenSinkApp()
-        val response = client.delete("/pets/does-not-exist")
+        val response = client.delete("/pets/does-not-exist") {
+            header("Authorization", "Bearer secret-token")
+        }
         assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    // Wired from the spec's `security: [{bearerAuth: []}]` on this operation (see
+    // components.securitySchemes.bearerAuth in kitchensink.yaml) - proves the generated handler
+    // actually requires the token, not just accepts it when present.
+    @Test
+    fun `deletePet without an Authorization header returns 400`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.delete("/pets/1")
+        assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
     @Test
@@ -129,12 +187,26 @@ class PetsApiRoutesTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
+    // Wired from the spec's `security: [{apiKeyAuth: []}]` on this operation (see
+    // components.securitySchemes.apiKeyAuth, an apiKey scheme in the X-Api-Key header).
+    @Test
+    fun `ratePet without the X-Api-Key header returns 400`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets/1/ratings") {
+            contentType(ContentType.Application.Json)
+            header("X-Request-Id", "req-1")
+            setBody("""{"score":3,"label":"ok"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
     @Test
     fun `ratePet with a score outside its min-max range returns 400`() = testApplication {
         installKitchenSinkApp()
         val response = client.post("/pets/1/ratings") {
             contentType(ContentType.Application.Json)
             header("X-Request-Id", "req-1")
+            header("X-Api-Key", "test-key")
             setBody("""{"score":9,"label":"ok"}""")
         }
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -146,6 +218,7 @@ class PetsApiRoutesTest {
         val response = client.post("/pets/1/ratings") {
             contentType(ContentType.Application.Json)
             header("X-Request-Id", "req-1")
+            header("X-Api-Key", "test-key")
             setBody("""{"score":3,"label":"NOT-lowercase"}""")
         }
         assertEquals(HttpStatusCode.BadRequest, response.status)
@@ -157,6 +230,7 @@ class PetsApiRoutesTest {
         val response = client.post("/pets/1/ratings") {
             contentType(ContentType.Application.Json)
             header("X-Request-Id", "req-1")
+            header("X-Api-Key", "test-key")
             setBody("""{"score":4,"label":"good"}""")
         }
         assertEquals(HttpStatusCode.NoContent, response.status)

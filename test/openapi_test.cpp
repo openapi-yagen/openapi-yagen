@@ -345,6 +345,55 @@ TEST_CASE("Collect operations", "[openapi]")
     REQUIRE(showPetById->parameters[0]->required == true);
 }
 
+TEST_CASE("Collect operations resolves effective security (operation overrides, else document default)", "[openapi]")
+{
+    auto doc = parseDoc(R"(
+security:
+  - bearerAuth: []
+paths:
+  /inherits:
+    get:
+      operationId: inheritsDocumentDefault
+      responses:
+        "200": { description: ok }
+  /overrides:
+    get:
+      operationId: overridesWithApiKey
+      security:
+        - apiKeyAuth: []
+      responses:
+        "200": { description: ok }
+  /optsOut:
+    get:
+      operationId: optsOutOfAuth
+      security: []
+      responses:
+        "200": { description: ok }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+    apiKeyAuth: { type: apiKey, name: X-Api-Key, in: header }
+)");
+    auto ops = collectOperations(doc);
+    REQUIRE(ops.size() == 3);
+
+    auto find = [&](const string& id) {
+        return *std::find_if(ops.begin(), ops.end(), [&](const auto& op) { return op.operationId == id; });
+    };
+
+    auto inherits = find("inheritsDocumentDefault");
+    REQUIRE(inherits.security.size() == 1);
+    REQUIRE(inherits.security[0].contains("bearerAuth"));
+
+    auto overrides = find("overridesWithApiKey");
+    REQUIRE(overrides.security.size() == 1);
+    REQUIRE(overrides.security[0].contains("apiKeyAuth"));
+    REQUIRE_FALSE(overrides.security[0].contains("bearerAuth"));
+
+    auto optsOut = find("optsOutOfAuth");
+    REQUIRE(optsOut.security.empty());
+}
+
 TEST_CASE("Merge path-level and operation-level parameters", "[openapi]")
 {
     auto doc = parseDoc(R"(

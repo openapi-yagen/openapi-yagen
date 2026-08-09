@@ -42,6 +42,9 @@ export class {{ tagClass }} {
       body: options.body,
 {% endif -%}
       signal: options.signal,
+{% if op.authLiteral -%}
+      auth: {{ op.authLiteral }},
+{% endif -%}
 {% if op.response.hasValidator -%}
       validate: {{ op.response.validatorExpr }},
 {% endif -%}

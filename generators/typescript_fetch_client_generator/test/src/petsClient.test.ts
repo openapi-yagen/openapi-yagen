@@ -45,11 +45,35 @@ test("createPet sends the body as JSON with a Content-Type header", async () => 
 
 test("ratePet sends a required header", async () => {
   const { fetch, calls } = createFetchStub(() => ({ status: 204 }));
-  await new PetsClient({ baseUrl: "https://example.test", fetch }).ratePet("1", {
+  await new PetsClient({ baseUrl: "https://example.test", fetch, auth: { apiKey: () => "test-key" } }).ratePet("1", {
     xRequestId: "req-42",
     body: { score: 5, label: "great" },
   });
   assert.equal(calls[0]!.headers["x-request-id"], "req-42");
+});
+
+// Wired from the spec's `security: [{apiKeyAuth: []}]` on this operation (see
+// components.securitySchemes.apiKeyAuth, an apiKey scheme in the X-Api-Key header).
+test("ratePet applies the configured apiKey as the scheme's declared header", async () => {
+  const { fetch, calls } = createFetchStub(() => ({ status: 204 }));
+  await new PetsClient({ baseUrl: "https://example.test", fetch, auth: { apiKey: () => "my-api-key" } }).ratePet("1", {
+    xRequestId: "req-42",
+    body: { score: 5, label: "great" },
+  });
+  assert.equal(calls[0]!.headers["x-api-key"], "my-api-key");
+});
+
+test("ratePet without an apiKey configured on ApiClientConfig throws before sending a request", async () => {
+  const { fetch, calls } = createFetchStub(() => ({ status: 204 }));
+  await assert.rejects(
+    () =>
+      new PetsClient({ baseUrl: "https://example.test", fetch }).ratePet("1", {
+        xRequestId: "req-42",
+        body: { score: 5, label: "great" },
+      }),
+    /requires "apiKey" authentication/
+  );
+  assert.equal(calls.length, 0);
 });
 
 test("a non-2xx response throws ApiError with the parsed body and status", async () => {
@@ -72,7 +96,26 @@ test("a non-2xx response throws ApiError with the parsed body and status", async
 
 test("deletePet against a 204 No Content response resolves without error", async () => {
   const { fetch } = createFetchStub(() => ({ status: 204 }));
-  await assert.doesNotReject(() => new PetsClient({ baseUrl: "https://example.test", fetch }).deletePet("1"));
+  await assert.doesNotReject(() =>
+    new PetsClient({ baseUrl: "https://example.test", fetch, auth: { bearer: () => "secret-token" } }).deletePet("1")
+  );
+});
+
+// Wired from the spec's `security: [{bearerAuth: []}]` on this operation (see
+// components.securitySchemes.bearerAuth in kitchensink.yaml).
+test("deletePet sends the configured bearer token as an Authorization header", async () => {
+  const { fetch, calls } = createFetchStub(() => ({ status: 204 }));
+  await new PetsClient({ baseUrl: "https://example.test", fetch, auth: { bearer: () => "secret-token" } }).deletePet("1");
+  assert.equal(calls[0]!.headers["authorization"], "Bearer secret-token");
+});
+
+test("deletePet without a bearer token configured on ApiClientConfig throws before sending a request", async () => {
+  const { fetch, calls } = createFetchStub(() => ({ status: 204 }));
+  await assert.rejects(
+    () => new PetsClient({ baseUrl: "https://example.test", fetch }).deletePet("1"),
+    /requires "bearer" authentication/
+  );
+  assert.equal(calls.length, 0);
 });
 
 test("a rotating bearer token (HeaderProvider callback) is re-resolved on every request", async () => {

@@ -11,20 +11,47 @@ import io.ktor.server.routing.RoutingCall
 fun RoutingCall.requirePathParam(name: String): String =
     pathParameters[name] ?: throw MissingRequestParameterException(name)
 
-fun <T> RoutingCall.pathParamAs(name: String, convert: (String) -> T): T =
-    convert(requirePathParam(name))
+// convert() (String.toInt/toLong/toFloat/toDouble) throws NumberFormatException on a
+// non-numeric value - rethrown here as the same BadRequestException quality as a constraint
+// violation, instead of a bare, unhandled NumberFormatException.
+private fun <T> convertOrThrow(raw: String, name: String, typeName: String, convert: (String) -> T): T =
+    try {
+        convert(raw)
+    } catch (e: NumberFormatException) {
+        throw BadRequestException("Field \"$name\" is not a valid $typeName")
+    }
 
-fun <T> RoutingCall.queryParamAs(name: String, convert: (String) -> T): T? =
-    request.queryParameters[name]?.let(convert)
+fun <T> RoutingCall.pathParamAs(name: String, typeName: String, convert: (String) -> T): T =
+    convertOrThrow(requirePathParam(name), name, typeName, convert)
 
-fun <T> RoutingCall.requireQueryParamAs(name: String, convert: (String) -> T): T =
-    convert(request.queryParameters[name] ?: throw MissingRequestParameterException(name))
+fun <T> RoutingCall.queryParamAs(name: String, typeName: String, convert: (String) -> T): T? =
+    request.queryParameters[name]?.let { convertOrThrow(it, name, typeName, convert) }
 
-fun <T> RoutingCall.headerParamAs(name: String, convert: (String) -> T): T? =
-    request.headers[name]?.let(convert)
+fun <T> RoutingCall.requireQueryParamAs(name: String, typeName: String, convert: (String) -> T): T =
+    convertOrThrow(request.queryParameters[name] ?: throw MissingRequestParameterException(name), name, typeName, convert)
 
-fun <T> RoutingCall.requireHeaderParamAs(name: String, convert: (String) -> T): T =
-    convert(request.headers[name] ?: throw MissingRequestParameterException(name))
+fun <T> RoutingCall.headerParamAs(name: String, typeName: String, convert: (String) -> T): T? =
+    request.headers[name]?.let { convertOrThrow(it, name, typeName, convert) }
+
+fun <T> RoutingCall.requireHeaderParamAs(name: String, typeName: String, convert: (String) -> T): T =
+    convertOrThrow(request.headers[name] ?: throw MissingRequestParameterException(name), name, typeName, convert)
+
+// Extracts a bearer token from the Authorization header for an `http`/`bearer` securityScheme,
+// stripping the "Bearer " prefix if present (some clients send just the raw token).
+fun RoutingCall.requireBearerToken(headerName: String): String {
+    val raw = request.headers[headerName] ?: throw MissingRequestParameterException(headerName)
+    val prefix = "Bearer "
+    return if (raw.startsWith(prefix, ignoreCase = true)) raw.substring(prefix.length) else raw
+}
+
+// Extracts an apiKey securityScheme's value from wherever its `in` says it lives.
+fun RoutingCall.requireApiKey(location: String, name: String): String =
+    when (location) {
+        "header" -> request.headers[name]
+        "query" -> request.queryParameters[name]
+        "cookie" -> request.cookies[name]
+        else -> throw IllegalStateException("Unsupported apiKey location: $location")
+    } ?: throw MissingRequestParameterException(name)
 
 fun requireMax(value: Number?, max: Double, field: String) {
     if (value != null && value.toDouble() > max) throw BadRequestException("Field \"$field\" must be <= $max")

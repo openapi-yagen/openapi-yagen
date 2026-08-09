@@ -88,6 +88,7 @@ ResolvedOperation resolveOneOperation(const Document& doc, const Str& method, co
     resolved.requestBody = op.requestBody ? derefRequestBody(doc, op.requestBody) : nullptr;
     for (const auto& [status, response] : op.responses)
         resolved.responses[status] = derefResponse(doc, response);
+    resolved.security = op.security.value_or(doc.security);
     return resolved;
 }
 

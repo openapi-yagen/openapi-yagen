@@ -109,4 +109,9 @@ generates into `generators/out/kotlin-client` from `test/resources/petstore.yaml
 
 For a real generate-then-run check exercising every operation, positive and negative, see
 [`test/`](test/) - this generator's own self-contained test suite (see also
-[`../README.md`](../README.md) for the collection-wide convention).
+[`../README.md`](../README.md) for the collection-wide convention). `test/`'s `./gradlew test`
+only runs the JVM target; `./gradlew compileKotlinLinuxX64` (checked in this repo's own CI -
+`.github/workflows/build.yml`'s `kotlin-native-compile-check` job) additionally proves the
+generated code compiles under one concrete Kotlin/Native target - not a check of every platform
+"JVM, Android, iOS/Native, JS, Wasm" claims above, which would need their own toolchains/hosts
+(Xcode for iOS, an Android SDK, ...), just the ordinary-JVM-toolchain-reachable one.

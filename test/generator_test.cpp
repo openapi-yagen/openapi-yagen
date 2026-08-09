@@ -142,6 +142,7 @@ TEST_CASE("Generate exposes kindOf/constraintsOf/nameOf/collectOperations", "[ge
           "  limitParamName: limitParam.name,\n"
           "  limitParamSchemaName: nameOf(limitParam.schema),\n"
           "  limitConstraints: constraintsOf(limitParam.schema),\n"
+          "  firstOpSecurity: JSON.stringify(ops[0].security),\n"
           "}, \"outfile\")" },
         { "generator.yml", readResource("generator.yml") },
     };
@@ -172,6 +173,9 @@ TEST_CASE("Generate exposes kindOf/constraintsOf/nameOf/collectOperations", "[ge
     REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("limitParamName=limit"));
     REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("limitParamSchemaName=null"));
     REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("limitConstraints={maximum=100}"));
+    // petstore.yaml declares no security anywhere - collectOperations() resolves the "inherits
+    // the document default" fallback to an empty list rather than leaving it undefined.
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("firstOpSecurity=[]"));
 }
 
 TEST_CASE("Generate exposes flattenAllOf/resolveDiscriminator/firstSuccessResponse", "[generator]")

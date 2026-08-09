@@ -70,6 +70,8 @@ paths:
     delete:
       operationId: deletePet
       tags: [pets]
+      security:
+        - bearerAuth: []
       parameters:
         - name: petId
           in: path
@@ -83,6 +85,8 @@ paths:
     post:
       operationId: ratePet
       tags: [pets]
+      security:
+        - apiKeyAuth: []
       parameters:
         - name: petId
           in: path
@@ -159,6 +163,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/Shape"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    apiKeyAuth:
+      type: apiKey
+      name: X-Api-Key
+      in: header
   schemas:
     Pet:
       type: object
@@ -190,6 +202,15 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/PetStatus"
+        nicknames:
+          type: array
+          items:
+            type: string
+            maxLength: 10
+        ratings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Rating"
     PetStatus:
       type: string
       enum: [available, pending, sold]

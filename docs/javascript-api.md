@@ -119,14 +119,23 @@ splitPathTemplate("/pets/{petId}/ratings");
 Since `$ref` is already resolved on `schema`, these save you from re-deriving the bookkeeping every
 generator otherwise needs: classifying a schema's shape, extracting its validation keywords,
 recovering the name a resolved schema/parameter/requestBody/response was reached through (there's
-no `$ref` string to read anymore), and merging path-level + operation-level parameters.
+no `$ref` string to read anymore), merging path-level + operation-level parameters, and resolving
+each operation's effective `security` (its own, if declared - even declared empty, meaning "no
+auth" - otherwise the document-level default, per the spec's own inheritance rule).
 
 ```typescript
 kindOf(schema: object): "Object" | "Array" | "Enum" | "AllOf" | "OneOf" | "AnyOf" | "Map" | "Primitive" | "Unknown"
 constraintsOf(schema: object): { minimum?, maximum?, exclusiveMinimum?, exclusiveMaximum?, multipleOf?, minLength?, maxLength?, minItems?, maxItems?, minProperties?, maxProperties?, pattern?, uniqueItems? }
 nameOf(x: object): string | null // null if x is an inline/anonymous definition, never reached via $ref
-collectOperations(): Operation[] // { method, path, operationId, summary, description, tags, parameters, requestBody, responses }
+collectOperations(): Operation[] // { method, path, operationId, summary, description, tags, parameters, requestBody, responses, security }
 ```
+
+`security` is `Array<{ [schemeName: string]: string[] }>` - each entry names a security scheme
+(look it up in `schema.components.securitySchemes` for its `type`/`scheme`/`name`/`in`/... to know
+how to apply it) plus the scopes required for that scheme (non-empty only for `oauth2`/
+`openIdConnect`). An empty array means the operation needs no authentication; multiple entries in
+one array element mean all of those schemes are required together (AND); multiple array elements
+are alternatives (OR) - satisfying any one of them is enough.
 
 ```js
 for (const [name, s] of Object.entries(schema.components.schemas)) {

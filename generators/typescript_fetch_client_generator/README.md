@@ -6,8 +6,10 @@ class per tag with an `async` method per operation.
 
 The generated code owns no HTTP engine, framework state, or hooks - it works unchanged from React,
 Vue, Angular, Svelte, vanilla TS/JS, or Node with a `fetch` polyfill. `fetch` itself can be
-overridden per client instance (for SSR, testing, logging/retry wrappers, etc.), and request
-headers can be a static object or an async callback (for a rotating/expiring bearer token).
+overridden per client instance (for SSR, testing, logging/retry wrappers, etc.), request headers
+can be a static object or an async callback (for a rotating/expiring bearer token), and an
+operation with a spec-declared `security` requirement (`http`/`bearer` or `apiKey`) automatically
+applies the credential from a dedicated `auth` config - see "Authentication" below.
 
 ## Usage
 
@@ -56,6 +58,7 @@ export interface ApiClientConfig {
   baseUrl: string;
   fetch?: typeof fetch;   // override for SSR, testing, or an instrumented wrapper
   headers?: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>);
+  auth?: { bearer?: () => string | Promise<string>; apiKey?: () => string | Promise<string> };
 }
 ```
 
@@ -68,6 +71,27 @@ const api = new ApiClient({
   headers: async () => ({ Authorization: `Bearer ${await getFreshAccessToken()}` }),
 });
 ```
+
+### Authentication (`components.securitySchemes`)
+
+An operation with a non-empty `security` in the spec gets its credential from `auth`, not
+`headers` - the generated method already knows which scheme it needs (and, for `apiKey`, which
+header/query parameter to put it in), so `auth` only needs to supply the raw value:
+
+```ts
+const api = new ApiClient({
+  baseUrl: "https://api.example.com/v1",
+  auth: {
+    bearer: async () => await getFreshAccessToken(),          // http, scheme: bearer
+    apiKey: () => process.env.API_KEY!,                       // apiKey (header or query)
+  },
+});
+```
+
+Calling a method that needs a kind of credential you didn't provide throws immediately (before any
+request is sent), naming which one (`ApiClientConfig.auth.bearer`/`.apiKey`) is missing. `oauth2`/
+`openIdConnect` schemes, an apiKey scheme located `in: cookie`, and an operation with more than one
+simultaneous or alternative `security` requirement aren't supported yet - see "Known limitations".
 
 Every generated method also accepts an `options.signal?: AbortSignal`, so request cancellation
 (e.g. tied to a React `AbortController` cleanup, or a Vue component's unmount) works out of the box.
@@ -183,6 +207,10 @@ npx prettier --write "out/**/*.ts"
   validateResponses=true` (see "Response validation" above) - off by default.
 - `uniqueItems: true` is not enforced at the type level (still emitted as `T[]`, not `Set<T>`),
   including by the `validateResponses` guards.
+- `security` only supports a single scheme, of type `http`/`scheme: bearer` or `apiKey` (`in:
+  header` or `in: query` - not `cookie`) - `oauth2`/`openIdConnect`, multiple schemes required
+  together (AND), and multiple alternative requirements (OR) are a generator error (see
+  "Authentication" above).
 - Generated files are not run through a formatter - see "Formatting generated sources" above.
 
 ## Try it

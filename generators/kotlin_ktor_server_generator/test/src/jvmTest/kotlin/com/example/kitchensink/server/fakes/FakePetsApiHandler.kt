@@ -30,13 +30,15 @@ class FakePetsApiHandler : PetsApiHandler {
     override suspend fun getPetById(petId: String): Pet =
         pets[petId] ?: throw NotFoundException("pet $petId not found")
 
-    override suspend fun deletePet(petId: String) {
+    override suspend fun deletePet(petId: String, bearerAuth: String) {
+        // The fake doesn't check the token's value - PetsApiRoutesTest only exercises that
+        // Validation.kt's extraction/presence check runs before the handler is ever called.
         pets.remove(petId) ?: throw NotFoundException("pet $petId not found")
     }
 
-    override suspend fun ratePet(petId: String, xRequestId: String, body: Rating) {
-        // Only cares that a known pet exists and that validated params/header/body reached here
-        // intact - the rating itself isn't persisted anywhere in this fake.
+    override suspend fun ratePet(petId: String, xRequestId: String, apiKeyAuth: String, body: Rating) {
+        // Only cares that a known pet exists and that validated params/header/apiKey/body reached
+        // here intact - the rating itself isn't persisted anywhere in this fake.
         pets[petId] ?: throw NotFoundException("pet $petId not found")
     }
 }

@@ -47,10 +47,10 @@ class PetsService : PetsApiHandler {
 fun Application.module() {
     install(ContentNegotiation) { json() }
     // Map validation failures (BadRequestException/MissingRequestParameterException, both
-    // thrown by Validation.kt) and numeric parse failures to HTTP 400:
+    // thrown by Validation.kt - including a non-numeric value for an integer/number parameter,
+    // which Validation.kt itself wraps as a BadRequestException) to HTTP 400:
     install(StatusPages) {
         exception<BadRequestException> { call, e -> call.respondText(e.message ?: "Bad request", status = HttpStatusCode.BadRequest) }
-        exception<NumberFormatException> { call, e -> call.respondText("Invalid parameter", status = HttpStatusCode.BadRequest) }
     }
     routing {
         PetsApiRoutes(this, PetsService())
@@ -110,11 +110,11 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
 - Only `application/json` request/response bodies are handled; other content types are ignored.
 - Path/query/header parameters must resolve to a primitive scalar type (string/integer/
   number/boolean) - an enum, object or array in one of those positions is a generator error.
-  Numeric/boolean parameter conversion (`toInt()`/`toBoolean()`/...) throws `NumberFormatException`
-  on bad input rather than a `BadRequestException` - map it via `StatusPages` as shown above.
-- Body validation only covers `minimum`/`maximum`/`minLength`/`maxLength`/`pattern` on direct
-  properties (matching what `Validation.kt` implements) - it does not recurse into nested object
-  or array element constraints.
+- Body validation covers `minimum`/`maximum`/`minLength`/`maxLength`/`pattern` on direct
+  properties (matching what `Validation.kt` implements), and recurses into nested object
+  properties (via their own generated `validate()`) and array elements (object items via
+  `validate()`, primitive items via the same constraint checks as a direct property) - but not
+  into a `Map`-shaped (`additionalProperties`) property's values.
 - Only local (`#/...`) `$ref`s are supported.
 - Generated files are not run through a formatter - see "Formatting generated sources" above.
 
@@ -130,4 +130,7 @@ generates into `generators/out/kotlin-server` from `test/resources/petstore.yaml
 
 For a real generate-then-run check exercising every operation, positive and negative, see
 [`test/`](test/) - this generator's own self-contained test suite (see also
-[`../README.md`](../README.md) for the collection-wide convention).
+[`../README.md`](../README.md) for the collection-wide convention). `test/`'s `./gradlew test`
+only runs the JVM target; `./gradlew compileKotlinLinuxX64` is what actually backs this README's
+"works unchanged on every platform Ktor's server supports (JVM, Native)" claim - checked in this
+repo's own CI (`.github/workflows/build.yml`'s `kotlin-native-compile-check` job).

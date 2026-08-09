@@ -10,7 +10,7 @@
 
 import { className, fieldName, operationName } from "./naming.js";
 import { ktType, buildValidationCalls } from "./types.js";
-import { escapeKotlinStringContent } from "./keywords.js";
+import { escapeKotlinString, escapeKotlinStringContent } from "./keywords.js";
 import { withResilience } from "./strict.js";
 
 const PARAM_CONVERTERS = {
@@ -50,6 +50,58 @@ function buildParam(registry, hintBase, p) {
     validationCalls: buildValidationCalls(kotlinName, p.name, t.type, constraints),
     description: p.description || null,
   };
+}
+
+// Builds one handler parameter for a single named security scheme (one entry of a `security`
+// requirement object) - see buildAuthParams below for how the requirement array/object as a whole
+// is interpreted. Only http/bearer and apiKey are supported (the two Validation.kt has runtime
+// helpers for); oauth2/openIdConnect are a generator error (withResilience: warning + no auth
+// param in non-strict mode - see collectOperationsByTag).
+function buildAuthParamForScheme(schemeName, scheme) {
+  if (!scheme) {
+    throw Error(`<a1b2c3d4> security references scheme "${schemeName}", not declared in components.securitySchemes`);
+  }
+  const { kotlinName } = fieldName(schemeName);
+  if (scheme.type === "http" && String(scheme.scheme || "").toLowerCase() === "bearer") {
+    return { ktName: kotlinName, type: "String", nullable: false, extractExpr: `call.requireBearerToken("Authorization")` };
+  }
+  if (scheme.type === "apiKey") {
+    const loc = scheme.in;
+    if (loc !== "header" && loc !== "query" && loc !== "cookie") {
+      throw Error(`<b2c3d4e5> apiKey security scheme "${schemeName}" has an unsupported location "in: ${loc}"`);
+    }
+    return {
+      ktName: kotlinName,
+      type: "String",
+      nullable: false,
+      extractExpr: `call.requireApiKey("${loc}", ${escapeKotlinString(scheme.name)})`,
+    };
+  }
+  throw Error(
+    `<c3d4e5f6> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer and ` +
+      `apiKey are currently supported`
+  );
+}
+
+// Turns an operation's already-resolved `security` (see collectOperations() in
+// docs/javascript-api.md) into extra required handler parameters, one per named scheme. `security`
+// is an array of alternative requirement objects (OR between array entries, AND between the scheme
+// names within one object) - only a single alternative is supported today (the common case: one
+// way to authenticate), since generating a runtime OR-branch per alternative is real added
+// complexity with no consumer needing it yet.
+function buildAuthParams(op) {
+  const reqs = op.security || [];
+  if (reqs.length === 0) return [];
+  if (reqs.length > 1) {
+    throw Error(
+      `<d4e5f6a7> Operation has ${reqs.length} alternative security requirements (OR) - only a single ` +
+        `requirement is supported`
+    );
+  }
+  const schemeNames = Object.keys(reqs[0]);
+  if (schemeNames.length === 0) return []; // an empty requirement object = anonymous access is allowed
+  const schemes = (schema.components && schema.components.securitySchemes) || {};
+  return schemeNames.map((name) => buildAuthParamForScheme(name, schemes[name]));
 }
 
 function paramSig(p) {
@@ -126,9 +178,23 @@ export function collectOperationsByTag(registry) {
         const queryParams = allParams.filter((p) => p.in === "query");
         const headerParams = allParams.filter((p) => p.in === "header");
 
+        // An unsupported security scheme (oauth2/openIdConnect) or multiple OR alternatives only
+        // drops the auth wiring for this one operation (non-strict mode) - not the whole
+        // operation, unlike the outer withResilience this block runs inside of.
+        let authParams = [];
+        withResilience(
+          `security for operation ${op.method.toUpperCase()} ${op.path}`,
+          () => {
+            authParams = buildAuthParams(op);
+          },
+          () => {
+            authParams = [];
+          }
+        );
+
         const body = buildRequestBody(registry, hintBase, op.requestBody);
         const response = buildResponse(registry, hintBase, op.responses);
-        const { signatureParams, handlerArgs } = buildSignature(allParams, body);
+        const { signatureParams, handlerArgs } = buildSignature([...allParams, ...authParams], body);
 
         if (!groups.has(tag)) groups.set(tag, { tagClass, operations: [] });
         groups.get(tag).operations.push({
@@ -140,6 +206,7 @@ export function collectOperationsByTag(registry) {
           pathParams,
           queryParams,
           headerParams,
+          authParams,
           body,
           response,
           returnsValue: response.type !== "Unit",

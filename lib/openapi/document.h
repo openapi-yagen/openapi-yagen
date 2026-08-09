@@ -240,6 +240,11 @@ struct ResolvedOperation {
 
     RequestBodyPtr requestBody; // deref'd; null if the operation has none
     ResponseMap responses; // deref'd values, keyed by status code string ("default" included)
+
+    // Effective security for this operation: its own `security` if declared (even if declared
+    // empty, meaning "no auth"), else the document-level default - the "nullopt inherits" rule
+    // from Operation::security already resolved, so callers never need to re-derive the fallback.
+    std::vector<SecurityRequirement> security;
 };
 
 // Walks every Path Item Object in `doc`, merges path-level and operation-level parameters, and

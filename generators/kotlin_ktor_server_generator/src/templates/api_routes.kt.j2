@@ -20,22 +20,25 @@ class {{ tagClass }}Routes(route: Route, private val handler: {{ tagClass }}Hand
 {% for op in operations %}
         route.{{ op.method }}("{{ op.pathStr }}") {
 {% for p in op.pathParams %}
-            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}") { {{ p.converter }} }
+            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.type }}") { {{ p.converter }} }
 {% for v in p.validationCalls %}
             {{ v }}
 {% endfor %}
 {% endfor %}
 {% for p in op.queryParams %}
-            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}") { {{ p.converter }} }
+            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.type }}") { {{ p.converter }} }
 {% for v in p.validationCalls %}
             {{ v }}
 {% endfor %}
 {% endfor %}
 {% for p in op.headerParams %}
-            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}") { {{ p.converter }} }
+            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.type }}") { {{ p.converter }} }
 {% for v in p.validationCalls %}
             {{ v }}
 {% endfor %}
+{% endfor %}
+{% for p in op.authParams %}
+            val {{ p.ktName }} = {{ p.extractExpr }}
 {% endfor %}
 {% if op.body %}
             val body = call.receive<{{ op.body.type }}>(){% if op.body.hasValidate %}.validate(){% endif %}

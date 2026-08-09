@@ -146,8 +146,11 @@ cmake --build build -j --target openapi-yagen-test
 Each generator is also a self-contained subproject under `generators/<name>/` — `README.md` +
 `src/` (everything `-g` points at) + `test/` (that generator's own runtime test suite, if it has
 one). `kotlin_ktor_client_generator/test/` and `kotlin_ktor_server_generator/test/` are
-independent Gradle/JUnit5 projects that regenerate from their own kitchen-sink spec and actually
-run the generated code (`testApplication`/`MockEngine`), not just compile it — see
+independent Kotlin Multiplatform (`jvm()` + `linuxX64()`) Gradle projects that regenerate from
+their own kitchen-sink spec: `./gradlew test` (aliased to `jvmTest`) actually runs the generated
+code under JUnit5 (`testApplication`/`MockEngine`), not just compiles it, while
+`./gradlew compileKotlinLinuxX64` proves the same generated code also compiles under Kotlin/Native
+(checked in CI - `.github/workflows/build.yml`'s `kotlin-native-compile-check` job) - see
 `generators/README.md` for the convention and how to run one in isolation.
 
 ## Trying it end-to-end

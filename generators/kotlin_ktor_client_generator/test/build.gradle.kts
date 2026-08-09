@@ -3,9 +3,20 @@
 // together with the hand-written tests below, and runs them with `./gradlew test` (the committed
 // Gradle wrapper means no separate Gradle install is needed, just a JDK) - no other Gradle module
 // in this repo needs to know this project exists.
+//
+// Kotlin Multiplatform (jvm() + linuxX64()), not a plain kotlin("jvm") project: this generator's
+// own README claims the generated client "works unchanged on every platform Ktor's client
+// supports (JVM, Native)" - a claim nothing in this repo actually checked before, since only the
+// JVM target ever got compiled. The generated sources live in commonMain so both targets compile
+// them; the hand-written tests (ktor-client-mock, JUnit5) stay JVM-only in jvmTest, since a
+// Kotlin/Native compile of the generated code (proving the *generator's own output* is portable)
+// is the goal here, not standing up a whole second native test harness - see this project's
+// README "Try it" / CI for how `compileKotlinLinuxX64` is checked separately from `test`.
+
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 
 plugins {
-    kotlin("jvm") version "2.0.21"
+    kotlin("multiplatform") version "2.0.21"
     kotlin("plugin.serialization") version "2.0.21"
 }
 
@@ -17,30 +28,6 @@ repositories {
 val ktorVersion = "3.0.1"
 val kotlinxSerializationVersion = "1.7.3"
 val kotlinxDatetimeVersion = "0.6.1"
-
-dependencies {
-    implementation("io.ktor:ktor-client-core:$ktorVersion")
-    implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerializationVersion")
-    implementation("org.jetbrains.kotlinx:kotlinx-datetime:$kotlinxDatetimeVersion")
-
-    testImplementation("io.ktor:ktor-client-mock:$ktorVersion")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
-    testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5:2.0.21")
-    testImplementation(platform("org.junit:junit-bom:5.11.3"))
-    testImplementation("org.junit.jupiter:junit-jupiter")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-}
-
-kotlin {
-    jvmToolchain(17)
-}
-
-tasks.test {
-    useJUnitPlatform()
-}
 
 // --- Generate step -----------------------------------------------------------------------
 // Regenerates the Kotlin client from this project's own kitchen-sink spec, using this
@@ -86,11 +73,52 @@ val generateClient = tasks.register<Exec>("generateClient") {
     )
 }
 
-sourceSets {
-    main {
-        kotlin.srcDir(generatedDir)
+kotlin {
+    jvmToolchain(17)
+    jvm()
+    linuxX64()
+
+    sourceSets {
+        val commonMain by getting {
+            kotlin.srcDir(generatedDir)
+            dependencies {
+                implementation("io.ktor:ktor-client-core:$ktorVersion")
+                implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
+                implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$kotlinxSerializationVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-datetime:$kotlinxDatetimeVersion")
+            }
+        }
+        val jvmTest by getting {
+            dependencies {
+                implementation("io.ktor:ktor-client-mock:$ktorVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+                implementation(kotlin("test"))
+                implementation("org.jetbrains.kotlin:kotlin-test-junit5:2.0.21")
+                implementation(platform("org.junit:junit-bom:5.11.3"))
+                implementation("org.junit.jupiter:junit-jupiter")
+                runtimeOnly("org.junit.platform:junit-platform-launcher")
+            }
+        }
     }
 }
 
-tasks.compileKotlin { dependsOn(generateClient) }
-tasks.compileTestKotlin { dependsOn(generateClient) }
+tasks.withType<Test> {
+    useJUnitPlatform()
+}
+
+// KMP has no top-level `test` task (only per-target ones: jvmTest, linuxX64Test, ...) - alias it
+// to jvmTest so `./gradlew test` (this project's documented entry point, and what CI runs) keeps
+// working unchanged. linuxX64 is checked separately via `compileKotlinLinuxX64` (see this
+// project's README/CI) - compiling the generated code under Kotlin/Native, not running tests
+// there (no native test framework wired up; "compile is the floor" - see AGENTS.md/backlog).
+tasks.register("test") {
+    dependsOn("jvmTest")
+}
+
+// commonMain's kotlin.srcDir points at generatedDir, so every target's compile (jvm, linuxX64)
+// needs it regenerated first - simplest to hook every Kotlin compile task uniformly rather than
+// chase KMP's per-target task names (compileKotlinJvm, compileKotlinLinuxX64, ...) by hand.
+tasks.withType<KotlinCompilationTask<*>>().configureEach {
+    dependsOn(generateClient)
+}

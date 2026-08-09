@@ -49,6 +49,34 @@ export function buildValidationCalls(varExpr, fieldLabel, type, constraints) {
   return calls;
 }
 
+// Extends buildValidationCalls with recursion into a nested object/array property: a property
+// whose own schema is itself an object (or allOf-merged object) gets its generated .validate()
+// called; an array property gets each element either .validate()'d (object items) or
+// constraint-checked (primitive items with maxLength/pattern/etc, same as a scalar property).
+// Both model_data_class.kt.j2's validate() and this file share the resulting call list.
+function buildNestedValidationCalls(varExpr, fieldLabel, propSchema, nullable) {
+  const calls = [];
+  const kind = kindOf(propSchema);
+  const accessor = nullable ? "?." : ".";
+  if (kind === "Object" || kind === "AllOf") {
+    calls.push(`${varExpr}${accessor}validate()`);
+  } else if (kind === "Array") {
+    const itemSchema = propSchema.items || {};
+    const itemKind = kindOf(itemSchema);
+    if (itemKind === "Object" || itemKind === "AllOf") {
+      const itemAccessor = itemSchema.nullable === true ? "?." : ".";
+      calls.push(`${varExpr}${accessor}forEach { it${itemAccessor}validate() }`);
+    } else {
+      const itemType = primitiveKtType(itemSchema);
+      if (itemType) {
+        const itemCalls = buildValidationCalls("it", `${fieldLabel}[]`, itemType, constraintsOf(itemSchema));
+        if (itemCalls.length > 0) calls.push(`${varExpr}${accessor}forEach { ${itemCalls.join("; ")} }`);
+      }
+    }
+  }
+  return calls;
+}
+
 function newRegistry() {
   return { models: new Map(), order: [] };
 }
@@ -78,7 +106,10 @@ function registerObject(registry, name, schema, variantOpts) {
       nullable,
       description: propSchema.description || null,
       constraints,
-      validationCalls: buildValidationCalls(kotlinName, propName, t.type, constraints),
+      validationCalls: [
+        ...buildValidationCalls(kotlinName, propName, t.type, constraints),
+        ...buildNestedValidationCalls(kotlinName, propName, propSchema, nullable),
+      ],
     });
   }
   addModel(registry, name, {

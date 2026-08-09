@@ -406,6 +406,33 @@ JSValue OpenApiJsGraphBuilder::buildDocumentValue(const Node& schemaNode, const 
     return obj;
 }
 
+namespace {
+
+// SecurityRequirement (map<Str, vector<Str>>) has no .raw Node to fall back to (unlike Schema/
+// Parameter/...) - it's built by hand here from ResolvedOperation::security, one plain object per
+// requirement (scheme name -> its required scopes, empty for anything but oauth2/openIdConnect).
+JSValue buildSecurityRequirementsValue(JSContext* ctx, const vector<SecurityRequirement>& security)
+{
+    auto arr = JS_NewArray(ctx);
+    checkForException(ctx, arr, "<b1a2c3d4> Cannot create array");
+    for (size_t i = 0; i < security.size(); i++) {
+        auto reqObj = JS_NewObject(ctx);
+        checkForException(ctx, reqObj, "<c2b3d4e5> Cannot create object");
+        for (const auto& [schemeName, scopes] : security[i]) {
+            auto scopesArr = JS_NewArray(ctx);
+            checkForException(ctx, scopesArr, "<d3c4e5f6> Cannot create array");
+            for (size_t j = 0; j < scopes.size(); j++)
+                JS_DefinePropertyValueUint32(ctx, scopesArr, (uint32_t)j, JS_NewString(ctx, scopes[j].c_str()),
+                                             JS_PROP_C_W_E);
+            setObjProperty(ctx, reqObj, schemeName, scopesArr);
+        }
+        JS_DefinePropertyValueUint32(ctx, arr, (uint32_t)i, reqObj, JS_PROP_C_W_E);
+    }
+    return arr;
+}
+
+}
+
 JSValue buildOperationsArray(JSContext* ctx, OpenApiJsGraphBuilder& builder,
                              const vector<ResolvedOperation>& operations)
 {
@@ -445,6 +472,8 @@ JSValue buildOperationsArray(JSContext* ctx, OpenApiJsGraphBuilder& builder,
         for (const auto& [status, r] : op.responses)
             setObjProperty(ctx, responsesObj, status, builder.buildResponseValue(r));
         setObjProperty(ctx, obj, "responses", responsesObj);
+
+        setObjProperty(ctx, obj, "security", buildSecurityRequirementsValue(ctx, op.security));
 
         JS_DefinePropertyValueUint32(ctx, arr, (uint32_t)i, obj, JS_PROP_C_W_E);
     }

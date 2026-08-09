@@ -34,8 +34,10 @@ generators/<name>/
 
 ## Running one generator's tests in isolation
 
-The Kotlin generators' test suites are ordinary Gradle/JUnit5 projects, each with its own Gradle
-wrapper committed - no separate Gradle install needed, just a JDK:
+The Kotlin generators' test suites are Kotlin Multiplatform (`jvm()` + `linuxX64()`) Gradle
+projects, each with its own Gradle wrapper committed - no separate Gradle install needed, just a
+JDK (a first `linuxX64` compile also downloads the Kotlin/Native toolchain itself, a one-time,
+sizeable download):
 
 ```bash
 cd generators/kotlin_ktor_client_generator/test
@@ -47,7 +49,11 @@ via the `openapi-yagen` CLI, compiles it alongside hand-written tests, and actua
 generated code - server tests boot it in-memory via Ktor's `testApplication{}` against fake
 handler implementations; client tests point it at `ktor-client-mock`'s `MockEngine` - asserting
 on every generated operation's positive and negative (validation, not-found, etc.) behavior. No
-real network or socket is involved in either.
+real network or socket is involved in either. `./gradlew test` only exercises the JVM target (the
+generated code lives in `commonMain`, but `ktor-*-test-host`/`ktor-client-mock`/JUnit5 are all
+JVM-only, so the hand-written tests live in `jvmTest`) - `./gradlew compileKotlinLinuxX64` proves
+the same generated code also compiles under Kotlin/Native (no test run there, just compile - see
+each generator's README "Try it" / this repo's CI).
 
 `OPENAPI_YAGEN` points it at a prebuilt `openapi-yagen` binary. Without it, the build falls back
 to this checkout's own `dist/openapi-yagen` - make sure that's up to date (`./build-musl.sh` or a
