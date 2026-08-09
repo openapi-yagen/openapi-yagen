@@ -333,3 +333,31 @@ TEST_CASE("Generate converts a spec to the generator's declared openApiVersion",
     REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("tagType=string"));
     REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("tagNullable=1"));
 }
+
+TEST_CASE("Generate rejects a generator declaring openApiVersion 2.0 as its target", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js", "renderTemplate(\"test_template\", schema, \"outfile\")" },
+        { "generator.yml", "name: test_generator\nmainScriptPath: main.js\nopenApiVersion: \"2.0\"\n" },
+    };
+    auto fileReader
+        = make_shared<FileReader>(FileReader::Opts { .backends = { make_shared<MockedFileReaderBackend>(files) } });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .clearOutDir = false,
+        .vars = { },
+    });
+
+    // 2.0 can be a spec *input* (converted up), but the JS-bridge's raw+overlay pattern assumes an
+    // OAS 3.x raw shape, so a generator may never declare 2.0 as its own generation target.
+    REQUIRE_THROWS(gen.generate(getResourcePath("petstore.yaml")));
+}

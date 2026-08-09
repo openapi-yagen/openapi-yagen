@@ -112,6 +112,16 @@ VersionedSpec convertToGeneratorVersion(const GeneratorMetadata& metadata, const
     if (!target)
         throw runtime_error(
             format("<b2c2d2e2> Generator declares an unrecognized openApiVersion \"{}\"", targetStr));
+    if (!OpenApi::isV3(*target))
+        // Swagger 2.0's document shape (flat non-body parameters, a single response `schema`,
+        // body/formData parameters instead of requestBody, ...) is too different from what the JS
+        // bridge's raw+overlay pattern assumes (OAS 3.x's content maps, nested schemas, ...) for
+        // generation to work if fed 2.0-shaped JSON directly - 2.0 is only supported as a spec
+        // *input* (auto-converted up to an OAS 3.x target above) and as the `convert` command's
+        // output, never as a generator's own declared version.
+        throw runtime_error(format("<e5f6a7b8> Generator declares openApiVersion \"{}\" - only 3.0/3.1/3.2 are "
+                                    "supported as a generation target (2.0 works as a spec input, converted up)",
+                                    targetStr));
 
     if (*detected == *target)
         return { specNode, *target };

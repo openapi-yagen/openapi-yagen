@@ -92,7 +92,7 @@ template <typename Mapper, typename T>
 std::vector<T> NodeWalker::requiredList(const Mapper& mapper) const
 {
     requireValue();
-    return optionalList(mapper);
+    return optionalList(mapper).value();
 }
 
 template <typename Mapper, typename T>

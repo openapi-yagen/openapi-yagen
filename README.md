@@ -16,8 +16,8 @@ Main features:
 - possibility to extend existing generators by overriding some files from a specified directory
 - post-processing of output files using custom tools (code formatters, linters, checkers...)
 - using generators available via HTTP/S (directly from GitHub, or other sources). The `curl` tool is required.
-- understands OpenAPI 3.0, 3.1, and 3.2, converting between them automatically so a generator only
-  needs to be written against one version (see `convert` below, and
+- understands OpenAPI 3.0, 3.1, 3.2, and Swagger 2.0, converting between them automatically so a
+  generator only needs to be written against one 3.x version (see `convert` below, and
   [`generator-format.md`](docs/generator-format.md#spec-versions-and-conversion))
 
 ## Installation
@@ -77,8 +77,8 @@ Positionals:
 
 Options:
   -h,--help                   Print this help message and exit
-  --from TEXT                 Source OpenAPI version (e.g. 3.0, 3.1, 3.2) - auto-detected from the spec's own "openapi"/"swagger" field if omitted
-  --to TEXT REQUIRED          Target OpenAPI version (e.g. 3.0, 3.1, 3.2)
+  --from TEXT                 Source OpenAPI version (e.g. 2.0, 3.0, 3.1, 3.2) - auto-detected from the spec's own "openapi"/"swagger" field if omitted
+  --to TEXT REQUIRED          Target OpenAPI version (e.g. 2.0, 3.0, 3.1, 3.2)
   -o,--out TEXT REQUIRED      Output file path
   --format TEXT               Output format: "yaml" or "json" - inferred from --out's extension if omitted
 ```
@@ -140,7 +140,9 @@ writing a generator, which [`docs/`](docs/README.md) covers).
 
 ## TODO
 
-- [x] Add schema validation with JSON schema (conan: json-schema-validator/2.3.0)
+- [x] Add schema validation (structural validation via the typed OpenAPI model itself - no longer
+      depends on an external JSON Schema validator)
+- [x] Support multiple OpenAPI versions (2.0, 3.0, 3.1, 3.2) with automatic conversion between them
 - [x] Add configuration variables
 - [x] Improve documentation and add more examples
 - [ ] Use https://github.com/batterycenter/embed to embed some popular templates into binary

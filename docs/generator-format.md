@@ -59,14 +59,19 @@ Reading a variable in JS: `vars.namespace` (see [`javascript-api.md`](javascript
 
 ## Spec versions and conversion
 
-The engine understands OpenAPI 3.0, 3.1, and 3.2 (Swagger/OpenAPI 2.0 isn't supported yet). Before
-running your generator, it reads the input spec's own `openapi:` field, compares it against your
+The engine understands OpenAPI 3.0, 3.1, 3.2, and Swagger/OpenAPI 2.0 as *input*. Before running
+your generator, it reads the input spec's own `openapi`/`swagger` field, compares it against your
 generator's declared `openApiVersion`, and - if they differ - converts the spec to your declared
 version first. Your `main.js`/templates always see a spec shaped like the version you declared,
 regardless of what version the user's input spec actually was; you don't need to handle both
 dialects yourself. This is what makes `kindOf`/a `.nullable` check/etc. behave consistently no
 matter which version was fed in - see [`javascript-api.md`](javascript-api.md) for how `type`
 and nullability show up in the `schema` object for the version you chose.
+
+A generator's own `openApiVersion` may only be `"3.0"`, `"3.1"`, or `"3.2"` - never `"2.0"`. 2.0
+works as an input spec (auto-converted up to whatever 3.x version you declare) and as an export
+target for the standalone `convert` command below, but a generator's `main.js`/templates always see
+an OAS 3.x-shaped `schema` object, so 2.0 can never be a generation target itself.
 
 Conversion is scoped to what the engine's own model represents (schema `type`/`nullable`/format/
 constraints/composition including the JSON Schema 2020-12 keywords OAS 3.1+ add, the standard
@@ -81,6 +86,16 @@ version that has no equivalent (e.g. OAS 3.1's `webhooks` have nothing to conver
 older than 3.2 folds it into the community `x-oai-deprecated` vendor extension, the documented
 convention for that case. Converting up a version never loses anything, since every older
 construct has a direct newer-version equivalent.
+
+Swagger 2.0 predates several OAS 3.x constructs entirely, so both directions across that boundary
+are lossy in places: reading 2.0, `host`/`basePath`/`schemes` synthesize a single `servers` entry,
+`body`/`formData` parameters fold into `requestBody`, and the de-facto (not officially standardized,
+but ubiquitous in tooling like Autorest/drf-yasg) `x-nullable` extension is read as canonical
+nullability. Writing *to* 2.0, `oneOf`/`anyOf`/`not` and non-trivial `discriminator.mapping` have no
+2.0 equivalent and are dropped (logged when this happens), `nullable` folds back into `x-nullable`,
+and a `servers` entry with an unresolved `{variable}` placeholder can't become `host`/`basePath`/
+`schemes` and is left unset rather than emitting a misleading literal host. A generator itself may
+never target 2.0 (see above) - this direction only matters for the standalone `convert` command.
 
 This conversion also doubles as the spec's structural validation: reading the spec into the
 engine's typed model requires the fields the specification itself requires (`openapi`, `info.title`,

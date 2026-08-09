@@ -18,6 +18,10 @@ set(SOURCES
   v3/reader.h
   v3/writer.cpp
   v3/writer.h
+  v2/reader.cpp
+  v2/reader.h
+  v2/writer.cpp
+  v2/writer.h
 )
 
 set(DEPS

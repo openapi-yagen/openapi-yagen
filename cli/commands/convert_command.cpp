@@ -4,11 +4,9 @@
 #include <fstream>
 #include <stdexcept>
 
-#include <lib/common/node_walker.h>
 #include <lib/common/yaml_or_json_parser.h>
 #include <lib/generator/spec_file.h>
 #include <lib/logger/logger.h>
-#include <lib/openapi/v3/reader.h>
 #include <lib/openapi/version.h>
 #include <lib/openapi/version_convert.h>
 
@@ -30,9 +28,9 @@ void ConvertCommand::reg(CLI::App& app)
     auto cmd = app.add_subcommand("convert", "Convert an OpenAPI spec from one version to another")
                    ->callback(std::bind(&ConvertCommand::process, this));
     cmd->add_option("spec-file", specPath, "Specification file to convert")->required();
-    cmd->add_option("--from", fromVersion, "Source OpenAPI version (e.g. 3.0, 3.1, 3.2) - "
+    cmd->add_option("--from", fromVersion, "Source OpenAPI version (e.g. 2.0, 3.0, 3.1, 3.2) - "
                                             "auto-detected from the spec's own \"openapi\"/\"swagger\" field if omitted");
-    cmd->add_option("--to", toVersion, "Target OpenAPI version (e.g. 3.0, 3.1, 3.2)")->required();
+    cmd->add_option("--to", toVersion, "Target OpenAPI version (e.g. 2.0, 3.0, 3.1, 3.2)")->required();
     cmd->add_option("-o,--out", outPath, "Output file path")->required();
     cmd->add_option("--format", outputFormat,
                     "Output format: \"yaml\" or \"json\" - inferred from --out's extension if omitted");
@@ -60,11 +58,10 @@ void ConvertCommand::process()
     if (!to)
         throw runtime_error(format("<c3d4e5f6> Unrecognized --to version \"{}\"", toVersion));
 
-    // Also doubles as structural validation of the input spec - see OpenApi::V3::Read.
-    OpenApi::V3::Read(NodeWalker(specNode), from);
-
     logger.info("<d4e5f6a7> Converting \"{}\" from OpenAPI {} to {}", specPath, OpenApi::toVersionString(from),
                 OpenApi::toVersionString(*to));
+    // Reading `specNode` into the canonical model also doubles as its structural validation (see
+    // OpenApi::V3::Read/V2::Read) - a malformed input throws here, before anything is written.
     auto converted = OpenApi::convertVersion(specNode, from, *to);
 
     bool asJson = outputFormat == "json" || (outputFormat.empty() && endsWith(outPath, ".json"));
