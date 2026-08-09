@@ -1,5 +1,12 @@
+---
+title: openapi-yagen overview
+sidebar_label: Overview and CLI
+slug: /docs/overview
+description: Install openapi-yagen, explore its features, and use the generate and convert commands.
+---
+
 <p align="center">
-  <img src="openapi-yagen.png" alt="openapi-yagen logo" width="150">
+  <img src="openapi-yagen.png" alt="openapi-yagen logo" width="150" />
 </p>
 
 # Yet another OpenAPI generator (openapi-yagen)
@@ -141,7 +148,7 @@ Generators are located in the `generators` folder:
 ## Development
 
 The project is a CMake + Conan 2 C++20 codebase (core in `lib/`, CLI in `cli/`, tests in
-`test/`). See [AGENTS.md](AGENTS.md) for build/test commands, project architecture, and coding
+`test/`). See [AGENTS.md](https://github.com/openapi-yagen/openapi-yagen/blob/master/AGENTS.md) for build/test commands, project architecture, and coding
 conventions - it's the entry point for working on the `openapi-yagen` engine itself (as opposed to
 writing a generator, which [`docs/`](docs/README.md) covers).
 

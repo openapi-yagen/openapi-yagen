@@ -1,3 +1,10 @@
+---
+title: JavaScript API reference
+sidebar_label: JavaScript API
+slug: /docs/javascript-api
+description: Globals and built-in functions available to openapi-yagen JavaScript generators.
+---
+
 # JavaScript API reference
 
 The generator core supports all modern JavaScript features from ES2023 (string interpolation,

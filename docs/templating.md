@@ -1,3 +1,10 @@
+---
+title: Templating reference
+sidebar_label: Templating
+slug: /docs/templating
+description: Inja syntax, functions, inheritance, includes, and whitespace control.
+---
+
 # Templating reference
 
 [Inja](https://pantor.github.io/inja/) (version 3.5.0 - see `inja/` in `conanfile.txt`) is the

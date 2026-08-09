@@ -1,0 +1,83 @@
+name: Documentation site
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - 'generators/*/README.md'
+      - 'generators/README.md'
+      - 'README.md'
+      - 'openapi-yagen.png'
+      - '.github/workflows/docs.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - 'generators/*/README.md'
+      - 'generators/README.md'
+      - 'README.md'
+      - 'openapi-yagen.png'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: website
+        run: npm run typecheck
+
+      - name: Build site
+        working-directory: website
+        run: npm run build
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: website/build
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,3 +1,10 @@
+---
+title: Sample C++ models generator
+sidebar_label: Sample C++ models
+slug: /generators/sample-cpp-models
+description: A minimal example that generates C++ model structs from OpenAPI schemas.
+---
+
 # sample_cpp_models_generator
 
 Minimal example generator: turns OpenAPI schemas into plain C++ structs (and array schemas into

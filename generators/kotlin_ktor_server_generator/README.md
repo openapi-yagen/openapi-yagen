@@ -1,3 +1,10 @@
+---
+title: Kotlin Ktor server generator
+sidebar_label: Kotlin Ktor server
+slug: /generators/kotlin-ktor-server
+description: Generate validated Ktor server routes and handler interfaces from OpenAPI.
+---
+
 # kotlin_ktor_server_generator
 
 Generates [Ktor](https://ktor.io) server routing for an OpenAPI spec: one `@Serializable` data
@@ -129,7 +136,8 @@ cd generators && ./run_kotlin_server.sh
 generates into `generators/out/kotlin-server` from `test/resources/petstore.yaml`.
 
 For a real generate-then-run check exercising every operation, positive and negative, see
-[`test/`](test/) - this generator's own self-contained test suite (see also
+[`test/`](https://github.com/openapi-yagen/openapi-yagen/tree/master/generators/kotlin_ktor_server_generator/test) -
+this generator's own self-contained test suite (see also
 [`../README.md`](../README.md) for the collection-wide convention). `test/`'s `./gradlew test`
 only runs the JVM target; `./gradlew compileKotlinLinuxX64` is what actually backs this README's
 "works unchanged on every platform Ktor's server supports (JVM, Native)" claim - checked in this

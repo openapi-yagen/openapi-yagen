@@ -1,3 +1,10 @@
+---
+title: Write a generator from scratch
+sidebar_label: Tutorial
+slug: /docs/tutorial
+description: Build a working openapi-yagen generator step by step with JavaScript and Inja.
+---
+
 # Tutorial: writing a generator from scratch
 
 This walks through building a small but real generator - **OpenAPI schemas → TypeScript
@@ -234,7 +241,7 @@ tag?: string;
 ## 7. Where to go next
 
 This tutorial's generator is deliberately small. For fuller, real-world examples, see
-[`generators/`](../generators/):
+[`generators/`](../generators/README.md):
 
 - [`sample_cpp_models_generator`](../generators/sample_cpp_models_generator/README.md) - the same
   idea as this tutorial, targeting C++ structs instead of TypeScript interfaces.

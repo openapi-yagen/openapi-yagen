@@ -1,8 +1,16 @@
+---
+title: Writing a generator
+sidebar_label: Introduction
+slug: /docs/writing-a-generator
+description: Learn how openapi-yagen generators combine JavaScript and Inja templates.
+---
+
 # Writing a generator
 
 This is the documentation for writing an `openapi-yagen` generator - a plugin (JS + Inja
 templates) that turns a resolved OpenAPI document into source code. For building/testing the
-`openapi-yagen` CLI itself, see the root [README.md](../README.md) and [AGENTS.md](../AGENTS.md)
+`openapi-yagen` CLI itself, see the root [README.md](../README.md) and
+[AGENTS.md](https://github.com/openapi-yagen/openapi-yagen/blob/master/AGENTS.md)
 instead.
 
 New to this? Start with the **[tutorial](tutorial.md)** - it builds a small real generator from

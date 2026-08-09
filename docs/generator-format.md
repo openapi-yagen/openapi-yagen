@@ -1,3 +1,10 @@
+---
+title: Generator format
+sidebar_label: Generator format
+slug: /docs/generator-format
+description: Generator layout, metadata, loading, version conversion, overrides, and post-processing.
+---
+
 # Generator format
 
 A generator is a folder of files, a zip archive, or an HTTP(S) URL serving the same layout - `-g`

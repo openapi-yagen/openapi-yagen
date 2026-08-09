@@ -1,3 +1,10 @@
+---
+title: Kotlin Ktor client generator
+sidebar_label: Kotlin Ktor client
+slug: /generators/kotlin-ktor-client
+description: Generate a Kotlin Multiplatform API client that uses a caller-supplied Ktor HttpClient.
+---
+
 # kotlin_ktor_client_generator
 
 Generates a Kotlin Multiplatform API client for [Ktor](https://ktor.io): one `@Serializable`
@@ -108,7 +115,8 @@ cd generators && ./run_kotlin_client.sh
 generates into `generators/out/kotlin-client` from `test/resources/petstore.yaml`.
 
 For a real generate-then-run check exercising every operation, positive and negative, see
-[`test/`](test/) - this generator's own self-contained test suite (see also
+[`test/`](https://github.com/openapi-yagen/openapi-yagen/tree/master/generators/kotlin_ktor_client_generator/test) -
+this generator's own self-contained test suite (see also
 [`../README.md`](../README.md) for the collection-wide convention). `test/`'s `./gradlew test`
 only runs the JVM target; `./gradlew compileKotlinLinuxX64` (checked in this repo's own CI -
 `.github/workflows/build.yml`'s `kotlin-native-compile-check` job) additionally proves the

@@ -1,3 +1,10 @@
+---
+title: TypeScript Fetch client generator
+sidebar_label: TypeScript Fetch client
+slug: /generators/typescript-fetch-client
+description: Generate a browser-first TypeScript API client with no third-party runtime dependencies.
+---
+
 # typescript_fetch_client_generator
 
 Generates a browser-first TypeScript API client using native `fetch`, with **zero third-party
@@ -225,7 +232,9 @@ cd generators && ./run_ts_client.sh
 generates into `generators/out/ts-client` from `test/resources/petstore.yaml`.
 
 For a real generate-then-typecheck-then-run check exercising every operation, positive and
-negative, see [`test/`](test/) - this generator's own self-contained test suite (see also
+negative, see
+[`test/`](https://github.com/openapi-yagen/openapi-yagen/tree/master/generators/typescript_fetch_client_generator/test) -
+this generator's own self-contained test suite (see also
 [`../README.md`](../README.md) for the collection-wide convention):
 
 ```bash

@@ -1,3 +1,10 @@
+---
+title: Generator collection
+sidebar_label: Overview
+slug: /generators
+description: Ready-to-use openapi-yagen generators and the convention for maintaining them.
+---
+
 # The generator collection
 
 This directory holds a collection of `openapi-yagen` generators. Each one is meant to be a
