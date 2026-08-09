@@ -42,7 +42,7 @@ Str rewriteRef(const Str& ref)
         if (ref.rfind(from, 0) == 0)
             return to + ref.substr(from.size());
     }
-    logger.info("<a1b2c3d4> $ref \"{}\" has no Swagger 2.0 equivalent registry - left unrewritten", ref);
+    logger.warn("<a1b2c3d4> $ref \"{}\" has no Swagger 2.0 equivalent registry - left unrewritten", ref);
     return ref;
 }
 
@@ -110,7 +110,7 @@ void writeType(Node::Map& m, const Schema& schema)
             nonNull.push_back(t);
     }
     if (nonNull.size() > 1)
-        logger.info("<b2c3d4e5> Schema has multiple types ({}) - Swagger 2.0 only supports one; keeping \"{}\"",
+        logger.warn("<b2c3d4e5> Schema has multiple types ({}) - Swagger 2.0 only supports one; keeping \"{}\"",
                     nonNull.size(), nonNull.front());
     if (!nonNull.empty())
         m["type"] = mkStr(nonNull.front());
@@ -184,13 +184,13 @@ Node writeSchema(const Schema& schema)
     // oneOf/anyOf/not have no Swagger 2.0 equivalent at all (added alongside the 3.0 JSON-Schema
     // alignment) - a real semantic loss, so it's logged rather than silently dropped.
     if (!schema.oneOf.empty() || !schema.anyOf.empty() || schema.notSchema)
-        logger.info("<c3d4e5f6> Dropping oneOf/anyOf/not - no Swagger 2.0 equivalent");
+        logger.warn("<c3d4e5f6> Dropping oneOf/anyOf/not - no Swagger 2.0 equivalent");
 
     if (schema.discriminator) {
         // 2.0's discriminator is just the bare property-name string - an explicit `mapping` (only
         // representable in OAS 3.x) is lost.
         if (!schema.discriminator->mapping.empty())
-            logger.info("<d4e5f6a7> Dropping discriminator.mapping - Swagger 2.0's discriminator is a bare "
+            logger.warn("<d4e5f6a7> Dropping discriminator.mapping - Swagger 2.0's discriminator is a bare "
                         "property-name string");
         m["discriminator"] = mkStr(schema.discriminator->propertyName);
     }
@@ -245,7 +245,7 @@ void writeCollectionFormat(Node::Map& m, const Parameter& p)
     } else if (style == "pipeDelimited") {
         m["collectionFormat"] = mkStr("pipes");
     } else {
-        logger.info("<e5f6a7b8> Parameter \"{}\" style \"{}\" has no Swagger 2.0 collectionFormat equivalent - "
+        logger.warn("<e5f6a7b8> Parameter \"{}\" style \"{}\" has no Swagger 2.0 collectionFormat equivalent - "
                     "using the default (csv)",
                     p.name, style);
     }
@@ -311,7 +311,7 @@ void writeHostBasePathSchemes(Node::Map& m, const vector<Server>& servers)
     if (servers.empty())
         return;
     if (servers.size() > 1)
-        logger.info("<f6a7b9c0> {} servers declared - Swagger 2.0 only supports one host/basePath; using the first",
+        logger.warn("<f6a7b9c0> {} servers declared - Swagger 2.0 only supports one host/basePath; using the first",
                     servers.size());
     static const regex urlRe(R"(^([a-zA-Z][a-zA-Z0-9+.-]*)://([^/]+)(/.*)?$)");
     smatch match;
@@ -320,7 +320,7 @@ void writeHostBasePathSchemes(Node::Map& m, const vector<Server>& servers)
         // Either doesn't parse as scheme://host/path at all, or contains an OAS 3.x server
         // variable placeholder (`{env}`) - 2.0 has no server-variable concept, so a literal
         // "{env}.example.com" would be a misleading, unusable `host` value.
-        logger.info("<a7b9c0d1> Server URL \"{}\" doesn't fit host/basePath/schemes (unparseable, or has an "
+        logger.warn("<a7b9c0d1> Server URL \"{}\" doesn't fit host/basePath/schemes (unparseable, or has an "
                     "unresolved {{variable}}) - left unset",
                     url);
         return;
@@ -374,7 +374,7 @@ Node writeSecurityScheme(const SecurityScheme& s)
         int present = (s.flows->authorizationCode ? 1 : 0) + (s.flows->implicit_ ? 1 : 0)
             + (s.flows->password ? 1 : 0) + (s.flows->clientCredentials ? 1 : 0);
         if (present > 1)
-            logger.info(
+            logger.warn(
                 "<b9c0d1e2> Security scheme has {} OAuth2 flows - Swagger 2.0 only supports one; using the first",
                 present);
         for (const auto& choice : choices) {
@@ -387,9 +387,9 @@ Node writeSecurityScheme(const SecurityScheme& s)
             break;
         }
         if (s.flows->deviceAuthorization && present == 0)
-            logger.info("<c0d1e2f3> Dropping OAuth2 device authorization flow - no Swagger 2.0 equivalent");
+            logger.warn("<c0d1e2f3> Dropping OAuth2 device authorization flow - no Swagger 2.0 equivalent");
     } else {
-        logger.info("<d1e2f3a4> Security scheme type \"{}\" has no Swagger 2.0 equivalent - dropped", s.type);
+        logger.warn("<d1e2f3a4> Security scheme type \"{}\" has no Swagger 2.0 equivalent - dropped", s.type);
         return Node { Node::NullValue }; // caller skips null entries
     }
     if (s.description)
@@ -433,7 +433,7 @@ Node writeParameter(const Parameter& p)
         writeCollectionFormat(m, p);
     } else if (!p.content.empty()) {
         if (p.content.size() > 1)
-            logger.info("<e2f3a4b5> Parameter \"{}\" has {} content media types - Swagger 2.0 needs exactly one "
+            logger.warn("<e2f3a4b5> Parameter \"{}\" has {} content media types - Swagger 2.0 needs exactly one "
                         "type per (non-body) parameter; using the first",
                         p.name, p.content.size());
         if (p.content.begin()->second.schema)
@@ -461,7 +461,7 @@ SchemaPtr pickContentSchema(const map<Str, MediaType>& content, const Str& conte
     if (content.empty())
         return nullptr;
     if (content.size() > 1)
-        logger.info("<f3a4b5c6> {} has {} content media types - Swagger 2.0 needs exactly one schema; using the "
+        logger.warn("<f3a4b5c6> {} has {} content media types - Swagger 2.0 needs exactly one schema; using the "
                     "first (\"{}\")",
                     contextLabel, content.size(), content.begin()->first);
     return content.begin()->second.schema;
@@ -599,13 +599,13 @@ Node writePathItem(const PathItem& item)
     for (const auto& [method, op] : item.operations) {
         static const vector<Str> v2Methods = { "get", "put", "post", "delete", "options", "head", "patch" };
         if (find(v2Methods.begin(), v2Methods.end(), method) == v2Methods.end()) {
-            logger.info("<a4b5c6d7> Dropping \"{}\" operation - Swagger 2.0 has no equivalent method", method);
+            logger.warn("<a4b5c6d7> Dropping \"{}\" operation - Swagger 2.0 has no equivalent method", method);
             continue;
         }
         m[method] = writeOperation(op);
     }
     if (!item.additionalOperations.empty())
-        logger.info("<b5c6d7e8> Dropping {} additionalOperations entry(ies) - no Swagger 2.0 equivalent",
+        logger.warn("<b5c6d7e8> Dropping {} additionalOperations entry(ies) - no Swagger 2.0 equivalent",
                     item.additionalOperations.size());
     return mkMap(std::move(m));
 }
@@ -629,7 +629,7 @@ Node Write(const Document& doc)
     m["paths"] = writePaths(doc.paths);
 
     if (!doc.webhooks.empty())
-        logger.info("<c6d7e8f9> Dropping {} webhook(s) - no Swagger 2.0 equivalent", doc.webhooks.size());
+        logger.warn("<c6d7e8f9> Dropping {} webhook(s) - no Swagger 2.0 equivalent", doc.webhooks.size());
 
     if (!doc.components.schemas.empty()) {
         Node::Map defs;
@@ -662,7 +662,7 @@ Node Write(const Document& doc)
     size_t droppedComponents = doc.components.examples.size() + doc.components.headers.size()
         + doc.components.links.size() + doc.components.callbacks.size() + doc.components.pathItems.size();
     if (droppedComponents > 0)
-        logger.info("<d7e8f9a0> Dropping {} components.{{examples,headers,links,callbacks,pathItems}} entry(ies) - "
+        logger.warn("<d7e8f9a0> Dropping {} components.{{examples,headers,links,callbacks,pathItems}} entry(ies) - "
                     "no Swagger 2.0 equivalent registry",
                     droppedComponents);
 

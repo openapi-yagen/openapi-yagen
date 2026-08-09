@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -15,5 +16,13 @@ Node jsonToNode(const nlohmann::json& json);
 
 // The reverse of parseYamlOrJsonToNode/nodeToJson - serializes a Node back out to YAML or JSON
 // text (e.g. for the `convert` CLI command, which needs to write a converted spec back to disk).
-std::string nodeToYamlText(const Node& n);
-std::string nodeToJsonText(const Node& n);
+//
+// `n` is always a std::map internally (Node::Map), so its keys come out alphabetical unless
+// `topLevelKeyOrder` says otherwise: when `n` is a Map, keys listed in `topLevelKeyOrder` are
+// emitted first, in that order (any not present in `n` are skipped), followed by any of `n`'s
+// remaining keys in their natural (alphabetical) order. Only the top level is reordered - nested
+// maps (an object's own nested fields, `properties`, ...) still come out alphabetical; callers
+// that want a human-readable field order for a whole document pass its top-level field order here
+// (e.g. OpenApi::documentFieldOrder(version) in lib/openapi/canonical_order.h).
+std::string nodeToYamlText(const Node& n, const std::vector<std::string>& topLevelKeyOrder = {});
+std::string nodeToJsonText(const Node& n, const std::vector<std::string>& topLevelKeyOrder = {});

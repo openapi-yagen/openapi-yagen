@@ -7,6 +7,7 @@
 #include <lib/common/yaml_or_json_parser.h>
 #include <lib/generator/spec_file.h>
 #include <lib/logger/logger.h>
+#include <lib/openapi/document_field_order.h>
 #include <lib/openapi/version.h>
 #include <lib/openapi/version_convert.h>
 
@@ -64,8 +65,9 @@ void ConvertCommand::process()
     // OpenApi::V3::Read/V2::Read) - a malformed input throws here, before anything is written.
     auto converted = OpenApi::convertVersion(specNode, from, *to);
 
+    auto fieldOrder = OpenApi::documentFieldOrder(*to);
     bool asJson = outputFormat == "json" || (outputFormat.empty() && endsWith(outPath, ".json"));
-    auto text = asJson ? nodeToJsonText(converted) : nodeToYamlText(converted);
+    auto text = asJson ? nodeToJsonText(converted, fieldOrder) : nodeToYamlText(converted, fieldOrder);
 
     ofstream out(outPath, ios::binary);
     if (!out)

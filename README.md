@@ -94,6 +94,13 @@ standalone tool - useful to inspect what a spec looks like in another version, o
 one version before checking it in. It's scoped to the constructs the engine itself models (see the
 same doc section) rather than a fully lossless converter for every possible spec field.
 
+The output's top-level keys (`openapi`/`info`/`paths`/... or `swagger`/`info`/`host`/... for a 2.0
+target) are written in the specification's own documented order, not alphabetical - nested objects
+still come out alphabetical. String values that would otherwise be ambiguous when read back
+(a response status code like `200`, or a string that happens to look like a bool/float/null, e.g.
+`"true"`/`"1.5"`) are always quoted, so they round-trip as strings rather than being silently
+misread as a different YAML type by another tool.
+
 ### Running a generator directly from GitHub
 
 `-g` also accepts an HTTP/S URL pointing at a generator's source folder, so you can run a

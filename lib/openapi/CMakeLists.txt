@@ -3,6 +3,8 @@ set(TARGET openapi-yagen-lib-openapi)
 set(SOURCES
   document.cpp
   document.h
+  document_field_order.cpp
+  document_field_order.h
   info.h
   ref.h
   resolve.cpp

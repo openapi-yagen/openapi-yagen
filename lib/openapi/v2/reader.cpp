@@ -266,10 +266,10 @@ SecuritySchemePtr parseSecurityScheme(const NodeWalker& w)
         else if (flowName == "accessCode")
             flows.authorizationCode = flow;
         else
-            logger.info("<a1b2c3d4> Unrecognized oauth2 \"flow\" value \"{}\" - security scheme ignored", flowName);
+            logger.warn("<a1b2c3d4> Unrecognized oauth2 \"flow\" value \"{}\" - security scheme ignored", flowName);
         s->flows = flows;
     } else {
-        logger.info("<b2c3d4e5> Unrecognized security scheme type \"{}\" - kept as-is, unmapped", type);
+        logger.warn("<b2c3d4e5> Unrecognized security scheme type \"{}\" - kept as-is, unmapped", type);
         s->type = type;
     }
 
@@ -391,7 +391,7 @@ ParsedParams parseOperationParameters(const vector<NodeWalker>& items, const Doc
                 } else if (cf == "pipes") {
                     p->style = "pipeDelimited";
                 } else {
-                    logger.info("<c3d4e5f6> collectionFormat \"tsv\" has no OAS 3.x equivalent - "
+                    logger.warn("<c3d4e5f6> collectionFormat \"tsv\" has no OAS 3.x equivalent - "
                                 "parameter \"{}\" array serialization left unspecified",
                                 p->name);
                 }

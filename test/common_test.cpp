@@ -4,6 +4,7 @@
 
 #include <lib/common/node_walker.h>
 #include <lib/common/string_tools.h>
+#include <lib/common/yaml_or_json_parser.h>
 
 using namespace std;
 
@@ -99,5 +100,82 @@ TEST_CASE("splitPathTemplate", "[common]")
         REQUIRE(splitPathTemplate("//pets//").size() == 1);
         REQUIRE(splitPathTemplate("/").empty());
         REQUIRE(splitPathTemplate("").empty());
+    }
+}
+
+TEST_CASE("nodeToYamlText/nodeToJsonText quote string scalars that would otherwise misparse as a "
+          "different type",
+          "[common]")
+{
+    // A response status code map key ("200") is the OpenAPI-specific case that motivated this -
+    // left unquoted, a YAML 1.1 core-schema parser (js-yaml, most spec linters/editors) reads it
+    // back as the integer 200, not the string "200" the spec requires as a Responses Object key.
+    Node::Map inner;
+    inner["description"] = { Node::String("ok") };
+    Node::Map responses;
+    responses["200"] = { inner };
+    Node::Map root;
+    root["responses"] = { responses };
+    root["version"] = { Node::String("true") }; // a string value that looks like a bool
+    root["nullish"] = { Node::String("null") }; // ... and null
+    root["pi"] = { Node::String("1.5") }; // ... and a float
+    root["title"] = { Node::String("3.0.0") }; // NOT ambiguous (two dots) - stays unquoted
+
+    auto yaml = nodeToYamlText({ root });
+    REQUIRE_THAT(yaml, Catch::Matchers::ContainsSubstring("\"200\":"));
+    REQUIRE_THAT(yaml, Catch::Matchers::ContainsSubstring("version: \"true\""));
+    REQUIRE_THAT(yaml, Catch::Matchers::ContainsSubstring("nullish: \"null\""));
+    REQUIRE_THAT(yaml, Catch::Matchers::ContainsSubstring("pi: \"1.5\""));
+    REQUIRE_THAT(yaml, Catch::Matchers::ContainsSubstring("title: 3.0.0"));
+
+    // Round-trips back to the original string values, not (say) an int/bool/float/null.
+    auto reparsed = parseYamlOrJsonToNode(yaml);
+    NodeWalker w(reparsed);
+    REQUIRE(w["responses"]["200"]["description"].required<string>() == "ok");
+    REQUIRE(w["version"].required<string>() == "true");
+    REQUIRE(w["nullish"].required<string>() == "null");
+    REQUIRE(w["pi"].required<string>() == "1.5");
+    REQUIRE(w["title"].required<string>() == "3.0.0");
+}
+
+TEST_CASE("nodeToYamlText/nodeToJsonText's topLevelKeyOrder reorders the root object's keys",
+          "[common]")
+{
+    Node::Map root;
+    root["paths"] = { Node::Map {} };
+    root["components"] = { Node::Map {} };
+    root["info"] = { Node::Map {} };
+    root["openapi"] = { Node::String("3.0.0") };
+    root["x-vendor"] = { Node::String("extra") }; // not in the order list
+
+    vector<string> order = { "openapi", "info", "paths", "components" };
+
+    SECTION("YAML")
+    {
+        auto yaml = nodeToYamlText({ root }, order);
+        auto openapiPos = yaml.find("openapi:");
+        auto infoPos = yaml.find("info:");
+        auto pathsPos = yaml.find("paths:");
+        auto componentsPos = yaml.find("components:");
+        auto vendorPos = yaml.find("x-vendor:");
+        REQUIRE(openapiPos < infoPos);
+        REQUIRE(infoPos < pathsPos);
+        REQUIRE(pathsPos < componentsPos);
+        // Keys absent from the order list still come out, after the ordered ones.
+        REQUIRE(componentsPos < vendorPos);
+    }
+
+    SECTION("JSON")
+    {
+        auto json = nodeToJsonText({ root }, order);
+        auto openapiPos = json.find("\"openapi\"");
+        auto infoPos = json.find("\"info\"");
+        auto pathsPos = json.find("\"paths\"");
+        auto componentsPos = json.find("\"components\"");
+        auto vendorPos = json.find("\"x-vendor\"");
+        REQUIRE(openapiPos < infoPos);
+        REQUIRE(infoPos < pathsPos);
+        REQUIRE(pathsPos < componentsPos);
+        REQUIRE(componentsPos < vendorPos);
     }
 }

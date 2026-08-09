@@ -54,6 +54,14 @@ public:
     inline void info(const std::string& message) { write(LogLevel::INFO, message); }
 
     template <typename... Args>
+    inline void warn(std::format_string<Args...> msg, Args&&... args)
+    {
+        write(LogLevel::WARN, std::format(msg, std::forward<Args>(args)...));
+    }
+
+    inline void warn(const std::string& message) { write(LogLevel::WARN, message); }
+
+    template <typename... Args>
     inline void error(std::format_string<Args...> msg, Args&&... args)
     {
         write(LogLevel::ERROR, std::format(msg, std::forward<Args>(args)...));
