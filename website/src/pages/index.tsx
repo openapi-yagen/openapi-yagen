@@ -6,21 +6,43 @@ import CodeBlock from '@theme/CodeBlock';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import styles from './index.module.css';
 
-const kotlinCommand = `openapi-yagen generate openapi.yaml \\
-  -g generators/kotlin_ktor_client_generator/src \\
+const installCommand = `curl -L https://github.com/openapi-yagen/openapi-yagen/releases/latest/download/openapi-yagen \\
+  -o openapi-yagen && chmod +x openapi-yagen`;
+
+const kotlinCommand = `curl -LO https://raw.githubusercontent.com/openapi-yagen/openapi-yagen/master/test/resources/petstore.yaml
+
+openapi-yagen generate petstore.yaml \\
+  -g https://raw.githubusercontent.com/openapi-yagen/openapi-yagen/master/generators/kotlin_ktor_client_generator/src \\
   -o generated \\
   -v packageName=com.example.petstore`;
 
-const kotlinUsage = `val client = HttpClient(CIO) {
-    install(ContentNegotiation) { json() }
-}
-
-val petsApi = PetsApi(
-    client,
-    baseUrl = "https://petstore.example.com/v1",
-)
-
+const kotlinUsage = `val client = HttpClient(CIO) { install(ContentNegotiation) { json() } }
+val petsApi = PetsApi(client, baseUrl = "https://petstore.example.com/v1")
 val pets = petsApi.listPets(limit = 20)`;
+
+const heroSteps = [
+  {
+    label: 'Install the CLI',
+    language: 'bash',
+    code: installCommand,
+    docHref: '/docs/overview#installation',
+    docLabel: 'Details',
+  },
+  {
+    label: 'Generate a Kotlin Ktor client',
+    language: 'bash',
+    code: kotlinCommand,
+    docHref: '/docs/generator-format#loading-a-generator',
+    docLabel: 'Details',
+  },
+  {
+    label: 'Use the generated client',
+    language: 'kotlin',
+    code: kotlinUsage,
+    docHref: '/generators/kotlin-ktor-client#integrating-the-generated-code',
+    docLabel: 'Details',
+  },
+];
 
 const features = [
   {
@@ -105,18 +127,21 @@ function Hero(): ReactNode {
           </div>
         </div>
 
-        <div className={styles.quickExample}>
-          <div className={styles.panelHeader}>
-            <span>Generate a Kotlin Ktor client</span>
-            <Link to="/generators/kotlin-ktor-client">Details</Link>
-          </div>
-          <CodeBlock language="bash">{kotlinCommand}</CodeBlock>
-          <div className={styles.outputTree}>
-            <span>generated/com/example/petstore/</span>
-            <code>models/Pet.kt</code>
-            <code>apis/PetsApi.kt</code>
-            <code>QueryUtils.kt</code>
-          </div>
+        <div className={styles.quickSteps}>
+          {heroSteps.map((step, index) => (
+            <div className={styles.stepPanel} key={step.label}>
+              <div className={styles.panelHeader}>
+                <span>
+                  <em className={styles.stepNumber}>{index + 1}</em>
+                  {step.label}
+                </span>
+                <Link to={step.docHref}>
+                  {step.docLabel} <Arrow />
+                </Link>
+              </div>
+              <CodeBlock language={step.language}>{step.code}</CodeBlock>
+            </div>
+          ))}
         </div>
       </div>
     </header>
@@ -142,34 +167,6 @@ function Home(): ReactNode {
                   <p>{feature.text}</p>
                 </article>
               ))}
-            </div>
-          </div>
-        </section>
-
-        <section className={styles.exampleSection}>
-          <div className={`container ${styles.exampleGrid}`}>
-            <div className={styles.exampleDescription}>
-              <span className={styles.label}>Kotlin client example</span>
-              <Heading as="h2">Use the generated client with your own Ktor setup</Heading>
-              <p>
-                The Kotlin generator creates serializable models and one API class per OpenAPI
-                tag. It does not choose an HTTP engine or create an <code>HttpClient</code>.
-              </p>
-              <ul>
-                <li>Typed request parameters and response values</li>
-                <li>Kotlin Multiplatform-compatible generated sources</li>
-                <li>Caller-managed HTTP engine, authentication, and plugins</li>
-              </ul>
-              <Link className={styles.textLink} to="/generators/kotlin-ktor-client">
-                Kotlin generator documentation <Arrow />
-              </Link>
-            </div>
-            <div className={styles.codePanel}>
-              <div className={styles.panelHeader}>
-                <span>Application code</span>
-                <code>Example.kt</code>
-              </div>
-              <CodeBlock language="kotlin">{kotlinUsage}</CodeBlock>
             </div>
           </div>
         </section>
@@ -224,6 +221,15 @@ function Home(): ReactNode {
                   <p>{generator.text}</p>
                 </Link>
               ))}
+            </div>
+            <div className={styles.generatorNote}>
+              <p>
+                <strong>Don't see your language or framework?</strong> Generators are just
+                JavaScript and Inja templates, so you can write your own.
+              </p>
+              <Link to="/docs/tutorial">
+                Tutorial: writing a generator from scratch <Arrow />
+              </Link>
             </div>
           </div>
         </section>
