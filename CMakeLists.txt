@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.21)
 
 project(openapi-yagen LANGUAGES CXX)
 
@@ -38,6 +38,12 @@ endif()
 message(STATUS "App version: " ${APP_VERSION})
 
 include_directories(${CMAKE_SOURCE_DIR})
+
+# battery::embed (lib/filesystem) embeds generator files as static data with no legitimate need for
+# its dev-mode hot-reload/file-watcher thread or absolute build-machine paths in the binary - force
+# production mode unconditionally rather than only in RELEASE_MODE.
+set(B_PRODUCTION_MODE ON CACHE BOOL "Disable battery::embed hot-reload/dev features" FORCE)
+set(B_EMBED_SILENCE_DEVMODE_WARNING ON CACHE BOOL "" FORCE)
 
 add_subdirectory(cli)
 add_subdirectory(lib)

@@ -14,7 +14,7 @@ COPY conanfile.txt /sources/
 RUN --mount=type=cache,target=/root/.conan2 set -x && \
     mkdir -p /build && \
     cd /build && \
-    conan install /sources --output-folder=. --build=missing
+    conan install /sources -s compiler.cppstd=20 --output-folder=. --build=missing
 
 COPY . /sources/
 

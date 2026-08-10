@@ -27,10 +27,12 @@ ConvertCommand::ConvertCommand() { }
 void ConvertCommand::reg(CLI::App& app)
 {
     auto cmd = app.add_subcommand("convert", "Convert an OpenAPI spec from one version to another")
+                   ->alias("c")
                    ->callback(std::bind(&ConvertCommand::process, this));
     cmd->add_option("spec-file", specPath, "Specification file to convert")->required();
-    cmd->add_option("--from", fromVersion, "Source OpenAPI version (e.g. 2.0, 3.0, 3.1, 3.2) - "
-                                            "auto-detected from the spec's own \"openapi\"/\"swagger\" field if omitted");
+    cmd->add_option("--from", fromVersion,
+                    "Source OpenAPI version (e.g. 2.0, 3.0, 3.1, 3.2) - "
+                    "auto-detected from the spec's own \"openapi\"/\"swagger\" field if omitted");
     cmd->add_option("--to", toVersion, "Target OpenAPI version (e.g. 2.0, 3.0, 3.1, 3.2)")->required();
     cmd->add_option("-o,--out", outPath, "Output file path")->required();
     cmd->add_option("--format", outputFormat,
@@ -51,7 +53,7 @@ void ConvertCommand::process()
         auto detected = OpenApi::detectVersion(specNode);
         if (!detected)
             throw runtime_error("<b2c3d4e5> Cannot determine the spec's OpenAPI version - expected a top-level "
-                                 "\"openapi\" (3.x) or \"swagger\" (2.0) field with a recognized value, or pass --from");
+                                "\"openapi\" (3.x) or \"swagger\" (2.0) field with a recognized value, or pass --from");
         from = *detected;
     }
 

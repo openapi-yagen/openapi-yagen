@@ -74,7 +74,7 @@ jobs:
         run: |
           pip install conan
           conan profile detect --force
-          conan install . --output-folder=build --build=missing
+          conan install . -s compiler.cppstd=20 --output-folder=build --build=missing
           cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug
           cmake --build build -j --target openapi-yagen
 

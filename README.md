@@ -50,6 +50,8 @@ Options:
 Subcommands:
   generate, g                 Generate sources from openapi specification
   convert                     Convert an OpenAPI spec from one version to another
+  list-generators             List built-in generators bundled with this binary (use with -g builtin:<name>)
+  extract                     Extract a built-in generator's files to a directory, e.g. to customize it further without starting from scratch
 ```
 
 Generate subcommand:
@@ -67,7 +69,7 @@ Options:
   --override-dir TEXT         Directory with overridden generator files
   -o,--out-dir TEXT [.]       Output directory for generated code
   -g,--generator TEXT REQUIRED
-                              Path to generator. It can be directory, zip archive or HTTP URL
+                              Path to generator. It can be a directory, zip archive, HTTP URL, or a built-in generator (builtin:<name> - see the list-generators command)
   -p,--post-process TEXT ...  Post process file with specified tool for extension
   -c,--clear                  Clear output directory before generating
   -v,--var TEXT ...           Set variable. Syntax is: -v (var_name)=(var_value)
@@ -92,6 +94,30 @@ Options:
 
 ```bash
 openapi-yagen convert openapi-3.1.yaml --to 3.0 -o openapi-3.0.yaml
+```
+
+List-generators subcommand:
+
+```
+List built-in generators bundled with this binary (use with -g builtin:<name>)
+Usage: ./openapi-yagen list-generators [OPTIONS]
+
+Options:
+  -h,--help                   Print this help message and exit
+```
+
+Extract subcommand:
+
+```
+Extract a built-in generator's files to a directory, e.g. to customize it further without starting from scratch
+Usage: ./openapi-yagen extract [OPTIONS] name
+
+Positionals:
+  name TEXT REQUIRED          Built-in generator name (see the list-generators command)
+
+Options:
+  -h,--help                   Print this help message and exit
+  -o,--out-dir TEXT REQUIRED  Output directory
 ```
 
 This is the same version conversion `generate` runs automatically when a spec's version doesn't
@@ -120,6 +146,23 @@ raw folder contents (`curl` is required). For example, using this repo's own
 openapi-yagen generate openapi.yaml \
     -g https://raw.githubusercontent.com/openapi-yagen/openapi-yagen/master/generators/sample_cpp_models_generator/src \
     -o out
+```
+
+### Using a built-in generator
+
+A handful of the generators in [`generators/`](generators/) are embedded directly into the
+`openapi-yagen` binary at build time, so they work offline with no local checkout, zip, or network
+access:
+
+```bash
+openapi-yagen list-generators
+openapi-yagen generate openapi.yaml -g builtin:kotlin_ktor_client -o out -v packageName=com.example.petstore
+```
+
+To fork a built-in generator and customize it, extract its files to a directory first:
+
+```bash
+openapi-yagen extract kotlin_ktor_client -o my-kotlin-client-generator
 ```
 
 ## Writing a generator
@@ -159,7 +202,7 @@ writing a generator, which [`docs/`](docs/README.md) covers).
 - [x] Support multiple OpenAPI versions (2.0, 3.0, 3.1, 3.2) with automatic conversion between them
 - [x] Add configuration variables
 - [x] Improve documentation and add more examples
-- [ ] Use https://github.com/batterycenter/embed to embed some popular templates into binary
+- [x] Use https://github.com/batterycenter/embed to embed some popular templates into binary
 - [x] Add remote templates reading (from GitHub for example)
 - [ ] Command to create generator stub
 - [ ] Command to show available variables for generator

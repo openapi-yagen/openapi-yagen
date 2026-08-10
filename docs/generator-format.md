@@ -7,9 +7,9 @@ description: Generator layout, metadata, loading, version conversion, overrides,
 
 # Generator format
 
-A generator is a folder of files, a zip archive, or an HTTP(S) URL serving the same layout - `-g`
-accepts all three, resolved by the same mechanism either way (see "Loading a generator" below).
-The structure is:
+A generator is a folder of files, a zip archive, an HTTP(S) URL serving the same layout, or one of
+the generators bundled into the `openapi-yagen` binary itself - `-g` accepts all four, resolved by
+the same mechanism either way (see "Loading a generator" below). The structure is:
 
 - `generator.yml` - generator metadata, descriptor
 - `main.js` - main JavaScript file (entrypoint)
@@ -118,17 +118,26 @@ version before checking it in, or to inspect what a 3.1 spec looks like once fol
 
 ## Loading a generator
 
-`-g` accepts, in this priority order:
-1. **A directory** - the common case during development. Relative paths are resolved against the
+`-g` accepts:
+1. **`builtin:<name>`** - one of the generators embedded directly into the `openapi-yagen` binary
+   at compile time (currently `kotlin_ktor_client`, `kotlin_ktor_server`, and
+   `typescript_fetch_client` - run `openapi-yagen list-generators` for the current list with
+   descriptions). Works with no local checkout, network access, or filesystem at all. Use
+   `openapi-yagen extract <name> -o <dir>` to write a built-in generator's files out to disk, e.g.
+   to fork/customize one without starting from scratch.
+2. **A directory** - the common case during development. Relative paths are resolved against the
    current working directory.
-2. **A zip archive** - the same folder layout, zipped.
-3. **An HTTP(S) URL** - the same folder layout, served over HTTP/S (e.g. directly from a GitHub
+3. **A zip archive** - the same folder layout, zipped.
+4. **An HTTP(S) URL** - the same folder layout, served over HTTP/S (e.g. directly from a GitHub
    raw-content URL). Requires the `curl` tool to be installed.
+
+These four are mutually exclusive by construction (a `builtin:`-prefixed string can never be a real
+directory/zip/URL), so there's no real "priority" contest between them in practice.
 
 `--override-dir <dir>` layers an extra directory *on top* of the generator, checked first - any
 file present there (e.g. a template you want to tweak without forking the whole generator) wins
 over the generator's own copy. Useful for local experimentation against a generator you don't want
-to modify directly.
+to modify directly - including a `builtin:` one.
 
 ## Post-processing generated files
 

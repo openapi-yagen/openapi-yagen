@@ -98,15 +98,25 @@ debugging a generator, or when changing what globals/functions are exposed to `m
 ## Building
 
 Dependencies are managed via Conan 2 (`conanfile.txt`): termcolor, yaml-cpp, cli11, quickjs,
-kuba-zip, inja, catch2. Requires CMake ≥ 3.5 and a C++20 compiler.
+kuba-zip, inja, catch2, battery-embed (embeds the built-in generators, see `lib/filesystem/`'s
+`EMBEDDED_GENERATOR_DIRS`). Requires CMake ≥ 3.21 and a C++20 compiler (both driven by
+battery-embed's own floor).
 
 Local build:
 ```bash
 conan profile detect --force   # first time only
-conan install . --output-folder=build --build=missing
+conan install . -s compiler.cppstd=20 --output-folder=build --build=missing
 cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j
 ```
+`-s compiler.cppstd=20` is required - `conan profile detect`'s auto-detected default profile
+picks a `gnu17`-style value that satisfies the project's own `CMAKE_CXX_STANDARD 20` toolchain
+setting at the compiler-flag level, but doesn't satisfy battery-embed's own Conan-recipe-level
+minimum-cppstd package validation, so `conan install` fails with `Invalid: Current cppstd (gnu17)
+is lower than the required C++ standard (20)` without it. `conanfile.txt` can't declare this
+itself (no `[settings]` section is valid there), so it's passed on every `conan install`
+invocation instead (also updated in `Dockerfile.musl`, `Dockerfile.uclibc`, and
+`.github/workflows/build.yml`'s `kotlin-native-compile-check` job).
 The binary is `build/cli/openapi-yagen`. Build treats warnings as errors
 (`-Wall -Wextra -Wpedantic -Werror`, see root `CMakeLists.txt`) — expect a clean build to fail on
 any new warning.

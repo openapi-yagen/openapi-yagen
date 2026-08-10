@@ -4,6 +4,7 @@
 
 #include <lib/filesystem/dir_file_reader_backend.h>
 #include <lib/filesystem/dir_file_writer.h>
+#include <lib/filesystem/embedded_file_reader_backend.h>
 #include <lib/filesystem/file_post_processor.h>
 #include <lib/filesystem/remote_file_reader_backend.h>
 #include <lib/filesystem/tools.h>
@@ -29,7 +30,9 @@ void GenerateCommand::reg(CLI::App& app)
     cmd->add_option("spec-file", specPath, "Specification file")->default_val("openapi.yaml");
     cmd->add_option("--override-dir", overrideDir, "Directory with overridden generator files");
     cmd->add_option("-o, --out-dir", outDir, "Output directory for generated code")->default_val(".");
-    cmd->add_option("-g, --generator", generatorPath, "Path to generator. It can be directory, zip archive or HTTP URL")
+    cmd->add_option("-g, --generator", generatorPath,
+                    "Path to generator. It can be a directory, zip archive, HTTP URL, or a built-in generator "
+                    "(builtin:<name> - see the list-generators command)")
         ->required();
     cmd->add_option("-p, --post-process", postProcessTools, "Post process file with specified tool for extension")
         ->take_all();
@@ -45,6 +48,7 @@ void GenerateCommand::process()
     }
 
     vector<FS::FileReaderBackendFactoryPtr> fileReaderBackendFactories = {
+        make_shared<FS::EmbeddedFileReaderBackendFactory>(),
         make_shared<FS::DirFileReaderBackendFactory>(),
         make_shared<FS::ZipFileReaderBackendFactory>(),
         make_shared<FS::RemoteFileReaderBackendFactory>(),

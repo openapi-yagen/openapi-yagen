@@ -4,10 +4,12 @@
 
 #include <sstream>
 
+#include <lib/filesystem/embedded_file_reader_backend.h>
 #include <lib/filesystem/file_reader.h>
 #include <lib/filesystem/file_writer.h>
 #include <lib/generator/openapi_generator.h>
 #include <lib/js/executor.h>
+#include <lib/templates/inja_template_renderer.h>
 #include <lib/templates/template_renderer.h>
 
 #include "common/tools.h"
@@ -364,4 +366,41 @@ TEST_CASE("Generate rejects a generator declaring openApiVersion 2.0 as its targ
     // 2.0 can be a spec *input* (converted up), but the JS-bridge's raw+overlay pattern assumes an
     // OAS 3.x raw shape, so a generator may never declare 2.0 as its own generation target.
     REQUIRE_THROWS(gen.generate(getResourcePath("petstore.yaml")));
+}
+
+TEST_CASE("Generate runs end-to-end against a built-in (embedded) generator", "[generator]")
+{
+    // Real EmbeddedFileReaderBackend, real InjaTemplateRenderer and real JS::Executor (only the
+    // file writer is mocked, to avoid touching disk) - exercises the exact same generation
+    // pipeline `-g builtin:kotlin_ktor_client` uses, confirming the embedded copy of the generator
+    // produces real output, not just that its files are individually readable.
+    auto fileWriter = make_shared<MockedFileWriter>();
+
+    EmbeddedFileReaderBackendFactory factory;
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { factory.createBackend("builtin:kotlin_ktor_client") },
+    });
+    auto templateRenderer = make_shared<Templates::InjaTemplateRenderer>(Templates::InjaTemplateRenderer::Opts {
+        .fileReader = fileReader,
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { "packageName=com.example.petstore" },
+    });
+
+    gen.generate(getResourcePath("petstore.yaml"));
+
+    REQUIRE_THAT(fileWriter->files["com/example/petstore/apis/PetsApi.kt"],
+                 Catch::Matchers::ContainsSubstring("class PetsApi"));
+    REQUIRE_THAT(fileWriter->files["com/example/petstore/apis/PetsApi.kt"],
+                 Catch::Matchers::ContainsSubstring("listPets"));
+    REQUIRE_THAT(fileWriter->files["com/example/petstore/models/Pet.kt"],
+                 Catch::Matchers::ContainsSubstring("data class Pet"));
 }

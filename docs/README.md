@@ -19,7 +19,8 @@ scratch, step by step, with every command and its actual output.
 Reference material, once you know the shape of things:
 
 - **[Generator format](generator-format.md)** - the folder layout, `generator.yml`, how `-g`
-  loads a directory/zip/URL, `--override-dir`, and post-processing generated files.
+  loads a built-in generator/directory/zip/URL, `--override-dir`, and post-processing generated
+  files.
 - **[JavaScript API](javascript-api.md)** - the globals (`schema`, `vars`) and built-in functions
   (`kindOf`, `nameOf`, `constraintsOf`, `collectOperations`, `renderTemplate`, `copyFile`, ...)
   available to `main.js`.

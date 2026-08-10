@@ -17,8 +17,12 @@ set(SOURCES
     commands/base_command.h
     commands/convert_command.h
     commands/convert_command.cpp
+    commands/extract_command.h
+    commands/extract_command.cpp
     commands/generate_command.h
     commands/generate_command.cpp
+    commands/list_generators_command.h
+    commands/list_generators_command.cpp
 )
 
 add_executable(${TARGET} ${SOURCES})
