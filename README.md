@@ -55,7 +55,7 @@ Subcommands:
   info, i                     Show a generator's metadata: name, description, OpenAPI version, and declared variables
 ```
 
-Generate subcommand:
+### Generate subcommand
 
 ```
 Generate sources from openapi specification
@@ -76,7 +76,20 @@ Options:
   -v,--var TEXT ...           Set variable. Syntax is: -v (var_name)=(var_value)
 ```
 
-Convert subcommand:
+#### Post-processing generated files
+
+`-p/--post-process <spec>` runs an external command on each generated file, keyed by extension:
+
+```
+-p "ts:prettier --write %file%"
+```
+
+`%file%` is replaced with the generated file's path. The `ext1,ext2:` prefix is optional - a
+`-p` value with no prefix (just a bare command) runs on *every* generated file, regardless of
+extension. Pass `-p` more than once to chain multiple tools (e.g. one for `.kt` files, a different
+one for everything else).
+
+### Convert subcommand
 
 ```
 Convert an OpenAPI spec from one version to another
@@ -97,7 +110,7 @@ Options:
 openapi-yagen convert openapi-3.1.yaml --to 3.0 -o openapi-3.0.yaml
 ```
 
-List-generators subcommand:
+### List-generators subcommand
 
 ```
 List built-in generators bundled with this binary (use with -g builtin:<name>)
@@ -108,7 +121,7 @@ Options:
   -d,--describe               Also print each generator's description
 ```
 
-Extract subcommand:
+### Extract subcommand
 
 ```
 Extract a built-in generator's files to a directory, e.g. to customize it further without starting from scratch
@@ -122,7 +135,7 @@ Options:
   -o,--out-dir TEXT REQUIRED  Output directory
 ```
 
-Info subcommand:
+### Info subcommand
 
 ```
 Show a generator's metadata: name, description, OpenAPI version, and declared variables
@@ -153,7 +166,9 @@ still come out alphabetical. String values that would otherwise be ambiguous whe
 `"true"`/`"1.5"`) are always quoted, so they round-trip as strings rather than being silently
 misread as a different YAML type by another tool.
 
-### Running a generator directly from GitHub
+### Examples
+
+#### Running a generator directly from GitHub
 
 `-g` also accepts an HTTP/S URL pointing at a generator's source folder, so you can run a
 generator straight from GitHub without cloning it. `openapi-yagen` fetches the generator's files
@@ -224,5 +239,7 @@ writing a generator, which [`docs/`](docs/README.md) covers).
 - [x] Use https://github.com/batterycenter/embed to embed some popular templates into binary
 - [x] Add remote templates reading (from GitHub for example)
 - [ ] Command to create generator stub
-- [ ] Command to show available variables for generator
+- [x] Command to show available variables for generator
 - [x] Restrict access to files outside working folder
+- [ ] Post-processing files in batches rather than one at a time
+- [ ] Improve documentation (postprocessing, more examples in README)

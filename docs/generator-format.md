@@ -144,19 +144,6 @@ file present there (e.g. a template you want to tweak without forking the whole 
 over the generator's own copy. Useful for local experimentation against a generator you don't want
 to modify directly - including a `builtin:` one.
 
-## Post-processing generated files
-
-`-p/--post-process <spec>` runs an external command on each generated file, keyed by extension:
-
-```
--p "ts:prettier --write %file%"
-```
-
-`%file%` is replaced with the generated file's path. The `ext1,ext2:` prefix is optional - a
-`-p` value with no prefix (just a bare command) runs on *every* generated file, regardless of
-extension. Pass `-p` more than once to chain multiple tools (e.g. one for `.kt` files, a different
-one for everything else).
-
 ## Full CLI reference
 
 See the root [`README.md`](../README.md#cli-reference) for the complete `generate`/`g` subcommand
