@@ -4,6 +4,8 @@ find_package(quickjs REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
 set(SOURCES
+  external_ref_resolver.cpp
+  external_ref_resolver.h
   functions.cpp
   functions.h
   generator_metadata.cpp

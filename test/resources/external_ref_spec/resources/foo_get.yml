@@ -1,0 +1,5 @@
+operationId: getFoo
+summary: Get foo
+responses:
+  "200":
+    description: OK

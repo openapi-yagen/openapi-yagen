@@ -9,6 +9,7 @@ set(SOURCES
     common/tools.cpp
     common/tools.h
     common_test.cpp
+    external_ref_resolver_test.cpp
     generator_test.cpp
     openapi_js_test.cpp
     openapi_test.cpp

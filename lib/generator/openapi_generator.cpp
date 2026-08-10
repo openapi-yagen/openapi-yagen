@@ -627,15 +627,23 @@ void OpenApiGenerator::generate(const string& specPath)
         opts.fileWriter->clear();
     auto metadata = readMetadata(opts.fileReader, opts.metadataPath);
     auto mainScriptPath = metadata.mainScriptPath.value_or(opts.defaultMainSciptPath);
+
+    // Validated before reading/resolving the spec (which can be slow for a large multi-file spec,
+    // see external_ref_resolver.h) so a missing/misspelled -v flag fails fast instead of only
+    // being reported after all that work is done.
+    auto vars = getFinalVars(opts.vars, metadata);
+
+    logger.debug("<c1d2e3f4> Reading spec file: {}", specPath);
     auto versioned = convertToGeneratorVersion(metadata, readSpecFile(specPath));
     auto& schemaNode = versioned.node;
 
+    logger.debug("<d2e3f4a5> Parsing OpenAPI document");
     auto doc = OpenApi::V3::Read(NodeWalker(schemaNode), versioned.version);
+    logger.debug("<e3f4a5b6> Resolving in-document $refs");
     OpenApi::resolveAllRefs(doc);
     auto operations = OpenApi::collectOperations(doc);
 
     auto generatorPtr = this;
-    auto vars = getFinalVars(opts.vars, metadata);
 
     vector<FuncType> commonJsFuncs;
     optional<Generator::OpenApiJsGraphBuilder> builder;

@@ -1,0 +1,28 @@
+openapi: "3.0.0"
+info:
+  version: 1.0.0
+  title: External Ref Test API
+tags:
+  - name: intro
+    description:
+      $ref: "description.yml#/intro"
+  - name: missing
+    description:
+      $ref: "does_not_exist.yml#/x"
+  - name: escaping
+    description:
+      $ref: "../external_ref_secret.yml#/x"
+paths:
+  /foo:
+    get:
+      $ref: "resources/foo_get.yml"
+  /recursive:
+    get:
+      operationId: getRecursive
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "resources/recursive.yml#/node"
