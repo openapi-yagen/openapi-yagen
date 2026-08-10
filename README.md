@@ -49,9 +49,10 @@ Options:
 
 Subcommands:
   generate, g                 Generate sources from openapi specification
-  convert                     Convert an OpenAPI spec from one version to another
-  list-generators             List built-in generators bundled with this binary (use with -g builtin:<name>)
-  extract                     Extract a built-in generator's files to a directory, e.g. to customize it further without starting from scratch
+  convert, c                  Convert an OpenAPI spec from one version to another
+  list-generators, l          List built-in generators bundled with this binary (use with -g builtin:<name>)
+  extract, e                  Extract a built-in generator's files to a directory, e.g. to customize it further without starting from scratch
+  info, i                     Show a generator's metadata: name, description, OpenAPI version, and declared variables
 ```
 
 Generate subcommand:
@@ -104,6 +105,7 @@ Usage: ./openapi-yagen list-generators [OPTIONS]
 
 Options:
   -h,--help                   Print this help message and exit
+  -d,--describe               Also print each generator's description
 ```
 
 Extract subcommand:
@@ -113,11 +115,28 @@ Extract a built-in generator's files to a directory, e.g. to customize it furthe
 Usage: ./openapi-yagen extract [OPTIONS] name
 
 Positionals:
-  name TEXT REQUIRED          Built-in generator name (see the list-generators command)
+  name TEXT REQUIRED          Built-in generator name, with or without a "builtin:" prefix (see the list-generators command)
 
 Options:
   -h,--help                   Print this help message and exit
   -o,--out-dir TEXT REQUIRED  Output directory
+```
+
+Info subcommand:
+
+```
+Show a generator's metadata: name, description, OpenAPI version, and declared variables
+Usage: ./openapi-yagen info [OPTIONS] generator
+
+Positionals:
+  generator TEXT REQUIRED     Path to generator. It can be a directory, zip archive, HTTP URL, or a built-in generator (builtin:<name> - see the list-generators command)
+
+Options:
+  -h,--help                   Print this help message and exit
+```
+
+```bash
+openapi-yagen info builtin:kotlin_ktor_client
 ```
 
 This is the same version conversion `generate` runs automatically when a spec's version doesn't

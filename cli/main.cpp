@@ -11,6 +11,7 @@
 #include "commands/convert_command.h"
 #include "commands/extract_command.h"
 #include "commands/generate_command.h"
+#include "commands/info_command.h"
 #include "commands/list_generators_command.h"
 #include "config.h"
 
@@ -33,6 +34,7 @@ int main(int argc, char** argv)
             make_shared<ConvertCommand>(),
             make_shared<ListGeneratorsCommand>(),
             make_shared<ExtractCommand>(),
+            make_shared<InfoCommand>(),
         };
 
         CLI::App app { format("OpenAPI Yet Another Generator (v{})", APP_VERSION) };

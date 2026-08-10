@@ -21,6 +21,8 @@ set(SOURCES
     commands/extract_command.cpp
     commands/generate_command.h
     commands/generate_command.cpp
+    commands/info_command.h
+    commands/info_command.cpp
     commands/list_generators_command.h
     commands/list_generators_command.cpp
 )

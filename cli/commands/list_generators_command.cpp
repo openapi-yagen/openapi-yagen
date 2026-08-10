@@ -59,10 +59,11 @@ ListGeneratorsCommand::ListGeneratorsCommand() { }
 
 void ListGeneratorsCommand::reg(CLI::App& app)
 {
-    app.add_subcommand("list-generators",
-                       "List built-in generators bundled with this binary (use with -g builtin:<name>)")
-        ->alias("l")
-        ->callback(std::bind(&ListGeneratorsCommand::process, this));
+    auto cmd = app.add_subcommand("list-generators",
+                                  "List built-in generators bundled with this binary (use with -g builtin:<name>)")
+                   ->alias("l")
+                   ->callback(std::bind(&ListGeneratorsCommand::process, this));
+    cmd->add_flag("-d, --describe", describe, "Also print each generator's description");
 }
 
 void ListGeneratorsCommand::process()
@@ -73,6 +74,11 @@ void ListGeneratorsCommand::process()
     const auto& registry = FS::Embedded::registry();
     bool first = true;
     for (const auto& [name, files] : registry) {
+        if (!describe) {
+            cout << "builtin:" << name << "\n";
+            continue;
+        }
+
         if (!first)
             cout << "\n";
         first = false;
@@ -80,7 +86,7 @@ void ListGeneratorsCommand::process()
         auto metadataNode = parseYamlOrJsonToNode(files.at("generator.yml"));
         auto metadata = parseGeneratorMetadata(NodeWalker(metadataNode));
 
-        cout << tc::bold << tc::bright_white << name << tc::reset << "\n";
+        cout << tc::bold << tc::bright_white << "builtin:" << name << tc::reset << "\n";
         if (metadata.description) {
             cout << tc::bright_grey;
             for (const auto& line : wrapText(*metadata.description, wrapWidth))

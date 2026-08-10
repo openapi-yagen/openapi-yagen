@@ -64,6 +64,11 @@ variables:
 Reading a variable in JS: `vars.namespace` (see [`javascript-api.md`](javascript-api.md)'s
 "Global values"). Setting it on the command line: `-v namespace=MyModels`.
 
+Run `openapi-yagen info <generator>` to print a generator's declared variables (name,
+required/optional, default, description) along with its name, description, and OpenAPI version,
+without having to open its `generator.yml` by hand - see the root
+[`README.md`](../README.md#cli-reference)'s `info` subcommand.
+
 ## Spec versions and conversion
 
 The engine understands OpenAPI 3.0, 3.1, 3.2, and Swagger/OpenAPI 2.0 as *input*. Before running

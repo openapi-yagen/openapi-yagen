@@ -1,15 +1,17 @@
 #pragma once
 
+#include <string>
+
 #include "base_command.h"
 
-class ListGeneratorsCommand : public BaseCommand {
+class InfoCommand : public BaseCommand {
 public:
-    ListGeneratorsCommand();
+    InfoCommand();
 
     void reg(CLI::App& app) override;
 
 private:
     void process();
 
-    bool describe = false;
+    std::string generatorPath;
 };
