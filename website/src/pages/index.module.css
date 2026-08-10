@@ -193,8 +193,42 @@
 }
 
 .featureItem {
-  min-height: 145px;
+  min-height: 140px;
   padding: 1.25rem;
+}
+
+.featureHead {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.6rem;
+}
+
+.featureHead h3 {
+  margin: 0;
+  color: var(--yagen-heading);
+  font-size: 0.98rem;
+  letter-spacing: -0.015em;
+}
+
+.featureIcon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--yagen-border-strong);
+  border-radius: 8px;
+  background: var(--yagen-section);
+  color: var(--yagen-primary-link);
+}
+
+.featureIcon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .featureItem + .featureItem {
@@ -209,7 +243,6 @@
   border-top: 1px solid var(--yagen-border);
 }
 
-.featureItem h3,
 .steps h3,
 .generatorItem h3 {
   margin: 0 0 0.5rem;

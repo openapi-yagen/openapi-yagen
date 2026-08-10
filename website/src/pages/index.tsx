@@ -44,30 +44,92 @@ const heroSteps = [
   },
 ];
 
+function IconEngine(): ReactNode {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M12 2 3 7v10l9 5 9-5V7z" />
+      <path d="M3 7l9 5 9-5" />
+      <path d="M12 12v10" />
+    </svg>
+  );
+}
+
+function IconTemplate(): ReactNode {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="m9 8-4 4 4 4" />
+      <path d="m15 8 4 4-4 4" />
+    </svg>
+  );
+}
+
+function IconConvert(): ReactNode {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M4 7h13l-3-3" />
+      <path d="M20 17H7l3 3" />
+    </svg>
+  );
+}
+
+function IconSource(): ReactNode {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a14 14 0 0 1 0 18" />
+      <path d="M12 3a14 14 0 0 0 0 18" />
+    </svg>
+  );
+}
+
+function IconLayers(): ReactNode {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+      <path d="m3 13 9 5 9-5" />
+    </svg>
+  );
+}
+
+function IconTool(): ReactNode {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.8 2.8-2-2Z" />
+    </svg>
+  );
+}
+
 const features = [
   {
     title: 'Small standalone engine',
     text: 'The generator core is distributed as a small statically linked binary. JavaScript support is built in, so Node.js, Java, and other language runtimes are not required.',
+    Icon: IconEngine,
   },
   {
     title: 'JavaScript and Jinja-like templates',
     text: 'Generators use modern JavaScript for logic and familiar Jinja-like templates for output, making them straightforward to write and customize.',
+    Icon: IconTemplate,
   },
   {
     title: 'Built-in OpenAPI version conversion',
     text: 'The engine converts between OpenAPI 2.0, 3.0, 3.1, and 3.2. A generator targets one 3.x version; when the engine adds another input version, existing generators keep their declared data shape.',
+    Icon: IconConvert,
   },
   {
     title: 'Local or remote generators',
     text: 'Keep a generator with your project sources, package it as a ZIP, or load it directly from an HTTP or GitHub URL.',
+    Icon: IconSource,
   },
   {
     title: 'Selective file overrides',
     text: 'Replace only the generator files you need to adjust without copying or maintaining a complete fork.',
+    Icon: IconLayers,
   },
   {
     title: 'Output post-processing',
     text: 'Run custom tools such as formatters, linters, or checkers on generated files as part of the same command.',
+    Icon: IconTool,
   },
 ];
 
@@ -163,7 +225,12 @@ function Home(): ReactNode {
             <div className={styles.featureGrid}>
               {features.map((feature) => (
                 <article className={styles.featureItem} key={feature.title}>
-                  <Heading as="h3">{feature.title}</Heading>
+                  <div className={styles.featureHead}>
+                    <div className={styles.featureIcon}>
+                      <feature.Icon />
+                    </div>
+                    <Heading as="h3">{feature.title}</Heading>
+                  </div>
                   <p>{feature.text}</p>
                 </article>
               ))}
