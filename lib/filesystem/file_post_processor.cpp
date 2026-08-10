@@ -59,7 +59,7 @@ void SystemToolsFilePostProcessor::postProcess(const std::string& filePath)
         auto command = tool.commandTemplate;
         auto pos = command.find(filePlaceholder);
         if (pos != string::npos) {
-            command.replace(pos, filePlaceholder.size(), filePath);
+            command.replace(pos, filePlaceholder.size(), shellSingleQuote(filePath));
         }
         ProcessExecutor::executeAndCheckResult(command);
     }

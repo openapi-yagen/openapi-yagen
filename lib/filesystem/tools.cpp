@@ -24,4 +24,35 @@ std::string readFile(const std::string& filePath)
     }
 }
 
+bool isPathTraversalSafe(const std::string& relPath)
+{
+    filesystem::path p(relPath);
+    if (p.is_absolute())
+        return false;
+    auto normalized = p.lexically_normal();
+    auto it = normalized.begin();
+    return !(it != normalized.end() && *it == "..");
+}
+
+std::optional<filesystem::path> confineToRoot(const std::string& rootDir, const std::string& relPath, bool mustExist)
+{
+    error_code ec;
+    auto canonicalRoot = filesystem::weakly_canonical(rootDir, ec);
+    if (ec)
+        return nullopt;
+
+    auto candidate = filesystem::path(rootDir) / relPath;
+    auto canonicalCandidate
+        = mustExist ? filesystem::canonical(candidate, ec) : filesystem::weakly_canonical(candidate, ec);
+    if (ec)
+        return nullopt;
+
+    auto rootStr = canonicalRoot.string();
+    auto candidateStr = canonicalCandidate.string();
+    if (candidateStr != rootStr && !candidateStr.starts_with(rootStr + filesystem::path::preferred_separator))
+        return nullopt;
+
+    return canonicalCandidate;
+}
+
 }

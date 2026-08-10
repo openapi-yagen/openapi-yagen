@@ -162,6 +162,13 @@ std::string sanitizeIdentifier(const std::string& s);
 // thin wrapper for that one additional character.
 std::string toStringLiteral(const std::string& s);
 
+// Wraps `s` in `'...'`, escaping any embedded `'` as `'\''`, producing a single token that's safe
+// to interpolate into a POSIX shell command string built via string concatenation/std::format
+// (as opposed to an argv array) - use whenever externally-influenced data (a URL, a generated
+// file's path) has to be embedded in a `sh -c`-executed command line, to prevent it from being
+// interpreted as shell syntax (quotes, `` ` ``, `$()`, `;`, ...).
+std::string shellSingleQuote(const std::string& s);
+
 // One segment of a path template split by splitPathTemplate: either a literal path segment
 // (`literal` set) or a `{param}` placeholder (`param` set to the name with the braces stripped) -
 // never both.

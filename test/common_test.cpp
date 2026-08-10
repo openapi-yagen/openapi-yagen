@@ -1,8 +1,11 @@
 // clazy:excludeall=non-pod-global-static
 
+#include <format>
+
 #include <catch2/catch_all.hpp>
 
 #include <lib/common/node_walker.h>
+#include <lib/common/process_executor.h>
 #include <lib/common/string_tools.h>
 #include <lib/common/yaml_or_json_parser.h>
 
@@ -80,6 +83,22 @@ TEST_CASE("toStringLiteral", "[common]")
     REQUIRE(toStringLiteral("line1\nline2") == "\"line1\\nline2\"");
     REQUIRE(toStringLiteral("a\tb\rc") == "\"a\\tb\\rc\"");
     REQUIRE(toStringLiteral(string(1, '\x01')) == "\"\\u0001\"");
+}
+
+TEST_CASE("shellSingleQuote", "[common]")
+{
+    REQUIRE(shellSingleQuote("plain") == "'plain'");
+    REQUIRE(shellSingleQuote("") == "''");
+    REQUIRE(shellSingleQuote("it's a test") == "'it'\\''s a test'");
+    REQUIRE(shellSingleQuote("a'b'c") == "'a'\\''b'\\''c'");
+
+    SECTION("Shell metacharacters are inert once substituted into a real command")
+    {
+        string payload = "$(touch /tmp/should-not-exist-shellquote-test); `echo pwned`; \"; rm -rf /tmp/x";
+        auto cmd = format("echo {}", shellSingleQuote(payload));
+        auto result = ProcessExecutor::executeAndCheckResult(cmd);
+        REQUIRE((result.stdOut | trim()) == payload);
+    }
 }
 
 TEST_CASE("splitPathTemplate", "[common]")

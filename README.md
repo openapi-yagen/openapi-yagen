@@ -163,4 +163,4 @@ writing a generator, which [`docs/`](docs/README.md) covers).
 - [x] Add remote templates reading (from GitHub for example)
 - [ ] Command to create generator stub
 - [ ] Command to show available variables for generator
-- [ ] Restrict access to files outside working folder
+- [x] Restrict access to files outside working folder

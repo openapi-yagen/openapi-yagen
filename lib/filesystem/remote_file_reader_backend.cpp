@@ -3,6 +3,7 @@
 #include <format>
 
 #include "../common/process_executor.h"
+#include "../common/string_tools.h"
 #include "../logger/logger.h"
 
 using namespace std;
@@ -22,7 +23,7 @@ std::optional<std::string> RemoteFileReaderBackend::read(const string& filePath)
 {
     auto fileUrl = getFileUrl(filePath);
     logger.debug("<7c127a9> Read {}", fileUrl);
-    auto cmd = format("curl --fail-with-body \"{}\"", fileUrl);
+    auto cmd = format("curl --fail-with-body {}", shellSingleQuote(fileUrl));
     auto result = ProcessExecutor::executeAndCheckResult(cmd).stdOut;
     return result;
 }

@@ -2,6 +2,8 @@
 
 #include <format>
 
+#include "tools.h"
+
 using namespace std;
 
 namespace FS {
@@ -17,6 +19,9 @@ FileReader::FileReader(Opts&& opts)
 
 std::string FileReader::read(const string& filePath)
 {
+    if (!isPathTraversalSafe(filePath))
+        throw runtime_error(format("<b3f1a9d2> Refusing to access path outside allowed root: \"{}\"", filePath));
+
     auto it = fileCache.find(filePath);
     if (it != fileCache.end())
         return it->second;

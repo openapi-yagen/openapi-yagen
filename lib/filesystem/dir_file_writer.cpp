@@ -7,6 +7,7 @@
 
 #include "../logger/logger.h"
 #include "file_post_processor.h"
+#include "tools.h"
 
 using namespace std;
 
@@ -22,8 +23,14 @@ DirFileWriter::DirFileWriter(Opts&& opts)
 
 void DirFileWriter::write(const std::string& fileName, const std::string& content)
 {
-    filesystem::path fullPath(opts.outDir);
-    fullPath /= fileName;
+    if (!isPathTraversalSafe(fileName))
+        throw runtime_error(format("<c92e0a71> Refusing to write outside output directory: \"{}\"", fileName));
+
+    auto confined = confineToRoot(opts.outDir, fileName, /*mustExist=*/false);
+    if (!confined)
+        throw runtime_error(format("<d4b6f813> Refusing to write outside output directory: \"{}\"", fileName));
+    auto fullPath = *confined;
+
     logger.debug("<64aeffb8> Write file: {}", fullPath.string());
 
     if (fullPath.has_parent_path()) {

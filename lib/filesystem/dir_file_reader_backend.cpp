@@ -35,7 +35,14 @@ std::optional<string> DirFileReaderBackend::read(const std::string& filePath)
     logger.debug("<06a09bf9> Read file: {}", fullPath.string());
     if (!exists(fullPath))
         return nullopt;
-    return FS::readFile(fullPath);
+
+    // Catches a symlink inside rootDir pointing outside it - the caller-facing filePath string
+    // itself may contain no ".." at all in that case, so this can't be caught lexically upstream.
+    auto confined = confineToRoot(rootDir, filePath, /*mustExist=*/true);
+    if (!confined)
+        return nullopt;
+
+    return FS::readFile(*confined);
 }
 
 }

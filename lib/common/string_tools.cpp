@@ -177,6 +177,19 @@ string toStringLiteral(const string& s)
     return res;
 }
 
+string shellSingleQuote(const string& s)
+{
+    string res = "'";
+    for (char ch : s) {
+        if (ch == '\'')
+            res += "'\\''";
+        else
+            res += ch;
+    }
+    res += "'";
+    return res;
+}
+
 vector<PathTemplateSegment> splitPathTemplate(const string& path)
 {
     vector<PathTemplateSegment> result;
