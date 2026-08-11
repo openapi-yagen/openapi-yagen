@@ -3,6 +3,8 @@ package {{ packageName }}
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+{% if model.description %}/** {{ model.description }} */
+{% endif -%}
 @Serializable
 enum class {{ model.name }}(val wireValue: String) {
 {% for e in model.entries -%}

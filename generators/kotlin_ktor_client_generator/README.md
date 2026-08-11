@@ -31,10 +31,15 @@ openapi-yagen g -o out -g kotlin_ktor_client_generator openapi.yaml \
 ## Output layout
 
 ```
-<packagePath>/models/<Name>.kt      one file per schema (data class / enum / sealed interface / typealias)
-<packagePath>/apis/<Tag>Api.kt      one client class per OpenAPI tag
-<packagePath>/QueryUtils.kt         small internal HttpRequestBuilder extensions, rendered once
+models/<Name>.kt      one file per schema (data class / enum / sealed interface / typealias)
+apis/<Tag>Api.kt      one client class per OpenAPI tag
+QueryUtils.kt         small internal HttpRequestBuilder extensions, rendered once
 ```
+
+Written flat, not nested under a `packageName`-derived directory - unlike Java, Kotlin's compiler
+doesn't require a file's physical location to mirror its `package` declaration, and wherever `-o`
+points already lives inside whatever package-derived source tree you're integrating into, so
+another nested layer here would just be redundant.
 
 ## Integrating the generated code
 

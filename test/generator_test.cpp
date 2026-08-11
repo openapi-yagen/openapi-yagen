@@ -397,10 +397,7 @@ TEST_CASE("Generate runs end-to-end against a built-in (embedded) generator", "[
 
     gen.generate(getResourcePath("petstore.yaml"));
 
-    REQUIRE_THAT(fileWriter->files["com/example/petstore/apis/PetsApi.kt"],
-                 Catch::Matchers::ContainsSubstring("class PetsApi"));
-    REQUIRE_THAT(fileWriter->files["com/example/petstore/apis/PetsApi.kt"],
-                 Catch::Matchers::ContainsSubstring("listPets"));
-    REQUIRE_THAT(fileWriter->files["com/example/petstore/models/Pet.kt"],
-                 Catch::Matchers::ContainsSubstring("data class Pet"));
+    REQUIRE_THAT(fileWriter->files["apis/PetsApi.kt"], Catch::Matchers::ContainsSubstring("class PetsApi"));
+    REQUIRE_THAT(fileWriter->files["apis/PetsApi.kt"], Catch::Matchers::ContainsSubstring("listPets"));
+    REQUIRE_THAT(fileWriter->files["models/Pet.kt"], Catch::Matchers::ContainsSubstring("data class Pet"));
 }

@@ -233,7 +233,7 @@ static runtime files that need no substitution (previously the only way to emit 
 copyFile(srcFileName: string, outFileName: string): void
 ```
 ```js
-copyFile("Validation.kt", `${pkgPath}/Validation.kt`); // no templating needed for this file
+copyFile("Validation.kt", "Validation.kt"); // no templating needed for this file
 ```
 
 #### `renderTemplate`

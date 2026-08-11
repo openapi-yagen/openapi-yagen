@@ -32,6 +32,16 @@ fun <T> RoutingCall.queryParamAs(name: String, typeName: String, convert: (Strin
 fun <T> RoutingCall.requireQueryParamAs(name: String, typeName: String, convert: (String) -> T): T =
     convertOrThrow(request.queryParameters[name] ?: throw MissingRequestParameterException(name), name, typeName, convert)
 
+// OpenAPI 3's default array-typed query parameter serialization (`style: form, explode: true`):
+// one repeated `name=` key per element, e.g. `?ids=1&ids=2` - not a single comma-joined value.
+// `typeName` describes the ITEM type (convertOrThrow's error message applies per element).
+fun <T> RoutingCall.queryParamListAs(name: String, typeName: String, convert: (String) -> T): List<T>? =
+    request.queryParameters.getAll(name)?.map { convertOrThrow(it, name, typeName, convert) }
+
+fun <T> RoutingCall.requireQueryParamListAs(name: String, typeName: String, convert: (String) -> T): List<T> =
+    request.queryParameters.getAll(name)?.map { convertOrThrow(it, name, typeName, convert) }
+        ?: throw MissingRequestParameterException(name)
+
 fun <T> RoutingCall.headerParamAs(name: String, typeName: String, convert: (String) -> T): T? =
     request.headers[name]?.let { convertOrThrow(it, name, typeName, convert) }
 

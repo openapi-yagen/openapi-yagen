@@ -20,7 +20,34 @@ const PARAM_CONVERTERS = {
   Float: "it.toFloat()",
   Double: "it.toDouble()",
   Boolean: "it.toBoolean()",
+  // kotlinx.datetime's own parse() throws DateTimeFormatException, itself an
+  // IllegalArgumentException (see primitiveKtType in types.js for the format:date/date-time
+  // mapping), so it's compatible as-is with convertOrThrow's catch clause (see validation.kt.j2).
+  "kotlinx.datetime.LocalDate": "kotlinx.datetime.LocalDate.parse(it)",
+  "kotlinx.datetime.Instant": "kotlinx.datetime.Instant.parse(it)",
 };
+
+// Unwraps a schema through any chain of single-branch oneOf/anyOf/allOf wrappers (see ktType's
+// identical handling in types.js) down to the schema that actually determines its wire shape -
+// e.g. `allOf: [$ref EnumSchema]` (a common .NET/Swashbuckle idiom for attaching a description
+// next to a $ref) unwraps to EnumSchema itself. kindOf() only looks at the schema handed to it,
+// not through composition wrappers, so anything inspecting a param's actual shape (as opposed to
+// just its Kotlin type name, which ktType already resolves correctly on its own) needs this.
+function unwrapSingleBranch(schema) {
+  let s = schema;
+  for (;;) {
+    const kind = kindOf(s);
+    if ((kind === "OneOf" || kind === "AnyOf") && (s.oneOf || s.anyOf || []).length === 1) {
+      s = (s.oneOf || s.anyOf)[0];
+      continue;
+    }
+    if (kind === "AllOf" && s.allOf.length === 1) {
+      s = s.allOf[0];
+      continue;
+    }
+    return s;
+  }
+}
 
 // A oneOf/anyOf in parameter position can't reuse the JSON-shape-dispatching "union" model (see
 // registerUnion in types.js) - a path/query/header value is always just a string on the wire,
@@ -36,13 +63,50 @@ function isPrimitiveLikeUnion(schema) {
   return variants.length > 0 && variants.every((v) => ["Primitive", "Enum"].includes(kindOf(v)));
 }
 
+// A query param whose (unwrapped) schema is Array-kind - serialized as repeated `?name=a&name=b`
+// keys (OpenAPI 3's default `style: form, explode: true`), matching the typescript_fetch_client
+// generator's own support for this (path/header positions have no standard "repeated value"
+// serialization, so those stay scalar-only). `converter`/`typeLabel` describe the ITEM type, not
+// the `List<...>` as a whole - queryParamListAs/requireQueryParamListAs (see validation.kt.j2)
+// apply it per element.
+function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
+  const itemT = ktType(registry, itemSchema, hintBase + className(p.name) + "Item");
+  const itemConverter =
+    kindOf(unwrapSingleBranch(itemSchema)) === "Enum" ? `${itemT.type}.fromWireValue(it)` : PARAM_CONVERTERS[itemT.type];
+  if (!itemConverter) {
+    throw Error(
+      `<f1a2b3c4> Unsupported query parameter array item type for "${p.name}": array items must be ` +
+        `primitive scalar types (string/integer/number/boolean) or enums, got "${itemT.type}"`
+    );
+  }
+  const { kotlinName } = fieldName(p.name);
+  const required = !!p.required;
+  return {
+    ktName: kotlinName,
+    wireName: p.name,
+    in: p.in,
+    type: `List<${itemT.type}>`,
+    typeLabel: itemT.type,
+    nullable: !required,
+    isArray: true,
+    converter: itemConverter,
+    extractFn: required ? "requireQueryParamListAs" : "queryParamListAs",
+    validationCalls: [],
+    description: p.description || null,
+  };
+}
+
 function buildParam(registry, hintBase, p) {
   const schema = p.schema || { type: "string" };
-  const t = isPrimitiveLikeUnion(schema) ? { type: "String" } : ktType(registry, schema, hintBase + className(p.name));
+  const resolved = unwrapSingleBranch(schema);
+  if (p.in === "query" && kindOf(resolved) === "Array") {
+    return buildArrayQueryParam(registry, hintBase, p, resolved.items || { type: "string" });
+  }
+  const t = isPrimitiveLikeUnion(resolved) ? { type: "String" } : ktType(registry, schema, hintBase + className(p.name));
   // An enum-typed param parses/prints via the enum's own wireValue/fromWireValue (see
   // model_enum.kt.j2) rather than a fixed PARAM_CONVERTERS entry, since the conversion snippet
   // needs the enum's own class name embedded in it.
-  const converter = kindOf(schema) === "Enum" ? `${t.type}.fromWireValue(it)` : PARAM_CONVERTERS[t.type];
+  const converter = kindOf(resolved) === "Enum" ? `${t.type}.fromWireValue(it)` : PARAM_CONVERTERS[t.type];
   if (!converter) {
     throw Error(
       `<e9faabbc> Unsupported parameter type for "${p.name}" (in: ${p.in}): only primitive scalar ` +
@@ -62,7 +126,9 @@ function buildParam(registry, hintBase, p) {
     wireName: p.name,
     in: p.in,
     type: t.type,
+    typeLabel: t.type,
     nullable: !required,
+    isArray: false,
     converter,
     extractFn,
     validationCalls: buildValidationCalls(kotlinName, p.name, t.type, constraints),
@@ -174,7 +240,35 @@ function buildResponse(registry, hintBase, responses) {
   return { type: t.type, statusCode };
 }
 
-// Returns a Map<tag, { tagClass, operations: [...] }> in path-declaration order.
+// Builds the lines of a KDoc comment from a summary, a longer description, and a list of
+// {name, description} @param entries - or [] if there's nothing to say (Inja's {% for %} throws
+// on null/undefined rather than treating it as zero iterations, so this must never be nullish).
+// Each line is ready to print verbatim (already has "/**"/" * "/" */" as needed); callers prepend
+// their own call site's indentation per line (interface method vs. routing block - see the
+// templates).
+function buildDocLines(summary, description, params) {
+  const paramLines = (params || []).filter((p) => p.description).map((p) => `@param ${p.name} ${p.description}`);
+  const bodyLines = [summary, description].filter(Boolean);
+  const lines = [...bodyLines];
+  if (paramLines.length) {
+    if (lines.length) lines.push("");
+    lines.push(...paramLines);
+  }
+  if (lines.length === 0) return [];
+  if (lines.length === 1) return [`/** ${lines[0]} */`];
+  return ["/**", ...lines.map((l) => (l ? ` * ${l}` : " *")), " */"];
+}
+
+// Looks up a tag's own document-level description (schema.tags: [{name, description}] - distinct
+// from op.tags, which just lists tag NAMES on an operation) for the generated API class's own
+// KDoc. null if the tag isn't declared at the document level, or has no description there (a
+// spec's top-level tags: list is optional).
+function tagDescription(tagName) {
+  const tag = (schema.tags || []).find((t) => t.name === tagName);
+  return (tag && tag.description) || null;
+}
+
+// Returns a Map<tag, { tagClass, description, operations: [...] }> in path-declaration order.
 export function collectOperationsByTag(registry) {
   const groups = new Map();
   for (const op of collectOperations()) {
@@ -214,13 +308,17 @@ export function collectOperationsByTag(registry) {
         const response = buildResponse(registry, hintBase, op.responses);
         const { signatureParams, handlerArgs } = buildSignature([...allParams, ...authParams], body);
 
-        if (!groups.has(tag)) groups.set(tag, { tagClass, operations: [] });
+        if (!groups.has(tag)) groups.set(tag, { tagClass, description: tagDescription(tag), operations: [] });
         groups.get(tag).operations.push({
           name: opName,
           method: op.method,
           pathStr: op.path,
           pathExpr: buildPathExpr(op.path),
-          summary: op.summary || null,
+          docLines: buildDocLines(
+            op.summary,
+            op.description,
+            allParams.filter((p) => p.description).map((p) => ({ name: p.ktName, description: p.description }))
+          ),
           pathParams,
           queryParams,
           headerParams,

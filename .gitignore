@@ -5,6 +5,7 @@
 /CMakeUserPresets.json
 /generators/out
 /generators/*/test/.gradle
+/generators/*/test/.kotlin
 /generators/*/test/build
 /generators/*/test/node_modules
 /generators/*/test/dist

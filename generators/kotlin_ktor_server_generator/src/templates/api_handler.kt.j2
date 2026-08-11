@@ -1,10 +1,11 @@
 package {{ packageName }}
 
+{% if tagDescription %}/** {{ tagDescription }} */
+{% endif -%}
 interface {{ tagClass }}Handler {
 {% for op in operations -%}
-    {% if op.summary -%}
-    /** {{ op.summary }} */
-    {% endif -%}
+    {% for line in op.docLines %}{{ line }}
+    {% endfor -%}
     suspend fun {{ op.name }}({{ op.signatureParams }}){% if op.returnsValue %}: {{ op.response.type }}{% endif %}
 
 {% endfor -%}

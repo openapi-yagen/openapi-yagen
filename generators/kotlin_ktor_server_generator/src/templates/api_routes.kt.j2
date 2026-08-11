@@ -15,24 +15,28 @@ import io.ktor.server.routing.put
 // Parses and validates each request (path/query/header parameters via Validation.kt, and the
 // body via its generated validate() when the body model has constraints) before calling into
 // the handler - handler implementations only ever see clean, typed, already-validated values.
+{% if tagDescription %}/** {{ tagDescription }} */
+{% endif -%}
 class {{ tagClass }}Routes(route: Route, private val handler: {{ tagClass }}Handler) {
     init {
 {% for op in operations %}
+{% for line in op.docLines %}        {{ line }}
+{% endfor -%}
         route.{{ op.method }}("{{ op.pathStr }}") {
 {% for p in op.pathParams %}
-            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.type }}") { {{ p.converter }} }
+            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.typeLabel }}") { {{ p.converter }} }
 {% for v in p.validationCalls %}
             {{ v }}
 {% endfor %}
 {% endfor %}
 {% for p in op.queryParams %}
-            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.type }}") { {{ p.converter }} }
+            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.typeLabel }}") { {{ p.converter }} }
 {% for v in p.validationCalls %}
             {{ v }}
 {% endfor %}
 {% endfor %}
 {% for p in op.headerParams %}
-            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.type }}") { {{ p.converter }} }
+            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.typeLabel }}") { {{ p.converter }} }
 {% for v in p.validationCalls %}
             {{ v }}
 {% endfor %}

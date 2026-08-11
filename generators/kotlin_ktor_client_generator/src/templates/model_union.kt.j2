@@ -14,6 +14,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.serializer
 
+{% if model.description %}/** {{ model.description }} */
+{% endif -%}
 @Serializable(with = {{ model.name }}.Serializer::class)
 sealed interface {{ model.name }}{% if model.implements %} : {{ model.implements }}{% endif %} {
 {% for v in model.variants -%}

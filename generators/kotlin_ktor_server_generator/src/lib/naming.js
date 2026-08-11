@@ -23,10 +23,6 @@ export function enumConstantName(value) {
   return sanitizeIdentifier(screaming.length ? screaming : "VALUE");
 }
 
-export function packageNameToPath(pkg) {
-  return String(pkg).split(".").join("/");
-}
-
 export function operationName(method, pathStr, operationId) {
   let camel;
   if (operationId) {

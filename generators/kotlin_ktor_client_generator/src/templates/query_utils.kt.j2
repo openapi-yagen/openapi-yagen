@@ -8,6 +8,12 @@ fun HttpRequestBuilder.queryParam(name: String, value: Any?) {
     if (value != null) parameter(name, value)
 }
 
+// OpenAPI 3's default array-typed query parameter serialization (`style: form, explode: true`):
+// one repeated `name=` key per element, e.g. `?ids=1&ids=2` - not a single comma-joined value.
+fun HttpRequestBuilder.queryParamList(name: String, values: List<*>?) {
+    values?.forEach { parameter(name, it) }
+}
+
 fun HttpRequestBuilder.headerParam(name: String, value: Any?) {
     if (value != null) header(name, value)
 }

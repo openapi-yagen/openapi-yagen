@@ -94,6 +94,20 @@ debugging a generator, or when changing what globals/functions are exposed to `m
 - Code style is enforced by `_clang-format` (WebKit-based, 120 col). Run `./reformat_sources.sh`
   before committing C++ changes (requires `clang-format` on PATH); it formats all `*.h`/`*.cpp`
   except `lib/3rdparty/*`.
+- **Every generator must thread OpenAPI `description` into generated doc comments** (KDoc/TSDoc/
+  Doxygen `///`, whatever the target language uses) - not just capture it into the JS-side model
+  and drop it before rendering. This covers: the model/class itself (schema `description`), each
+  field/property, each generated operation/method (`operation.summary` **and** `operation.description`
+  - both, not just `summary`; a longer `description` is common and gets silently dropped if only
+  `summary` is wired up), each parameter (as `@param`-style lines where the target language's doc
+  convention supports it), and - easy to miss entirely, since nothing else in the engine reads it -
+  the API class/interface itself, sourced from the document's top-level `tags: [{name, description}]`
+  array (`schema.tags` in JS - distinct from `op.tags`, which only lists tag *names* on an
+  operation). See `kotlin_ktor_client_generator`/`kotlin_ktor_server_generator`/
+  `typescript_fetch_client_generator`'s `lib/operations.js` (`buildDocLines`/`tagDescription`) and
+  their model templates for the reference implementation - when adding a new generator or
+  reworking an existing one's templates, verify all of the above still holds, not just that the
+  code compiles/runs.
 
 ## Building
 

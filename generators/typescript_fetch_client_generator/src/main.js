@@ -41,7 +41,14 @@ const tagGroups = [];
 for (const [, group] of groups) {
   renderTemplate(
     "templates/api_client.ts.j2",
-    { tagClass: group.tagClass, operations: group.operations, modelImports: group.modelImports, importExt, validateResponses },
+    {
+      tagClass: group.tagClass,
+      tagDescription: group.description,
+      operations: group.operations,
+      modelImports: group.modelImports,
+      importExt,
+      validateResponses,
+    },
     `apis/${group.tagClass}.ts`
   );
   tagGroups.push({ tagClass: group.tagClass, propertyName: group.propertyName });
@@ -50,4 +57,4 @@ for (const [, group] of groups) {
 copyFile("runtime.ts", "runtime.ts");
 renderTemplate("templates/index.ts.j2", { models: registry.order, tagGroups, importExt }, "index.ts");
 
-dump(`Generated ${registry.order.length} model(s) and ${groups.size} API client class(es)`);
+dump(`Generated ${registry.order.length} model(s) and ${groups.size} operation group(s)`);

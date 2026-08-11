@@ -24,13 +24,35 @@ import { collectReferencedModelNames } from "./imports.js";
 import { buildValidationExpr } from "./validation.js";
 import { withResilience } from "./strict.js";
 
+// Unwraps a schema through any chain of single-branch oneOf/anyOf/allOf wrappers (see tsType's
+// identical handling in types.js) down to the schema that actually determines its wire shape -
+// e.g. `allOf: [$ref EnumSchema]` (a common .NET/Swashbuckle idiom for attaching a description
+// next to a $ref) unwraps to EnumSchema itself. kindOf() only looks at the schema handed to it,
+// not through composition wrappers, so anything inspecting a param's actual shape (as opposed to
+// just its TS type name, which tsType already resolves correctly on its own) needs this.
+function unwrapSingleBranch(schema) {
+  let s = schema;
+  for (;;) {
+    const kind = kindOf(s);
+    if ((kind === "OneOf" || kind === "AnyOf") && (s.oneOf || s.anyOf || []).length === 1) {
+      s = (s.oneOf || s.anyOf)[0];
+      continue;
+    }
+    if (kind === "AllOf" && s.allOf.length === 1) {
+      s = s.allOf[0];
+      continue;
+    }
+    return s;
+  }
+}
+
 // Resolves a schema to a TS type string usable as an HTTP wire value (path/header/query scalar),
 // or null if the schema isn't a primitive or enum - both of which have a well-defined single-value
 // wire representation via `String(value)`. Object/Array/Map have no such representation and are
 // unsupported in these positions (array is separately special-cased for *query* params only, see
 // buildQueryParam).
 function scalarWireType(registry, schema, hintName) {
-  const kind = kindOf(schema);
+  const kind = kindOf(unwrapSingleBranch(schema));
   if (kind === "Primitive" || kind === "Enum") return tsType(registry, schema, hintName).type;
   return null;
 }
@@ -66,11 +88,12 @@ function buildHeaderParam(registry, hintBase, p) {
 
 function buildQueryParam(registry, hintBase, p) {
   const schema = p.schema || { type: "string" };
-  const kind = kindOf(schema);
+  const resolved = unwrapSingleBranch(schema);
+  const kind = kindOf(resolved);
   let tsTypeStr;
   let isArray = false;
   if (kind === "Array") {
-    const itemType = scalarWireType(registry, schema.items || {}, hintBase + typeName(p.name) + "Item");
+    const itemType = scalarWireType(registry, resolved.items || {}, hintBase + typeName(p.name) + "Item");
     if (!itemType) {
       throw Error(
         `<e6f7a8b9> Unsupported query parameter array item type for "${p.name}": array items must be ` +
@@ -209,7 +232,34 @@ function buildResponseValidatorExpr(response) {
   return `(value: unknown): boolean => ${buildValidationExpr(response.descriptor, "value")}`;
 }
 
-// Returns a Map<tag, { tagClass, propertyName, operations: [...], modelImports: [...] }> in
+// Builds the lines of a TSDoc comment from a summary, a longer description, and a list of
+// {name, description} @param entries - or [] if there's nothing to say (Inja's {% for %} throws
+// on null/undefined rather than treating it as zero iterations, so this must never be nullish).
+// Each line is ready to print verbatim (already has "/**"/" * "/" */" as needed); the template
+// prepends its own call site's indentation per line.
+function buildDocLines(summary, description, params) {
+  const paramLines = (params || []).filter((p) => p.description).map((p) => `@param ${p.name} ${p.description}`);
+  const bodyLines = [summary, description].filter(Boolean);
+  const lines = [...bodyLines];
+  if (paramLines.length) {
+    if (lines.length) lines.push("");
+    lines.push(...paramLines);
+  }
+  if (lines.length === 0) return [];
+  if (lines.length === 1) return [`/** ${lines[0]} */`];
+  return ["/**", ...lines.map((l) => (l ? ` * ${l}` : " *")), " */"];
+}
+
+// Looks up a tag's own document-level description (schema.tags: [{name, description}] - distinct
+// from op.tags, which just lists tag NAMES on an operation) for the generated API class's own
+// TSDoc. null if the tag isn't declared at the document level, or has no description there (a
+// spec's top-level tags: list is optional).
+function tagDescription(tagName) {
+  const tag = (schema.tags || []).find((t) => t.name === tagName);
+  return (tag && tag.description) || null;
+}
+
+// Returns a Map<tag, { tagClass, propertyName, description, operations: [...], modelImports: [...] }> in
 // path-declaration order. `validateResponses` mirrors the generator.yml variable of the same name
 // - only when true does every operation get a precomputed response.validatorExpr (see above) and
 // the tag group's modelImports include the guard functions referenced by generated validators.
@@ -247,7 +297,8 @@ export function collectOperationsByTag(registry, validateResponses) {
         optionsFields.push({ tsName: "signal", tsType: "AbortSignal", required: false, kind: "signal" });
         const optionsRequired = optionsFields.some((f) => f.required);
 
-        if (!groups.has(tag)) groups.set(tag, { tagClass, propertyName, operations: [], modelImportsSet: new Set() });
+        if (!groups.has(tag))
+          groups.set(tag, { tagClass, propertyName, description: tagDescription(tag), operations: [], modelImportsSet: new Set() });
         const group = groups.get(tag);
 
         const referencedTypeStrings = [
@@ -279,7 +330,13 @@ export function collectOperationsByTag(registry, validateResponses) {
         group.operations.push({
           name: opName,
           method: op.method.toUpperCase(),
-          summary: op.summary || null,
+          docLines: buildDocLines(
+            op.summary,
+            op.description,
+            [...pathParams, ...queryParams, ...headerParams]
+              .filter((p) => p.description)
+              .map((p) => ({ name: p.tsName, description: p.description }))
+          ),
           pathParams,
           pathExpr,
           queryParams,

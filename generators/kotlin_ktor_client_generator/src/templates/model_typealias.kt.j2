@@ -1,3 +1,5 @@
 package {{ packageName }}
 
+{% if model.description %}/** {{ model.description }} */
+{% endif -%}
 typealias {{ model.name }} = {{ model.targetType }}

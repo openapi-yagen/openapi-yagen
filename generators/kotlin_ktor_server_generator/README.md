@@ -36,11 +36,16 @@ openapi-yagen g -o out -g kotlin_ktor_server_generator openapi.yaml \
 ## Output layout
 
 ```
-<packagePath>/models/<Name>.kt        one file per schema; object models also get a validate() extension
-<packagePath>/apis/<Tag>Handler.kt    interface you implement with your business logic
-<packagePath>/apis/<Tag>Routes.kt     class that wires a Route to a <Tag>Handler
-<packagePath>/Validation.kt           shared parameter-extraction/constraint-checking helpers, rendered once
+models/<Name>.kt        one file per schema; object models also get a validate() extension
+apis/<Tag>Handler.kt    interface you implement with your business logic
+apis/<Tag>Routes.kt     class that wires a Route to a <Tag>Handler
+Validation.kt           shared parameter-extraction/constraint-checking helpers, rendered once
 ```
+
+Written flat, not nested under a `packageName`-derived directory - unlike Java, Kotlin's compiler
+doesn't require a file's physical location to mirror its `package` declaration, and wherever `-o`
+points already lives inside whatever package-derived source tree you're integrating into, so
+another nested layer here would just be redundant.
 
 ## Integrating the generated code
 

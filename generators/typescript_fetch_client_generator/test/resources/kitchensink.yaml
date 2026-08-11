@@ -10,15 +10,22 @@ info:
     (but not shared with) the sibling kotlin_ktor_client_generator's own copy of this file, per
     this repo's self-containment convention (see generators/README.md) - with two additions that
     fixture doesn't exercise: an allOf case (NamedPet) and an array-typed query parameter (tags).
+tags:
+  - name: pets
+    description: Operations for browsing and managing pets - also exercises document-level
+      tags[].description reaching the generated API client class's own TSDoc.
 paths:
   /pets:
     get:
       operationId: listPets
       tags: [pets]
+      summary: List all pets.
+      description: Returns a page of pets, optionally filtered by tag.
       parameters:
         - name: limit
           in: query
           required: false
+          description: Maximum number of pets to return.
           schema:
             type: integer
             maximum: 100
@@ -199,6 +206,7 @@ components:
       in: header
   schemas:
     Pet:
+      description: A pet available in the store.
       type: object
       required: [id, name]
       properties:
@@ -208,6 +216,7 @@ components:
           type: string
           minLength: 1
           maxLength: 50
+          description: The pet's display name.
         tag:
           type: string
         notes:

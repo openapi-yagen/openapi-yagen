@@ -5,10 +5,12 @@ import io.ktor.client.call.body
 import io.ktor.client.request.*
 import io.ktor.http.*
 
+{% if tagDescription %}/** {{ tagDescription }} */
+{% endif -%}
 class {{ tagClass }}(private val client: HttpClient, private val baseUrl: String = "") {
 {% for op in operations %}
-    {% if op.summary %}/** {{ op.summary }} */
-    {% endif -%}
+    {% for line in op.docLines %}{{ line }}
+    {% endfor -%}
     suspend fun {{ op.name }}({{ op.signatureParams }}){% if op.returnsValue %}: {{ op.response.type }}{% endif %} {
         {% if op.returnsValue -%}
         val response = client.{{ op.method }}("$baseUrl{{ op.pathExpr }}") {
@@ -16,7 +18,11 @@ class {{ tagClass }}(private val client: HttpClient, private val baseUrl: String
         client.{{ op.method }}("$baseUrl{{ op.pathExpr }}") {
         {% endif -%}
         {% for p in op.queryParams -%}
+        {% if p.isArray -%}
+            queryParamList("{{ p.wireName }}", {{ p.ktName }})
+        {% else -%}
             queryParam("{{ p.wireName }}", {{ p.ktName }})
+        {% endif -%}
         {% endfor -%}
         {% for p in op.headerParams -%}
             headerParam("{{ p.wireName }}", {{ p.ktName }})

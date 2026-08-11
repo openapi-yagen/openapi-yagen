@@ -1,9 +1,7 @@
 import { buildModelRegistry } from "./lib/types.js";
 import { collectOperationsByTag } from "./lib/operations.js";
-import { packageNameToPath } from "./lib/naming.js";
 
 const packageName = vars.packageName;
-const pkgPath = packageNameToPath(packageName);
 
 const registry = buildModelRegistry(schema);
 // May register additional inline models discovered only in operation params/bodies/responses -
@@ -22,15 +20,15 @@ for (const name of registry.order) {
   const model = registry.models.get(name);
   const tmpl = MODEL_TEMPLATES[model.kind];
   if (!tmpl) throw Error(`<a1b2c3d4> Unknown model kind: ${model.kind}`);
-  renderTemplate(tmpl, { packageName, model }, `${pkgPath}/models/${name}.kt`);
+  renderTemplate(tmpl, { packageName, model }, `models/${name}.kt`);
 }
 
 for (const [, group] of groups) {
-  const data = { packageName, tagClass: group.tagClass, operations: group.operations };
-  renderTemplate("templates/api_handler.kt.j2", data, `${pkgPath}/apis/${group.tagClass}Handler.kt`);
-  renderTemplate("templates/api_routes.kt.j2", data, `${pkgPath}/apis/${group.tagClass}Routes.kt`);
+  const data = { packageName, tagClass: group.tagClass, tagDescription: group.description, operations: group.operations };
+  renderTemplate("templates/api_handler.kt.j2", data, `apis/${group.tagClass}Handler.kt`);
+  renderTemplate("templates/api_routes.kt.j2", data, `apis/${group.tagClass}Routes.kt`);
 }
 
-renderTemplate("templates/validation.kt.j2", { packageName }, `${pkgPath}/Validation.kt`);
+renderTemplate("templates/validation.kt.j2", { packageName }, "Validation.kt");
 
-dump(`Generated ${registry.order.length} model(s) and ${groups.size} route/handler pair(s)`);
+dump(`Generated ${registry.order.length} model(s) and ${groups.size} operation group(s)`);

@@ -3,12 +3,17 @@ package {{ packageName }}
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+{% if model.description %}/** {{ model.description }} */
+{% endif -%}
 @Serializable
 {% if model.serialName -%}
 @SerialName("{{ model.serialName }}")
 {% endif -%}
 data class {{ model.name }}(
 {% for p in model.properties -%}
+    {% if p.description -%}
+    /** {{ p.description }} */
+    {% endif -%}
     {% if p.needsSerialName -%}
     @SerialName("{{ p.wireName }}")
     {% endif -%}

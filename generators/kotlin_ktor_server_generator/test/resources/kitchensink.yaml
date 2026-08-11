@@ -10,21 +10,31 @@ info:
     Deliberately NOT shared with the sibling kotlin_ktor_client_generator's own copy of this file
     - each generator's test suite owns an independent copy, per this repo's self-containment
     convention (see generators/README.md).
+tags:
+  - name: pets
+    description: Operations for browsing and managing pets - also exercises document-level
+      tags[].description reaching the generated API handler/routes classes' own KDoc.
+  - name: widgets
+    description: Operations for the oneOf/anyOf coverage vehicle (see WidgetVariant below).
 paths:
   /pets:
     get:
       operationId: listPets
       tags: [pets]
+      summary: List all pets.
+      description: Returns a page of pets, optionally filtered by tag.
       parameters:
         - name: limit
           in: query
           required: false
+          description: Maximum number of pets to return.
           schema:
             type: integer
             maximum: 100
         - name: tag
           in: query
           required: false
+          description: Only return pets with this tag.
           schema:
             type: string
       responses:
@@ -191,6 +201,7 @@ components:
       in: header
   schemas:
     Pet:
+      description: A pet available in the store.
       type: object
       required: [id, name]
       properties:
@@ -200,6 +211,7 @@ components:
           type: string
           minLength: 1
           maxLength: 50
+          description: The pet's display name.
         tag:
           type: string
         notes:
@@ -230,6 +242,7 @@ components:
           items:
             $ref: "#/components/schemas/Rating"
     PetStatus:
+      description: A pet's availability status.
       type: string
       enum: [available, pending, sold]
     Rating:
@@ -254,6 +267,7 @@ components:
         name:
           type: string
     Pets:
+      description: A page of pets.
       type: array
       items:
         $ref: "#/components/schemas/Pet"

@@ -6,6 +6,7 @@
 
 {% for schemaKey, schemaValue in schemas %}
 {% if schemaValue.type == "object" %}
+{{ renderDescriptionComment(schemaValue) }}
 struct {{ schemaKey }} {
     {% for propKey, propValue in schemaValue.properties %}
     {{ renderDescriptionComment(propValue) }}

@@ -10,12 +10,14 @@ import type { {{ m }} } from "../models/{{ m }}{{ importExt }}";
 import { request } from "../runtime{{ importExt }}";
 import type { ApiClientConfig } from "../runtime{{ importExt }}";
 
+{% if tagDescription %}/** {{ tagDescription }} */
+{% endif -%}
 export class {{ tagClass }} {
   constructor(private readonly config: ApiClientConfig) {}
 {% for op in operations %}
 
-  {% if op.summary %}/** {{ op.summary }} */
-  {% endif -%}
+  {% for line in op.docLines %}{{ line }}
+  {% endfor -%}
   {{ op.name }}({% for p in op.pathParams %}{{ p.tsName }}: {{ p.tsType }}, {% endfor %}options: {
 {% for f in op.optionsFields -%}
     {{ f.tsName }}{% if not f.required %}?{% endif %}: {{ f.tsType }};

@@ -296,10 +296,25 @@ export function ktType(registry, schema, hintName) {
     return { type: hintName };
   }
   if (kind === "OneOf" || kind === "AnyOf") {
+    // A single-variant oneOf/anyOf is trivially just that one variant's schema - a common
+    // real-world idiom (e.g. Stripe's `anyOf: [$ref X]` + `nullable: true`, used because OAS 3.0
+    // doesn't allow a bare `nullable` next to a `$ref`) that shouldn't need its own wrapper
+    // union; recursing avoids both an unnecessary synthetic type and a type-name collision when
+    // the synthesized wrapper's hint name happens to match an actual schema name (as it did for
+    // Stripe's "business_profile" property vs. its "account_business_profile" schema).
+    const variants = s.oneOf || s.anyOf || [];
+    if (variants.length === 1) return ktType(registry, variants[0], hintName);
     registerUnion(registry, hintName, s);
     return { type: hintName };
   }
   if (kind === "AllOf") {
+    // A single-branch allOf is trivially just that one branch's schema, whatever kind it is - a
+    // common real-world idiom (e.g. .NET/Swashbuckle-generated specs use `allOf: [$ref X]` to
+    // attach a sibling description/etc. next to a $ref) that registerMerged can't handle
+    // correctly, since it unconditionally treats allOf as an object merge - fine for the common
+    // multi-branch object case, but wrong (and silently produces an empty object type) when the
+    // one branch is actually an enum/primitive/array, as it is for a wrapped enum parameter.
+    if (s.allOf.length === 1) return ktType(registry, s.allOf[0], hintName);
     registerMerged(registry, hintName, s);
     return { type: hintName };
   }
