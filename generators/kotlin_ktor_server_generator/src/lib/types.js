@@ -145,8 +145,9 @@ function registerMerged(registry, name, schema, variantOpts) {
 
 // Classifies a oneOf/anyOf variant by the shape it takes on the wire (what a
 // JsonContentPolymorphicSerializer can actually branch on): "object"/"array"/"string"/"number"/
-// "boolean", or null if the variant has no shape we can recognize (e.g. a nested oneOf/anyOf -
-// not supported as a union variant).
+// "boolean"/"any" (a schema with no recognizable constraints at all, e.g. a bare `{}` - see
+// registerUnion's catch-all handling), or null if the variant has a shape we genuinely can't
+// resolve (e.g. a nested oneOf/anyOf/$ref - not supported as a union variant).
 function classifyVariantDispatch(variant) {
   const kind = kindOf(variant);
   if (kind === "Object" || kind === "Map" || kind === "AllOf") return "object";
@@ -158,23 +159,46 @@ function classifyVariantDispatch(variant) {
     if (variant.type === "boolean") return "boolean";
     return null;
   }
+  // An unconstrained schema (no ref/enum/composition/type at all - the JSON Schema idiom for "or
+  // literally anything else") matches every possible JSON value, so it can never be one of several
+  // shape-discriminated branches - it can only ever be a single trailing catch-all (see
+  // registerUnion), never something to dispatch *on*.
+  if (kind === "Unknown") return "any";
   return null;
 }
 
-// Finds a `required` property name of `variant` that no other object-shaped variant in
-// `objectVariants` also requires - what selectDeserializer uses to tell apart multiple
-// object-shaped oneOf/anyOf variants that have no discriminator.
-function findUniqueRequiredField(variant, objectVariants) {
-  for (const field of variant.required || []) {
-    const sharedByOthers = objectVariants.some((other) => other !== variant && (other.required || []).includes(field));
-    if (!sharedByOthers) return field;
+// A variant's own declared properties/required list, flattening allOf first (an AllOf-kind schema
+// has no `properties`/`required` of its own - those live on its allOf branches) so disambiguation
+// below sees the actual merged field set, same as registerMerged does for a named model.
+function declaredFields(variant) {
+  if (kindOf(variant) === "AllOf") {
+    const flat = flattenAllOf(variant);
+    return { properties: flat.properties || {}, required: flat.required || [] };
   }
+  return { properties: variant.properties || {}, required: variant.required || [] };
+}
+
+// Finds a property name of `variant` that no other object-shaped variant in `objectVariants`
+// also declares - what selectDeserializer uses to tell apart multiple object-shaped oneOf/anyOf
+// variants that have no discriminator. Prefers one of `variant`'s `required` fields (a stronger
+// signal: the property is guaranteed present whenever this variant occurs), falling back to any
+// of its other declared-but-optional properties - the runtime check is just "is this key present
+// in the JSON object", which works just as well for an optional field the payload happens to
+// include as for a required one.
+function findUniqueDistinguishingField(variant, objectVariants) {
+  const { properties, required } = declaredFields(variant);
+  const others = objectVariants.filter((v) => v !== variant).map(declaredFields);
+  const isUnique = (field) => !others.some((o) => field in o.properties);
+  for (const field of required) if (isUnique(field)) return field;
+  for (const field of Object.keys(properties)) if (isUnique(field)) return field;
   return null;
 }
 
 // Registers an undiscriminated oneOf/anyOf as a "union" model: a sealed interface with one
 // value-wrapping data class per variant, plus a JsonContentPolymorphicSerializer that dispatches
-// on the JSON value's shape (see classifyVariantDispatch/findUniqueRequiredField above).
+// on the JSON value's shape (see classifyVariantDispatch/findUniqueDistinguishingField above). At
+// most one variant may be an unconstrained catch-all ("any"/`{}`) - it becomes the deserializer's
+// trailing `else` branch instead of a shape-predicate branch (see model_union.kt.j2).
 function registerUnion(registry, name, schema, variantOpts) {
   if (registry.models.has(name)) return;
   const variants = schema.oneOf || schema.anyOf || [];
@@ -194,11 +218,11 @@ function registerUnion(registry, name, schema, variantOpts) {
   const dispatchFieldByVariant = new Map();
   if (objectVariants.length > 1) {
     for (const variant of objectVariants) {
-      const field = findUniqueRequiredField(variant, objectVariants);
+      const field = findUniqueDistinguishingField(variant, objectVariants);
       if (!field) {
         throw Error(
           `<f2a3b4c5> Cannot disambiguate object-shaped oneOf/anyOf variants of "${name}": every variant ` +
-            `needs a "required" property that no other object variant also requires`
+            `needs a property (required or not) that no other object variant also declares`
         );
       }
       dispatchFieldByVariant.set(variant, field);
@@ -209,8 +233,11 @@ function registerUnion(registry, name, schema, variantOpts) {
   for (const [dispatchKind, count] of countByKind) {
     if (dispatchKind !== "object" && count > 1) {
       throw Error(
-        `<a3b4c5d6> Cannot disambiguate multiple "${dispatchKind}"-shaped oneOf/anyOf variants of "${name}" ` +
-          `(only one variant per non-object JSON shape is supported)`
+        dispatchKind === "any"
+          ? `<b7c8d9e0> oneOf/anyOf of "${name}" has ${count} unconstrained ("{}") variants - at most one ` +
+              `catch-all is supported (they'd be indistinguishable from each other)`
+          : `<a3b4c5d6> Cannot disambiguate multiple "${dispatchKind}"-shaped oneOf/anyOf variants of "${name}" ` +
+              `(only one variant per non-object JSON shape is supported)`
       );
     }
   }
@@ -233,6 +260,7 @@ function registerUnion(registry, name, schema, variantOpts) {
     kind: "union",
     description: schema.description || null,
     variants: variantModels,
+    catchAllVariant: variantModels.find((v) => v.dispatchKind === "any") || null,
     implements: (variantOpts && variantOpts.implements) || null,
   });
 }

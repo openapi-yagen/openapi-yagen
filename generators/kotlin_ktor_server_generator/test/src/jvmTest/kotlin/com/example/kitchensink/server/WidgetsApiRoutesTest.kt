@@ -12,6 +12,8 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -36,6 +38,36 @@ class WidgetsApiRoutesTest {
         installKitchenSinkApp()
         val response = client.get("/widgets") { header("X-Client-Version", "1.2.3") }
         assertEquals(HttpStatusCode.OK, response.status)
+    }
+
+    // "status" is enum-typed (WidgetsApiListWidgetsStatus) - its wire value ("sold-out") differs
+    // from the Kotlin enum constant name (SOLD_OUT); fromWireValue parses the wire value back
+    // correctly (see model_enum.kt.j2).
+    @Test
+    fun `listWidgets accepts a recognized enum-typed status query parameter`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.get("/widgets?status=sold-out")
+        assertEquals(HttpStatusCode.OK, response.status)
+    }
+
+    // An unrecognized value is rejected as a 400, the same quality as a malformed numeric param
+    // (see validation.kt.j2's convertOrThrow, which now catches IllegalArgumentException broadly
+    // rather than just NumberFormatException).
+    @Test
+    fun `listWidgets rejects an unrecognized status query parameter with 400`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.get("/widgets?status=nonexistent")
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    // "id" is a primitive-shaped anyOf (integer or string) - accepted as a plain String with no
+    // parsing/validation attempted, whether the value looks numeric or not (see operations.js's
+    // isPrimitiveLikeUnion).
+    @Test
+    fun `listWidgets accepts either shape of the primitive-shaped anyOf id query parameter`() = testApplication {
+        installKitchenSinkApp()
+        assertEquals(HttpStatusCode.OK, client.get("/widgets?id=512189").status)
+        assertEquals(HttpStatusCode.OK, client.get("/widgets?id=some-slug").status)
     }
 
     // WidgetVariant.Serializer dispatches on the raw JSON shape: an object with "kind" ->
@@ -75,6 +107,38 @@ class WidgetsApiRoutesTest {
         val variant = widget.variant
         assertIs<WidgetVariant.WidgetVariantVariant3>(variant)
         assertEquals("just-a-string", variant.value)
+    }
+
+    // WidgetVariantC is disambiguated by an optional (not required) property unique to it
+    // ("note") - exercises findUniqueDistinguishingField's fallback beyond `required` fields.
+    @Test
+    fun `createWidget accepts and echoes back the optional-field-disambiguated union variant`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/widgets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id":3,"name":"Doohickey","variant":{"note":"just a note"}}""")
+        }
+        assertEquals(HttpStatusCode.Created, response.status)
+        val widget = Json.decodeFromString<Widget>(response.bodyAsText())
+        val variant = widget.variant
+        assertIs<WidgetVariant.WidgetVariantWidgetVariantC>(variant)
+        assertEquals("just a note", variant.value.note)
+    }
+
+    // The trailing unconstrained ("{}") catch-all variant matches any JSON shape none of the
+    // other variants recognize - here a bare number, which isn't string/object/array.
+    @Test
+    fun `createWidget accepts and echoes back the catch-all union variant`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/widgets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"id":4,"name":"Whatsit","variant":42}""")
+        }
+        assertEquals(HttpStatusCode.Created, response.status)
+        val widget = Json.decodeFromString<Widget>(response.bodyAsText())
+        val variant = widget.variant
+        assertIs<WidgetVariant.WidgetVariantVariant5>(variant)
+        assertEquals(42, variant.value.jsonPrimitive.int)
     }
 
     @Test

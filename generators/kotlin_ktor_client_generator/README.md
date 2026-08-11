@@ -93,15 +93,28 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
   `JsonContentPolymorphicSerializer` that dispatches on the JSON value's shape (object/array/
   string/number/boolean). This only works if the variants are pairwise distinguishable from the
   raw JSON alone: at most one variant per non-object shape, and for multiple object-shaped
-  variants, each one needs a `required` property that no other object variant also requires.
-  A oneOf/anyOf that can't be dispatched this way is a generator error (see `strict` above).
+  variants, each one needs a property (required or not) that no other object variant also
+  declares. An unconstrained variant (a bare `{}`, matching any JSON value - a common "or
+  literally anything else" idiom) is supported too, as a single trailing catch-all wrapping
+  `kotlinx.serialization.json.JsonElement`, checked only after every other variant's shape fails
+  to match; at most one such catch-all is allowed per oneOf/anyOf. A oneOf/anyOf that still can't
+  be dispatched this way (e.g. two variants sharing the same non-object shape with nothing else to
+  tell them apart, more than one catch-all, or a nested oneOf/anyOf/$ref variant) is a generator
+  error (see `strict` above).
+- A path/query/header **parameter's** schema is a different position - there's no JSON structure
+  to dispatch on for a value that's always just a string on the wire. A oneOf/anyOf there skips
+  the "union" model entirely: if every variant is itself primitive/enum-shaped, the parameter's
+  Kotlin type is just `String`, passed straight through unparsed (the API decides how to interpret
+  it - e.g. "either the ID or the fingerprint"); a variant that's object/array-shaped is still a
+  generator error, same as for a plain (non-union) parameter.
 
 ## Known limitations (v1)
 
 - Only `application/json` request/response bodies are handled; other content types are ignored.
 - Path/query/header parameters must resolve to a primitive scalar type (string/integer/
-  number/boolean) - an enum, object or array in one of those positions is a generator error.
-- Only local (`#/...`) `$ref`s are supported.
+  number/boolean), an enum, or a oneOf/anyOf whose every variant is itself primitive/enum-shaped
+  (passed straight through as a plain, unparsed `String` - see "oneOf/anyOf support" above) - an
+  object or array in one of those positions is a generator error.
 - Generated files are not run through a formatter - see "Formatting generated sources" above.
 
 ## Try it

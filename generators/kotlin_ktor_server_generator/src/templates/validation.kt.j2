@@ -11,13 +11,15 @@ import io.ktor.server.routing.RoutingCall
 fun RoutingCall.requirePathParam(name: String): String =
     pathParameters[name] ?: throw MissingRequestParameterException(name)
 
-// convert() (String.toInt/toLong/toFloat/toDouble) throws NumberFormatException on a
-// non-numeric value - rethrown here as the same BadRequestException quality as a constraint
-// violation, instead of a bare, unhandled NumberFormatException.
+// convert() throws IllegalArgumentException on an unparseable value - String.toInt/toLong/
+// toFloat/toDouble throw NumberFormatException (itself an IllegalArgumentException), and a
+// generated enum's fromWireValue (see model_enum.kt.j2) throws IllegalArgumentException directly
+// for an unrecognized value - both rethrown here as the same BadRequestException quality as a
+// constraint violation, instead of a bare, unhandled exception.
 private fun <T> convertOrThrow(raw: String, name: String, typeName: String, convert: (String) -> T): T =
     try {
         convert(raw)
-    } catch (e: NumberFormatException) {
+    } catch (e: IllegalArgumentException) {
         throw BadRequestException("Field \"$name\" is not a valid $typeName")
     }
 

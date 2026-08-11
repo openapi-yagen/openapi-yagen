@@ -22,13 +22,31 @@ const PARAM_CONVERTERS = {
   Boolean: "it.toBoolean()",
 };
 
+// A oneOf/anyOf in parameter position can't reuse the JSON-shape-dispatching "union" model (see
+// registerUnion in types.js) - a path/query/header value is always just a string on the wire,
+// with no structural shape (object vs array vs ...) to dispatch on the way a JSON body has. If
+// every variant is itself primitive-like (no object/array variant), the wire representation is
+// unambiguous either way, so it's simplest and most honest to just pass the raw string straight
+// through untyped rather than inventing a Kotlin type for it - the API itself decides how to
+// interpret it (e.g. DigitalOcean's ssh_key_identifier: "either the ID or the fingerprint").
+function isPrimitiveLikeUnion(schema) {
+  const kind = kindOf(schema);
+  if (kind !== "OneOf" && kind !== "AnyOf") return false;
+  const variants = schema.oneOf || schema.anyOf || [];
+  return variants.length > 0 && variants.every((v) => ["Primitive", "Enum"].includes(kindOf(v)));
+}
+
 function buildParam(registry, hintBase, p) {
-  const t = ktType(registry, p.schema || { type: "string" }, hintBase + className(p.name));
-  const converter = PARAM_CONVERTERS[t.type];
+  const schema = p.schema || { type: "string" };
+  const t = isPrimitiveLikeUnion(schema) ? { type: "String" } : ktType(registry, schema, hintBase + className(p.name));
+  // An enum-typed param parses/prints via the enum's own wireValue/fromWireValue (see
+  // model_enum.kt.j2) rather than a fixed PARAM_CONVERTERS entry, since the conversion snippet
+  // needs the enum's own class name embedded in it.
+  const converter = kindOf(schema) === "Enum" ? `${t.type}.fromWireValue(it)` : PARAM_CONVERTERS[t.type];
   if (!converter) {
     throw Error(
       `<e9faabbc> Unsupported parameter type for "${p.name}" (in: ${p.in}): only primitive scalar ` +
-        `types (string/integer/number/boolean) are supported for path/query/header parameters, got "${t.type}"`
+        `types (string/integer/number/boolean) or enums are supported in path/query/header position, got "${t.type}"`
     );
   }
   const isPath = p.in === "path";

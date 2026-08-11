@@ -205,8 +205,6 @@ npx prettier --write "out/**/*.ts"
 - Query parameters may be arrays, serialized as repeated keys (`?tag=a&tag=b`, OpenAPI 3's default
   `style: form, explode: true`) - other serialization styles (`explode: false`,
   `spaceDelimited`/`pipeDelimited`) are not supported.
-- Only local (`#/...`) `$ref`s are supported (an engine-level constraint, not specific to this
-  generator).
 - `string` schemas with format `date`/`date-time`/`byte`/`binary` all map to plain `string` - no
   `Date` object, no base64/binary decoding.
 - `integer`/`number` (any format) map to `number` - values beyond 2^53 lose precision.

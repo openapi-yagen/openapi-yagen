@@ -6,6 +6,7 @@ import com.example.kitchensink.server.Square
 import com.example.kitchensink.server.Widget
 import com.example.kitchensink.server.Widgets
 import com.example.kitchensink.server.WidgetsApiHandler
+import com.example.kitchensink.server.WidgetsApiListWidgetsStatus
 
 // Hand-written fake implementation of the generated WidgetsApiHandler interface.
 class FakeWidgetsApiHandler : WidgetsApiHandler {
@@ -16,7 +17,8 @@ class FakeWidgetsApiHandler : WidgetsApiHandler {
         "square-1" to Square(side = 4.0),
     )
 
-    override suspend fun listWidgets(status: String?, xClientVersion: String?): Widgets = widgets.toList()
+    override suspend fun listWidgets(status: WidgetsApiListWidgetsStatus?, id: String?, xClientVersion: String?): Widgets =
+        widgets.toList()
 
     override suspend fun createWidget(body: Widget): Widget {
         widgets.add(body)

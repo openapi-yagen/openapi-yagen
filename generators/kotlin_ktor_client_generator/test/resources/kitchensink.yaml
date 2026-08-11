@@ -111,8 +111,26 @@ paths:
         - name: status
           in: query
           required: false
+          description: >-
+            An enum-typed query parameter - the Kotlin enum constant name (screaming-snake-case,
+            e.g. SOLD_OUT) differs from its wire value (e.g. "sold-out"), so this exercises the
+            enum's wireValue/fromWireValue round-trip (see model_enum.kt.j2), not just an
+            accidental match.
           schema:
             type: string
+            enum: [available, pending, sold-out]
+        - name: id
+          in: query
+          required: false
+          description: >-
+            A primitive-shaped anyOf query parameter (either a numeric id or a string slug) -
+            since a query value is always just a string on the wire anyway, this is passed
+            straight through as a plain String rather than the JSON-shape-dispatching "union"
+            model (see operations.js's isPrimitiveLikeUnion).
+          schema:
+            anyOf:
+              - type: integer
+              - type: string
         - name: X-Client-Version
           in: header
           required: false
@@ -268,12 +286,16 @@ components:
     WidgetVariant:
       description: >-
         An undiscriminated union ("union" kind): two object-shaped variants disambiguated by a
-        required property unique to each, plus a bare string variant to exercise the non-object
-        dispatch branch.
+        required property unique to each, a bare string variant to exercise the non-object
+        dispatch branch, a third object-shaped variant disambiguated by an optional (not
+        required) property unique to it, and a trailing unconstrained ("{}") catch-all variant
+        for any other JSON shape.
       oneOf:
         - $ref: "#/components/schemas/WidgetVariantA"
         - $ref: "#/components/schemas/WidgetVariantB"
         - type: string
+        - $ref: "#/components/schemas/WidgetVariantC"
+        - {}
     WidgetVariantA:
       type: object
       required: [kind, value]
@@ -287,6 +309,11 @@ components:
       required: [label]
       properties:
         label:
+          type: string
+    WidgetVariantC:
+      type: object
+      properties:
+        note:
           type: string
     Error:
       type: object

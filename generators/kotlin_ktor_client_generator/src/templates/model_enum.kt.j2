@@ -4,8 +4,27 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class {{ model.name }} {
+enum class {{ model.name }}(val wireValue: String) {
 {% for e in model.entries -%}
-    @SerialName("{{ e.wireValue }}") {{ e.ktName }},
+    @SerialName("{{ e.wireValue }}") {{ e.ktName }}("{{ e.wireValue }}"),
 {% endfor -%}
+    ;
+
+    // JSON (de)serialization goes through the @SerialName annotations above, not this override -
+    // this is for the OTHER wire position an enum can appear in: a path/query/header parameter,
+    // built from (client) or parsed back into (server) a plain string, not JSON (see
+    // operations.js's buildParam). Kotlin's default enum toString() returns the constant's own
+    // identifier name, which can differ from its wire value (e.g. sanitized-for-Kotlin vs. the
+    // spec's own casing/punctuation) - this keeps both directions using the same wire value.
+    override fun toString(): String = wireValue
+
+    companion object {
+        // The parse-back-from-a-string direction of the above. Throws IllegalArgumentException
+        // (not a custom type) on no match, since that's what generated numeric param parsing
+        // already throws (String.toInt() etc. throw NumberFormatException, itself an
+        // IllegalArgumentException) - callers that special-case one can treat both the same way.
+        fun fromWireValue(value: String): {{ model.name }} =
+            entries.find { it.wireValue == value }
+                ?: throw IllegalArgumentException("Unknown {{ model.name }} value: \"$value\"")
+    }
 }
