@@ -69,6 +69,30 @@ required/optional, default, description) along with its name, description, and O
 without having to open its `generator.yml` by hand - see the root
 [`README.md`](../README.md#cli-reference)'s `info` subcommand.
 
+## External $ref resolution
+
+Before your generator ever sees it, the engine resolves every **external** `$ref` (one pointing at
+a sibling file, as opposed to an in-document `#/...` pointer) found anywhere in the spec, sandboxed
+to the spec file's own directory tree. This is deliberately more permissive than OpenAPI itself,
+which only allows `$ref` in a handful of positions (Schema/Parameter/RequestBody/Header/Response/
+Example/Link/Callback/PathItem) - some real-world specs (DigitalOcean's public API source, for one)
+are pre-bundle documents that use `$ref` in other positions too (`tags[].description`, or a whole
+Operation standing in for `get:`/`post:`/...), pointing at sibling files a bundler would normally
+splice in before publishing. The engine resolves these the same way, on a pragmatic best-effort
+basis, so your generator always sees a single, already-merged document either way.
+
+- Only files inside the spec's own directory tree can be read - a `$ref` that would resolve
+  outside it, or to a missing file, is treated as absent (with a warning logged), not an error.
+- A `#/json-pointer` fragment after the file path (`other.yml#/some/path`) is resolved into the
+  loaded file.
+- A bare `#/...` ref found *inside* an externally-loaded file (a local cross-reference within that
+  file, not back into your root spec) is hoisted into your document's own `components.schemas`
+  under a fresh name and rewritten to a normal local ref - this is what lets a self-referential
+  schema defined in a shared utility file (e.g. a recursive tree/graph-shaped type) work correctly
+  instead of failing on infinite recursion.
+- In-document `#/...` refs in your own root spec are untouched by any of this - they resolve the
+  standard way regardless.
+
 ## Spec versions and conversion
 
 The engine understands OpenAPI 3.0, 3.1, 3.2, and Swagger/OpenAPI 2.0 as *input*. Before running

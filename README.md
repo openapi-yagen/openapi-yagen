@@ -184,7 +184,7 @@ openapi-yagen generate openapi.yaml \
 
 ### Using a built-in generator
 
-A handful of the generators in [`generators/`](generators/) are embedded directly into the
+A handful of the generators in [`generators/`](generators/README.md) are embedded directly into the
 `openapi-yagen` binary at build time, so they work offline with no local checkout, zip, or network
 access:
 

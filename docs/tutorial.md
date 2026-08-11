@@ -136,7 +136,7 @@ tag?: string;
 ```
 
 (Generated files aren't run through a formatter by default, hence the flat indentation - see the
-`-p/--post-process` flag in [`generator-format.md`](generator-format.md#post-processing-generated-files)
+`-p/--post-process` flag in the root [`README.md`](../README.md#post-processing-generated-files)
 to pipe output through `prettier` or similar.)
 
 ## 5. A generator variable
