@@ -6,8 +6,8 @@ import CodeBlock from '@theme/CodeBlock';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import styles from './index.module.css';
 
-const installCommand = `curl -L https://github.com/openapi-yagen/openapi-yagen/releases/latest/download/openapi-yagen \\
-  -o openapi-yagen && chmod +x openapi-yagen`;
+const installCommand = `mkdir -p ~/.local/bin && curl -L https://github.com/openapi-yagen/openapi-yagen/releases/latest/download/openapi-yagen \\
+  -o ~/.local/bin/openapi-yagen && chmod +x ~/.local/bin/openapi-yagen`;
 
 const kotlinCommand = `curl -LO https://raw.githubusercontent.com/openapi-yagen/openapi-yagen/master/test/resources/petstore.yaml
 
@@ -173,7 +173,7 @@ function Hero(): ReactNode {
         <div className={styles.heroCopy}>
           <div className={styles.heroIntro}>
             <img className={styles.heroLogo} src={logo} alt="openapi-yagen" />
-            <Heading as="h1">A compact OpenAPI generator engine</Heading>
+            <Heading as="h1">OpenAPI - Yet Another Generation ENgine</Heading>
           </div>
           <p>
             <strong>openapi-yagen</strong> is a small standalone binary. Generators are written in

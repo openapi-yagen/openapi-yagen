@@ -31,10 +31,19 @@ Main features:
 
 Statically-linked binaries for Linux (x86_64) are published on the
 [releases page](https://github.com/openapi-yagen/openapi-yagen/releases). Install the latest
-release to `/usr/local/bin` with:
+release to `~/.local/bin` - the standard per-user executable location (see
+[`file-hierarchy(7)`](https://www.freedesktop.org/software/systemd/man/latest/file-hierarchy.html)),
+already on `PATH` on most modern distributions - no root/`sudo` needed:
 
 ```bash
-sudo curl -L https://github.com/openapi-yagen/openapi-yagen/releases/latest/download/openapi-yagen -o /usr/local/bin/openapi-yagen && sudo chmod +x /usr/local/bin/openapi-yagen
+mkdir -p ~/.local/bin && curl -L https://github.com/openapi-yagen/openapi-yagen/releases/latest/download/openapi-yagen -o ~/.local/bin/openapi-yagen && chmod +x ~/.local/bin/openapi-yagen
+```
+
+If `~/.local/bin` isn't already on your `PATH`, add this to your shell's startup file (e.g.
+`~/.bashrc`, `~/.zshrc`) and restart your shell:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 ## CLI reference
