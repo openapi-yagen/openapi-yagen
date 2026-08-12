@@ -103,7 +103,14 @@ debugging a generator, or when changing what globals/functions are exposed to `m
   convention supports it), and - easy to miss entirely, since nothing else in the engine reads it -
   the API class/interface itself, sourced from the document's top-level `tags: [{name, description}]`
   array (`schema.tags` in JS - distinct from `op.tags`, which only lists tag *names* on an
-  operation). See `kotlin_ktor_client_generator`/`kotlin_ktor_server_generator`/
+  operation). If the generator also emits a single bundle/facade class that aggregates one
+  instance of every tag's class (e.g. a client generator's top-level `ApiClient`, constructed once
+  from shared config), that bundle class gets its own doc comment too, sourced from the document's
+  top-level `info.description` (`schema.info.description` in JS) - distinct again from any one
+  tag's description, since the bundle represents the whole API. Each *property* on that bundle
+  class (one per tag) also needs its own doc comment - the same tag description already shown on
+  the class it points to, not left bare just because the class itself is already documented. See
+  `kotlin_ktor_client_generator`/`kotlin_ktor_server_generator`/
   `typescript_fetch_client_generator`'s `lib/operations.js` (`buildDocLines`/`tagDescription`) and
   their model templates for the reference implementation - when adding a new generator or
   reworking an existing one's templates, verify all of the above still holds, not just that the

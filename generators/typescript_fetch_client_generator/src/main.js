@@ -51,10 +51,16 @@ for (const [, group] of groups) {
     },
     `apis/${group.tagClass}.ts`
   );
-  tagGroups.push({ tagClass: group.tagClass, propertyName: group.propertyName });
+  tagGroups.push({ tagClass: group.tagClass, propertyName: group.propertyName, description: group.description });
 }
 
+// The document's own top-level description (info.description) - distinct from a tag's
+// description (group.description, already threaded onto each per-tag class) - is the only
+// sensible source of doc text for the bundle class, since it represents the whole API, not any
+// one tag.
+const apiDescription = (schema.info && schema.info.description) || null;
+
 copyFile("runtime.ts", "runtime.ts");
-renderTemplate("templates/index.ts.j2", { models: registry.order, tagGroups, importExt }, "index.ts");
+renderTemplate("templates/index.ts.j2", { models: registry.order, tagGroups, apiDescription, importExt }, "index.ts");
 
 dump(`Generated ${registry.order.length} model(s) and ${groups.size} operation group(s)`);

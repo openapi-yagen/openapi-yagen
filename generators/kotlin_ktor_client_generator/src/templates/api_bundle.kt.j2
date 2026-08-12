@@ -1,0 +1,13 @@
+package {{ packageName }}
+
+import io.ktor.client.HttpClient
+
+// Bundles one instance of every tag's API client class, constructed once from a shared
+// HttpClient/baseUrl, so callers don't have to instantiate each tag class individually.
+{% if apiDescription %}/** {{ apiDescription }} */
+{% endif -%}
+class ApiClient(client: HttpClient, baseUrl: String = "") {
+    {% for g in groups %}{% if g.description %}/** {{ g.description }} */
+    {% endif %}val {{ g.propertyName }} = {{ g.tagClass }}(client, baseUrl)
+    {% endfor -%}
+}

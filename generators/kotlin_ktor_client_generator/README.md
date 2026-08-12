@@ -33,6 +33,7 @@ openapi-yagen g -o out -g kotlin_ktor_client_generator openapi.yaml \
 ```
 models/<Name>.kt      one file per schema (data class / enum / sealed interface / typealias)
 apis/<Tag>Api.kt      one client class per OpenAPI tag
+ApiClient.kt          bundles one instance of every tag's client class from a shared HttpClient/baseUrl
 QueryUtils.kt         small internal HttpRequestBuilder extensions, rendered once
 ```
 
@@ -50,8 +51,15 @@ matching the generated `@Serializable` models:
 val client = HttpClient(CIO) { // or any other engine
     install(ContentNegotiation) { json() }
 }
+val api = ApiClient(client, baseUrl = "https://petstore.example.com/v1")
+val pets = api.pets.listPets(limit = 20)
+```
+
+Each tag's client class (`PetsApi`, `WidgetsApi`, ...) can also be instantiated directly if you
+only need one of them - `ApiClient` is just a convenience bundle:
+
+```kotlin
 val petsApi = PetsApi(client, baseUrl = "https://petstore.example.com/v1")
-val pets = petsApi.listPets(limit = 20)
 ```
 
 Add these dependencies to the module the generated code lives in:

@@ -39,6 +39,24 @@ test("operation summary, description, and param docs land as TSDoc, and the clas
   assert.match(petsClient, /\* @param limit Maximum number of pets to return\./, `missing @param limit:\n${petsClient}`);
 });
 
+test("ApiClient bundle class gets the document's top-level info description", () => {
+  const index = readGenerated("index.ts");
+  assert.match(
+    index,
+    /\/\*\* A small, purpose-built spec exercising every feature this generator's README claims to support/,
+    `missing top-level (info.description) TSDoc on the bundle class:\n${index}`
+  );
+});
+
+test("each ApiClient property gets the same tag description as the class it points to", () => {
+  const index = readGenerated("index.ts");
+  assert.match(
+    index,
+    /\/\*\* Operations for browsing and managing pets/,
+    `missing property-level (tag) TSDoc on ApiClient.pets:\n${index}`
+  );
+});
+
 test("an operation with no summary or description gets no doc comment, not an empty one", () => {
   const petsClient = readGenerated("apis/PetsClient.ts");
   const lines = petsClient.split("\n");

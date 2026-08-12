@@ -43,6 +43,24 @@ class GeneratedDocCommentsTest {
     }
 
     @Test
+    fun `ApiClient bundle class gets the document's top-level info description`() {
+        val apiClient = File(generatedDir, "ApiClient.kt").readText()
+        assertTrue(
+            apiClient.contains("/** A small, purpose-built spec exercising every feature this generator's README claims to support"),
+            "missing top-level (info.description) KDoc on the bundle class:\n$apiClient"
+        )
+    }
+
+    @Test
+    fun `each ApiClient property gets the same tag description as the class it points to`() {
+        val apiClient = File(generatedDir, "ApiClient.kt").readText()
+        assertTrue(
+            apiClient.contains("/** Operations for browsing and managing pets"),
+            "missing property-level (tag) KDoc on ApiClient.pets:\n$apiClient"
+        )
+    }
+
+    @Test
     fun `an operation with no summary or description gets no doc comment, not an empty one`() {
         val lines = File(generatedDir, "apis/PetsApi.kt").readLines()
         // createPet has no summary/description/documented params in the fixture - the KDoc

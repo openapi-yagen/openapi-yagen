@@ -10,9 +10,13 @@ import type { ApiClientConfig } from "./runtime{{ importExt }}";
 {% for g in tagGroups -%}
 import { {{ g.tagClass }} } from "./apis/{{ g.tagClass }}{{ importExt }}";
 {% endfor %}
-/** Bundles one instance of every tag's client class, constructed once from a shared config. */
+// Bundles one instance of every tag's client class, constructed once from a shared config.
+{% if apiDescription %}/** {{ apiDescription }} */
+{% endif -%}
 export class ApiClient {
 {% for g in tagGroups -%}
+{% if g.description %}/** {{ g.description }} */
+{% endif -%}
   readonly {{ g.propertyName }}: {{ g.tagClass }};
 {% endfor -%}
 

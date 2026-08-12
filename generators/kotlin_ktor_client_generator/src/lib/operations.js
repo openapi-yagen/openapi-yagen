@@ -216,7 +216,8 @@ function tagDescription(tagName) {
   return (tag && tag.description) || null;
 }
 
-// Returns a Map<tag, { tagClass, description, operations: [...] }> in path-declaration order.
+// Returns a Map<tag, { tagClass, propertyName, description, operations: [...] }> in
+// path-declaration order.
 export function collectOperationsByTag(registry) {
   const groups = new Map();
   for (const op of collectOperations()) {
@@ -230,6 +231,7 @@ export function collectOperationsByTag(registry) {
       () => {
         const tag = (op.tags && op.tags[0]) || "Default";
         const tagClass = className(tag) + "Api";
+        const propertyName = fieldName(tag).kotlinName;
         const opName = operationName(op.method, op.path, op.operationId);
         const hintBase = tagClass + className(opName);
 
@@ -242,7 +244,7 @@ export function collectOperationsByTag(registry) {
         const response = buildResponse(registry, hintBase, op.responses);
         const { signatureParams, handlerArgs } = buildSignature(allParams, body);
 
-        if (!groups.has(tag)) groups.set(tag, { tagClass, description: tagDescription(tag), operations: [] });
+        if (!groups.has(tag)) groups.set(tag, { tagClass, propertyName, description: tagDescription(tag), operations: [] });
         groups.get(tag).operations.push({
           name: opName,
           method: op.method,

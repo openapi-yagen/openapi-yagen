@@ -33,4 +33,20 @@ for (const [, group] of groups) {
 
 renderTemplate("templates/query_utils.kt.j2", { packageName }, "QueryUtils.kt");
 
+// The document's own top-level description (info.description) - distinct from a tag's
+// description (group.description, already threaded onto each per-tag class) - is the only
+// sensible source of doc text for the bundle class, since it represents the whole API, not any
+// one tag.
+const apiDescription = (schema.info && schema.info.description) || null;
+
+renderTemplate(
+  "templates/api_bundle.kt.j2",
+  {
+    packageName,
+    apiDescription,
+    groups: [...groups.values()].map((g) => ({ tagClass: g.tagClass, propertyName: g.propertyName, description: g.description })),
+  },
+  "ApiClient.kt"
+);
+
 dump(`Generated ${registry.order.length} model(s) and ${groups.size} operation group(s)`);
