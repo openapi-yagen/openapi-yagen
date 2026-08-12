@@ -210,6 +210,13 @@ truth for writing a generator and easily drifts from code. `README.md`'s `## TOD
 known gaps/planned features; check it before assuming something missing is an oversight rather
 than planned work.
 
+Internal analysis/planning write-ups (design tradeoffs, a backlog item's own "why" and acceptance
+criteria, anything meant for whoever picks the work back up rather than for someone writing a
+generator) go under `docs/planning/`, not directly under `docs/`: the website's `include` list
+(`website/docusaurus.config.ts`) only globs `docs/*.md` - not recursive - so a `docs/planning/*.md`
+file never reaches the published site. `TODO-improvements.md` at the repo root is the running
+backlog these documents typically feed into.
+
 ### "Tidy up CHANGELOG"
 
 When asked to tidy up `CHANGELOG.md`, edit

@@ -111,9 +111,12 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
   interface` plus one `@Serializable` subtype per variant, dispatched by
   `JsonClassDiscriminator`.
 - Otherwise (undiscriminated, and/or inline variants): a "union" model instead - a `sealed
-  interface` with one value-wrapping variant per branch, deserialized by a generated
-  `JsonContentPolymorphicSerializer` that dispatches on the JSON value's shape (object/array/
-  string/number/boolean). This only works if the variants are pairwise distinguishable from the
+  interface` with one value-wrapping variant per branch, deserialized by a generated, hand-rolled
+  `KSerializer` (not `JsonContentPolymorphicSerializer` - its `deserialize()` is `final` and hands
+  the chosen variant's own derived serializer the same unwrapped `JsonElement`, which doesn't match
+  the flat wire shape a one-property wrapper class's own serializer expects) that dispatches on the
+  JSON value's shape (object/array/string/number/boolean). This only works if the variants are
+  pairwise distinguishable from the
   raw JSON alone: at most one variant per non-object shape, and for multiple object-shaped
   variants, each one needs a property (required or not) that no other object variant also
   declares. An unconstrained variant (a bare `{}`, matching any JSON value - a common "or

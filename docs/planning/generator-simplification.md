@@ -1,11 +1,11 @@
----
-title: Generator simplification ideas
-sidebar_label: Simplification ideas
-slug: /docs/generator-simplification
-description: Duplicated logic across the built-in generators and where the engine could take over.
----
-
 # Generator simplification ideas
+
+**This is an internal planning/analysis document, not part of the published docs site.**
+`docs/planning/` holds this kind of write-up - design analyses, backlogs, decision records for
+whoever (human or AI agent) picks the work back up - deliberately outside the `docs/*.md` glob
+`website/docusaurus.config.ts`'s `include` list uses (non-recursive, so a subdirectory of `docs/`
+is invisible to the site build without an explicit opt-in). See also `TODO-improvements.md` at the
+repo root for the running gaps/backlog list this kind of document eventually feeds into.
 
 The three built-in generators (`kotlin_ktor_client_generator`, `kotlin_ktor_server_generator`,
 `typescript_fetch_client_generator`) have grown organically, each solving the same handful of
