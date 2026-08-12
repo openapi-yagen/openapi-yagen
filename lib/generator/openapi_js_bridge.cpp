@@ -14,7 +14,7 @@ namespace {
 JSValue buildSchemaArray(JSContext* ctx, const vector<JSValue>& items)
 {
     auto arr = JS_NewArray(ctx);
-    checkForException(ctx, arr, "<b7b7f6a9> Cannot create array");
+    checkForException(ctx, arr, "<c3367821> Cannot create array");
     for (size_t i = 0; i < items.size(); i++)
         JS_DefinePropertyValueUint32(ctx, arr, (uint32_t)i, items[i], JS_PROP_C_W_E);
     return arr;
@@ -33,7 +33,7 @@ JSValue OpenApiJsGraphBuilder::buildSchemaValue(const SchemaPtr& schema)
         return JS_NULL;
     if (schema->ref)
         throw runtime_error(
-            "<a7a7f6a8> Unresolved $ref reached the JS graph builder - OpenApi::resolveAllRefs must run first");
+            "<a8d3de46> Unresolved $ref reached the JS graph builder - OpenApi::resolveAllRefs must run first");
 
     const void* key = schema.get();
     if (auto it = schemaMemo.find(key); it != schemaMemo.end())
@@ -44,7 +44,7 @@ JSValue OpenApiJsGraphBuilder::buildSchemaValue(const SchemaPtr& schema)
 
     if (!schema->properties.empty()) {
         auto propsObj = JS_NewObject(ctx);
-        checkForException(ctx, propsObj, "<c8c8f6aa> Cannot create object");
+        checkForException(ctx, propsObj, "<ea587a26> Cannot create object");
         for (const auto& [name, prop] : schema->properties)
             setObjProperty(ctx, propsObj, name, buildSchemaValue(prop));
         setObjProperty(ctx, obj, "properties", propsObj);
@@ -73,7 +73,7 @@ JSValue OpenApiJsGraphBuilder::buildSchemaValue(const SchemaPtr& schema)
     }
     if (!schema->defs.empty()) { // $defs, OAS 3.1+
         auto defsObj = JS_NewObject(ctx);
-        checkForException(ctx, defsObj, "<d9d9f6ab> Cannot create object");
+        checkForException(ctx, defsObj, "<f22c2b91> Cannot create object");
         for (const auto& [name, def] : schema->defs)
             setObjProperty(ctx, defsObj, name, buildSchemaValue(def));
         setObjProperty(ctx, obj, "$defs", defsObj);
@@ -114,7 +114,7 @@ JSValue OpenApiJsGraphBuilder::buildHeaderValue(const HeaderPtr& header)
         return JS_NULL;
     if (header->ref)
         throw runtime_error(
-            "<b1c2d3e4> Unresolved $ref reached the JS graph builder (header) - OpenApi::resolveAllRefs must run first");
+            "<57cc95b8> Unresolved $ref reached the JS graph builder (header) - OpenApi::resolveAllRefs must run first");
 
     const void* key = header.get();
     if (auto it = headerMemo.find(key); it != headerMemo.end())
@@ -174,7 +174,7 @@ JSValue OpenApiJsGraphBuilder::buildRequestBodyValue(const RequestBodyPtr& reque
     if (!requestBody)
         return JS_NULL;
     if (requestBody->ref)
-        throw runtime_error("<c4d5e6f7> Unresolved $ref reached the JS graph builder (requestBody) - "
+        throw runtime_error("<c0a7d80f> Unresolved $ref reached the JS graph builder (requestBody) - "
                             "OpenApi::resolveAllRefs must run first");
 
     const void* key = requestBody.get();
@@ -234,7 +234,7 @@ JSValue OpenApiJsGraphBuilder::buildCallbackValue(const CallbackPtr& callback)
     if (!callback)
         return JS_NULL;
     if (callback->ref)
-        throw runtime_error("<c2d3e4f5> Unresolved $ref reached the JS graph builder (callback) - "
+        throw runtime_error("<bd1a5e70> Unresolved $ref reached the JS graph builder (callback) - "
                             "OpenApi::resolveAllRefs must run first");
 
     const void* key = callback.get();
@@ -442,7 +442,7 @@ JSValue buildOperationsArray(JSContext* ctx, OpenApiJsGraphBuilder& builder,
     for (size_t i = 0; i < operations.size(); i++) {
         const auto& op = operations[i];
         auto obj = JS_NewObject(ctx);
-        checkForException(ctx, obj, "<a5b6c7d8> Cannot create object");
+        checkForException(ctx, obj, "<395964a4> Cannot create object");
 
         setObjProperty(ctx, obj, "method", JS_NewString(ctx, op.method.c_str()));
         setObjProperty(ctx, obj, "path", JS_NewString(ctx, op.path.c_str()));
@@ -451,14 +451,14 @@ JSValue buildOperationsArray(JSContext* ctx, OpenApiJsGraphBuilder& builder,
         setObjProperty(ctx, obj, "description", op.description ? JS_NewString(ctx, op.description->c_str()) : JS_NULL);
 
         auto tagsArr = JS_NewArray(ctx);
-        checkForException(ctx, tagsArr, "<b6c7d8e9> Cannot create array");
+        checkForException(ctx, tagsArr, "<1b0149fd> Cannot create array");
         for (size_t j = 0; j < op.tags.size(); j++)
             JS_DefinePropertyValueUint32(ctx, tagsArr, (uint32_t)j, JS_NewString(ctx, op.tags[j].c_str()),
                                          JS_PROP_C_W_E);
         setObjProperty(ctx, obj, "tags", tagsArr);
 
         auto paramsArr = JS_NewArray(ctx);
-        checkForException(ctx, paramsArr, "<c7d8e9fa> Cannot create array");
+        checkForException(ctx, paramsArr, "<3195211b> Cannot create array");
         for (size_t j = 0; j < op.parameters.size(); j++)
             JS_DefinePropertyValueUint32(ctx, paramsArr, (uint32_t)j, builder.buildParameterValue(op.parameters[j]),
                                          JS_PROP_C_W_E);

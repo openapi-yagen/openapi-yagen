@@ -115,7 +115,7 @@ void writeSchemaType(Node::Map& m, const Schema& schema, OpenApiVersion to)
         // `type: [string, integer]`, legal JSON Schema) can't be represented in 3.0 - keep the
         // first and log it as a documented lossy conversion.
         if (nonNullTypes.size() > 1)
-            logger.warn("<b7c1e2a0> Schema has multiple types ({}) - OAS 3.0 only supports one; keeping \"{}\"",
+            logger.warn("<555c9aff> Schema has multiple types ({}) - OAS 3.0 only supports one; keeping \"{}\"",
                         nonNullTypes.size(), nonNullTypes.front());
         if (!nonNullTypes.empty())
             m["type"] = mkStr(nonNullTypes.front());
@@ -317,7 +317,7 @@ Node writeSchema(const Schema& schema, OpenApiVersion to)
 
     if (schema.ref && !isV31Plus(to) && m.size() > 1) {
         // OAS 3.0 doesn't allow $ref siblings - drop them (documented lossy conversion).
-        logger.warn("<c2d3e4f5> Dropping $ref sibling keywords for OAS 3.0 output ($ref={})", *schema.ref);
+        logger.warn("<5a1859a9> Dropping $ref sibling keywords for OAS 3.0 output ($ref={})", *schema.ref);
         return mkMap({ { "$ref", m["$ref"] } });
     }
     return mkMap(std::move(m));
@@ -811,7 +811,7 @@ Node writeComponents(const Components& c, OpenApiVersion to)
         if (isV31Plus(to))
             m["pathItems"] = writePaths(c.pathItems, to);
         else
-            logger.warn("<d3e4f5a6> Dropping components.pathItems ({} entries) for OAS 3.0 output - no equivalent",
+            logger.warn("<39a0654e> Dropping components.pathItems ({} entries) for OAS 3.0 output - no equivalent",
                         c.pathItems.size());
     }
     return mkMap(std::move(m));
@@ -833,7 +833,7 @@ Node Write(const Document& doc, OpenApiVersion to)
         if (isV31Plus(to))
             m["webhooks"] = writePaths(doc.webhooks, to);
         else
-            logger.warn("<e4f5a6b7> Dropping {} webhook(s) for OAS 3.0 output - no equivalent", doc.webhooks.size());
+            logger.warn("<f0207459> Dropping {} webhook(s) for OAS 3.0 output - no equivalent", doc.webhooks.size());
     }
     auto componentsNode = writeComponents(doc.components, to);
     if (!componentsNode.get<Node::Map>().empty())

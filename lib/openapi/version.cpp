@@ -61,7 +61,7 @@ string_view toVersionString(OpenApiVersion v)
         case OpenApiVersion::V3_2:
             return "3.2.0";
     }
-    throw runtime_error("<a1b2c3d4> Unreachable: unknown OpenApiVersion");
+    throw runtime_error("<dd266016> Unreachable: unknown OpenApiVersion");
 }
 
 }

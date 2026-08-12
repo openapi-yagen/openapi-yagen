@@ -61,7 +61,7 @@ function buildPathParam(registry, hintBase, p) {
   const t = scalarWireType(registry, p.schema || { type: "string" }, hintBase + typeName(p.name));
   if (!t) {
     throw Error(
-      `<c4d5e6f7> Unsupported path parameter type for "${p.name}": only primitive scalar types ` +
+      `<c5aac80e> Unsupported path parameter type for "${p.name}": only primitive scalar types ` +
         `(string/number/boolean) or enums are supported in path position`
     );
   }
@@ -143,7 +143,7 @@ function buildQueryParam(registry, hintBase, p) {
     const t = scalarWireType(registry, schema, hintBase + typeName(p.name));
     if (!t) {
       throw Error(
-        `<f7a8b9c0> Unsupported query parameter type for "${p.name}": only primitive scalar types ` +
+        `<ea5e9ca2> Unsupported query parameter type for "${p.name}": only primitive scalar types ` +
           `(string/number/boolean), enums, or arrays of those are supported in query position`
       );
     }
@@ -175,7 +175,7 @@ function buildPathExpr(pathStr, pathParams) {
       .map((seg) => {
         if ("param" in seg) {
           const p = byWireName.get(seg.param);
-          if (!p) throw Error(`<a8b9c0d1> Path parameter "{${seg.param}}" in "${pathStr}" has no matching parameter definition`);
+          if (!p) throw Error(`<e69030b8> Path parameter "{${seg.param}}" in "${pathStr}" has no matching parameter definition`);
           return "${encodeURIComponent(String(" + p.tsName + "))}";
         }
         return seg.literal.replace(/[`$\\]/g, "\\$&");
@@ -198,7 +198,7 @@ function buildAuthLiteral(op) {
   if (reqs.length === 0) return null;
   if (reqs.length > 1) {
     throw Error(
-      `<b1c2d3e4> Operation has ${reqs.length} alternative security requirements (OR) - only a single ` +
+      `<de007e6f> Operation has ${reqs.length} alternative security requirements (OR) - only a single ` +
         `requirement is supported`
     );
   }
@@ -206,14 +206,14 @@ function buildAuthLiteral(op) {
   if (schemeNames.length === 0) return null; // an empty requirement object = anonymous access is allowed
   if (schemeNames.length > 1) {
     throw Error(
-      `<c2d3e4f5> Operation requires ${schemeNames.length} security schemes simultaneously (AND) - only a ` +
+      `<1c503240> Operation requires ${schemeNames.length} security schemes simultaneously (AND) - only a ` +
         `single scheme per operation is supported`
     );
   }
   const schemeName = schemeNames[0];
   const scheme = ((schema.components && schema.components.securitySchemes) || {})[schemeName];
   if (!scheme) {
-    throw Error(`<d3e4f5a6> security references scheme "${schemeName}", not declared in components.securitySchemes`);
+    throw Error(`<e9481fed> security references scheme "${schemeName}", not declared in components.securitySchemes`);
   }
   if (scheme.type === "http" && String(scheme.scheme || "").toLowerCase() === "bearer") {
     return `{ kind: "bearer" }`;
@@ -222,7 +222,7 @@ function buildAuthLiteral(op) {
     const loc = scheme.in;
     if (loc !== "header" && loc !== "query") {
       throw Error(
-        `<e4f5a6b7> apiKey security scheme "${schemeName}" has an unsupported location "in: ${loc}" - a ` +
+        `<895cd50c> apiKey security scheme "${schemeName}" has an unsupported location "in: ${loc}" - a ` +
           `browser-first fetch client can only send it as a header or query parameter`
       );
     }

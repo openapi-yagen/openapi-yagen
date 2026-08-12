@@ -71,7 +71,7 @@ string_view toString(SchemaKind kind)
         case SchemaKind::Unknown:
             return "Unknown";
     }
-    throw runtime_error("<f0f0f6a7> Unreachable: unknown SchemaKind");
+    throw runtime_error("<b95f37fe> Unreachable: unknown SchemaKind");
 }
 
 bool Constraints::any() const

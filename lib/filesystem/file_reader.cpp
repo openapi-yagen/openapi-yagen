@@ -42,7 +42,7 @@ FileReaderBackendPtr createBackend(const std::string& uri, const std::vector<Fil
         if (f->isUriSupported(uri))
             return f->createBackend(uri);
     }
-    throw runtime_error(format("<08ff888f> Unable to determine supported file reading backend for uri: {}", uri));
+    throw runtime_error(format("<a189f527> Unable to determine supported file reading backend for uri: {}", uri));
 }
 
 }

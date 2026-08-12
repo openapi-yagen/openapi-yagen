@@ -191,7 +191,7 @@ void resolveNode(Node& n, Ctx ctx)
             n = fileRoot;
 
             if (++ctx.filesLoaded % heartbeatEvery == 0)
-                logger.debug("<e5f6a7b8> Still resolving external $refs: {} file(s) loaded so far...", ctx.filesLoaded);
+                logger.debug("<ad2ce86e> Still resolving external $refs: {} file(s) loaded so far...", ctx.filesLoaded);
 
             Ctx childCtx = ctx;
             childCtx.currentDir = resolved->parent_path().string();
@@ -272,6 +272,6 @@ void resolveExternalRefs(Node& root, const string& specDir)
                       });
 
     auto elapsedMs = chrono::duration<double, milli>(chrono::high_resolution_clock::now() - startTime).count();
-    logger.debug("<a7b8c9d0> External $ref resolution complete: {} file(s) loaded, {} schema(s) hoisted, {} msec",
+    logger.debug("<ad82135a> External $ref resolution complete: {} file(s) loaded, {} schema(s) hoisted, {} msec",
                  filesLoaded, hoistedNames.size(), elapsedMs);
 }

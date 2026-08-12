@@ -37,7 +37,7 @@ Document parseDoc(const string& content)
 bool evalBool(JSContext* ctx, const string& code)
 {
     auto result = JS_Eval(ctx, code.c_str(), code.size(), "<test>", JS_EVAL_TYPE_GLOBAL);
-    checkForException(ctx, result, "<d9d9f6ab> eval failed");
+    checkForException(ctx, result, "<607cf1fb> eval failed");
     bool b = JS_ToBool(ctx, result) == 1;
     JS_FreeValue(ctx, result);
     return b;

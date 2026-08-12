@@ -20,7 +20,7 @@ const MODEL_TEMPLATES = {
 for (const name of registry.order) {
   const model = registry.models.get(name);
   const tmpl = MODEL_TEMPLATES[model.kind];
-  if (!tmpl) throw Error(`<c9d0e1f2> Unknown model kind: ${model.kind}`);
+  if (!tmpl) throw Error(`<4a89cdf9> Unknown model kind: ${model.kind}`);
 
   const referencedTypeStrings =
     model.kind === "interface"

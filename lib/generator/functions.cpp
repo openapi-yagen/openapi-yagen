@@ -55,7 +55,7 @@ Node dumpNode(const Node::Vec& args)
             first = false;
         ss << n;
     }
-    logger.info("<10c1e269> Dump: {}", ss.str());
+    logger.info("<79107a8a> Dump: {}", ss.str());
     return { Node::NullValue };
 }
 

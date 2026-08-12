@@ -126,7 +126,7 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
     kindOf(unwrapSingleBranch(itemSchema)) === "Enum" ? `${itemT.type}.fromWireValue(it)` : PARAM_CONVERTERS[itemT.type];
   if (!itemConverter) {
     throw Error(
-      `<f1a2b3c4> Unsupported query parameter array item type for "${p.name}": array items must be ` +
+      `<93017100> Unsupported query parameter array item type for "${p.name}": array items must be ` +
         `primitive scalar types (string/integer/number/boolean) or enums, got "${itemT.type}"`
     );
   }

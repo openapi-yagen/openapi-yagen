@@ -47,19 +47,19 @@ void ConvertCommand::process()
     if (!fromVersion.empty()) {
         auto parsed = OpenApi::parseVersionString(fromVersion);
         if (!parsed)
-            throw runtime_error(format("<a1b2c3d4> Unrecognized --from version \"{}\"", fromVersion));
+            throw runtime_error(format("<fa5b67d4> Unrecognized --from version \"{}\"", fromVersion));
         from = *parsed;
     } else {
         auto detected = OpenApi::detectVersion(specNode);
         if (!detected)
-            throw runtime_error("<b2c3d4e5> Cannot determine the spec's OpenAPI version - expected a top-level "
+            throw runtime_error("<9d5bc5c6> Cannot determine the spec's OpenAPI version - expected a top-level "
                                 "\"openapi\" (3.x) or \"swagger\" (2.0) field with a recognized value, or pass --from");
         from = *detected;
     }
 
     auto to = OpenApi::parseVersionString(toVersion);
     if (!to)
-        throw runtime_error(format("<c3d4e5f6> Unrecognized --to version \"{}\"", toVersion));
+        throw runtime_error(format("<561bbf40> Unrecognized --to version \"{}\"", toVersion));
 
     logger.info("<d4e5f6a7> Converting \"{}\" from OpenAPI {} to {}", specPath, OpenApi::toVersionString(from),
                 OpenApi::toVersionString(*to));

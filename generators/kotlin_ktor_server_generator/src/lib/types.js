@@ -244,7 +244,7 @@ function registerUnion(registry, name, schema, variantOpts) {
     const dispatchKind = classifyVariantDispatch(variant);
     if (!dispatchKind) {
       throw Error(
-        `<e1f2a3b4> oneOf/anyOf variant #${index + 1} of "${name}" has no recognizable JSON shape to ` +
+        `<e353e9f9> oneOf/anyOf variant #${index + 1} of "${name}" has no recognizable JSON shape to ` +
           `dispatch on (nested oneOf/anyOf variants aren't supported)`
       );
     }
@@ -270,7 +270,7 @@ function registerUnion(registry, name, schema, variantOpts) {
     }
     if (withoutField.length > 1) {
       throw Error(
-        `<f2a3b4c5> Cannot disambiguate object-shaped oneOf/anyOf variants of "${name}": ${withoutField.length} ` +
+        `<ab84d1de> Cannot disambiguate object-shaped oneOf/anyOf variants of "${name}": ${withoutField.length} ` +
           `variants have no property (required or not) that no other object variant also declares - at most one ` +
           `object variant may lack one (it becomes the shape-based fallback, tried last)`
       );
@@ -282,9 +282,9 @@ function registerUnion(registry, name, schema, variantOpts) {
     if (dispatchKind !== "object" && count > 1) {
       throw Error(
         dispatchKind === "any"
-          ? `<b7c8d9e0> oneOf/anyOf of "${name}" has ${count} unconstrained ("{}") variants - at most one ` +
+          ? `<35fcb50b> oneOf/anyOf of "${name}" has ${count} unconstrained ("{}") variants - at most one ` +
               `catch-all is supported (they'd be indistinguishable from each other)`
-          : `<a3b4c5d6> Cannot disambiguate multiple "${dispatchKind}"-shaped oneOf/anyOf variants of "${name}" ` +
+          : `<cbe2ed80> Cannot disambiguate multiple "${dispatchKind}"-shaped oneOf/anyOf variants of "${name}" ` +
               `(only one variant per non-object JSON shape is supported)`
       );
     }
@@ -505,7 +505,7 @@ export function buildModelRegistry(root) {
     const existing = registry.models.get(name);
     if (existing) {
       if (existing.kind === "sealed") continue; // marker already registered in pass 1
-      throw Error(`<d8e9faab> Schema name collision after Kotlin identifier conversion: "${rawName}" -> "${name}"`);
+      throw Error(`<071c49a0> Schema name collision after Kotlin identifier conversion: "${rawName}" -> "${name}"`);
     }
     withResilience(
       `schema "${rawName}"`,

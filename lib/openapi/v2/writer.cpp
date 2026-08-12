@@ -42,7 +42,7 @@ Str rewriteRef(const Str& ref)
         if (ref.rfind(from, 0) == 0)
             return to + ref.substr(from.size());
     }
-    logger.warn("<a1b2c3d4> $ref \"{}\" has no Swagger 2.0 equivalent registry - left unrewritten", ref);
+    logger.warn("<68953efe> $ref \"{}\" has no Swagger 2.0 equivalent registry - left unrewritten", ref);
     return ref;
 }
 
@@ -110,7 +110,7 @@ void writeType(Node::Map& m, const Schema& schema)
             nonNull.push_back(t);
     }
     if (nonNull.size() > 1)
-        logger.warn("<b2c3d4e5> Schema has multiple types ({}) - Swagger 2.0 only supports one; keeping \"{}\"",
+        logger.warn("<b4084c0e> Schema has multiple types ({}) - Swagger 2.0 only supports one; keeping \"{}\"",
                     nonNull.size(), nonNull.front());
     if (!nonNull.empty())
         m["type"] = mkStr(nonNull.front());
@@ -184,13 +184,13 @@ Node writeSchema(const Schema& schema)
     // oneOf/anyOf/not have no Swagger 2.0 equivalent at all (added alongside the 3.0 JSON-Schema
     // alignment) - a real semantic loss, so it's logged rather than silently dropped.
     if (!schema.oneOf.empty() || !schema.anyOf.empty() || schema.notSchema)
-        logger.warn("<c3d4e5f6> Dropping oneOf/anyOf/not - no Swagger 2.0 equivalent");
+        logger.warn("<5397669a> Dropping oneOf/anyOf/not - no Swagger 2.0 equivalent");
 
     if (schema.discriminator) {
         // 2.0's discriminator is just the bare property-name string - an explicit `mapping` (only
         // representable in OAS 3.x) is lost.
         if (!schema.discriminator->mapping.empty())
-            logger.warn("<d4e5f6a7> Dropping discriminator.mapping - Swagger 2.0's discriminator is a bare "
+            logger.warn("<e864294f> Dropping discriminator.mapping - Swagger 2.0's discriminator is a bare "
                         "property-name string");
         m["discriminator"] = mkStr(schema.discriminator->propertyName);
     }
@@ -245,7 +245,7 @@ void writeCollectionFormat(Node::Map& m, const Parameter& p)
     } else if (style == "pipeDelimited") {
         m["collectionFormat"] = mkStr("pipes");
     } else {
-        logger.warn("<e5f6a7b8> Parameter \"{}\" style \"{}\" has no Swagger 2.0 collectionFormat equivalent - "
+        logger.warn("<e8cd8f99> Parameter \"{}\" style \"{}\" has no Swagger 2.0 collectionFormat equivalent - "
                     "using the default (csv)",
                     p.name, style);
     }
@@ -387,9 +387,9 @@ Node writeSecurityScheme(const SecurityScheme& s)
             break;
         }
         if (s.flows->deviceAuthorization && present == 0)
-            logger.warn("<c0d1e2f3> Dropping OAuth2 device authorization flow - no Swagger 2.0 equivalent");
+            logger.warn("<53bdceea> Dropping OAuth2 device authorization flow - no Swagger 2.0 equivalent");
     } else {
-        logger.warn("<d1e2f3a4> Security scheme type \"{}\" has no Swagger 2.0 equivalent - dropped", s.type);
+        logger.warn("<4d78a350> Security scheme type \"{}\" has no Swagger 2.0 equivalent - dropped", s.type);
         return Node { Node::NullValue }; // caller skips null entries
     }
     if (s.description)
@@ -599,13 +599,13 @@ Node writePathItem(const PathItem& item)
     for (const auto& [method, op] : item.operations) {
         static const vector<Str> v2Methods = { "get", "put", "post", "delete", "options", "head", "patch" };
         if (find(v2Methods.begin(), v2Methods.end(), method) == v2Methods.end()) {
-            logger.warn("<a4b5c6d7> Dropping \"{}\" operation - Swagger 2.0 has no equivalent method", method);
+            logger.warn("<5f70f29b> Dropping \"{}\" operation - Swagger 2.0 has no equivalent method", method);
             continue;
         }
         m[method] = writeOperation(op);
     }
     if (!item.additionalOperations.empty())
-        logger.warn("<b5c6d7e8> Dropping {} additionalOperations entry(ies) - no Swagger 2.0 equivalent",
+        logger.warn("<decc135a> Dropping {} additionalOperations entry(ies) - no Swagger 2.0 equivalent",
                     item.additionalOperations.size());
     return mkMap(std::move(m));
 }
@@ -629,7 +629,7 @@ Node Write(const Document& doc)
     m["paths"] = writePaths(doc.paths);
 
     if (!doc.webhooks.empty())
-        logger.warn("<c6d7e8f9> Dropping {} webhook(s) - no Swagger 2.0 equivalent", doc.webhooks.size());
+        logger.warn("<02d06be2> Dropping {} webhook(s) - no Swagger 2.0 equivalent", doc.webhooks.size());
 
     if (!doc.components.schemas.empty()) {
         Node::Map defs;

@@ -338,7 +338,7 @@ export function buildModelRegistry(root) {
     const existing = registry.models.get(name);
     if (existing) {
       if (discriminatedUnionNames.has(name)) continue; // already registered in pass 1
-      throw Error(`<b7c1e2a9> Schema name collision after TypeScript identifier conversion: "${rawName}" -> "${name}"`);
+      throw Error(`<91d65afe> Schema name collision after TypeScript identifier conversion: "${rawName}" -> "${name}"`);
     }
     withResilience(
       `schema "${rawName}"`,

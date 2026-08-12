@@ -104,14 +104,14 @@ VersionedSpec convertToGeneratorVersion(const GeneratorMetadata& metadata, const
 {
     auto detected = OpenApi::detectVersion(specNode);
     if (!detected)
-        throw runtime_error("<a1b1c1d1> Cannot determine the spec's OpenAPI version - expected a top-level "
+        throw runtime_error("<9189d16e> Cannot determine the spec's OpenAPI version - expected a top-level "
                              "\"openapi\" (3.x) or \"swagger\" (2.0) field with a recognized value");
 
     auto targetStr = metadata.openApiVersion.value_or("3.0");
     auto target = OpenApi::parseVersionString(targetStr);
     if (!target)
         throw runtime_error(
-            format("<b2c2d2e2> Generator declares an unrecognized openApiVersion \"{}\"", targetStr));
+            format("<b3983ba0> Generator declares an unrecognized openApiVersion \"{}\"", targetStr));
     if (!OpenApi::isV3(*target))
         // Swagger 2.0's document shape (flat non-body parameters, a single response `schema`,
         // body/formData parameters instead of requestBody, ...) is too different from what the JS
@@ -119,14 +119,14 @@ VersionedSpec convertToGeneratorVersion(const GeneratorMetadata& metadata, const
         // generation to work if fed 2.0-shaped JSON directly - 2.0 is only supported as a spec
         // *input* (auto-converted up to an OAS 3.x target above) and as the `convert` command's
         // output, never as a generator's own declared version.
-        throw runtime_error(format("<e5f6a7b8> Generator declares openApiVersion \"{}\" - only 3.0/3.1/3.2 are "
+        throw runtime_error(format("<8725d14e> Generator declares openApiVersion \"{}\" - only 3.0/3.1/3.2 are "
                                     "supported as a generation target (2.0 works as a spec input, converted up)",
                                     targetStr));
 
     if (*detected == *target)
         return { specNode, *target };
 
-    logger.info("<c3d3e3f3> Converting spec from OpenAPI {} to {} (generator's declared openApiVersion)",
+    logger.info("<eb4e4574> Converting spec from OpenAPI {} to {} (generator's declared openApiVersion)",
                 OpenApi::toVersionString(*detected), OpenApi::toVersionString(*target));
     return { OpenApi::convertVersion(specNode, *detected, *target), *target };
 }
@@ -264,7 +264,7 @@ JSValue kindOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueCon
 {
     return runAndCatchExceptions(ctx, [&] {
         if (argc < 1)
-            throw runtime_error("<b1c2d3e4> kindOf requires 1 argument (schema: object)");
+            throw runtime_error("<6214d2e5> kindOf requires 1 argument (schema: object)");
         auto kind = kindOfShallow(ctx, argv[0]);
         return JS_NewStringLen(ctx, kind.data(), kind.size());
     });
@@ -276,7 +276,7 @@ JSValue constraintsOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSV
 {
     return runAndCatchExceptions(ctx, [&] {
         if (argc < 1)
-            throw runtime_error("<c2d3e4f5> constraintsOf requires 1 argument (schema: object)");
+            throw runtime_error("<6c9f85fa> constraintsOf requires 1 argument (schema: object)");
         auto obj = JS_NewObject(ctx);
         checkForException(ctx, obj, "<d3e4f5a6> Cannot create object");
         for (const char* key : { "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
@@ -336,14 +336,14 @@ JSValue firstSuccessResponseBuiltin(JSContext* ctx, JSValueConst thisVal, int ar
 {
     return runAndCatchExceptions(ctx, [&] {
         if (argc < 1)
-            throw runtime_error("<a1b2c3d4> firstSuccessResponse requires 1 argument (responses: object)");
+            throw runtime_error("<a45c21b2> firstSuccessResponse requires 1 argument (responses: object)");
         if (!JS_IsObject(argv[0]))
             return JS_NULL;
 
         JSPropertyEnum* propEnum;
         uint32_t len;
         if (JS_GetOwnPropertyNames(ctx, &propEnum, &len, argv[0], JS_GPN_STRING_MASK) < 0)
-            throw runtime_error("<b2c3d4e5> Cannot enumerate responses object");
+            throw runtime_error("<76add204> Cannot enumerate responses object");
         vector<string> codes;
         codes.reserve(len);
         for (uint32_t i = 0; i < len; i++) {
@@ -369,7 +369,7 @@ JSValue firstSuccessResponseBuiltin(JSContext* ctx, JSValueConst thisVal, int ar
             return JS_NULL;
 
         auto result = JS_NewObject(ctx);
-        checkForException(ctx, result, "<c3d4e5f6> Cannot create object");
+        checkForException(ctx, result, "<5cc383dc> Cannot create object");
         setObjProperty(ctx, result, "statusCode", JS_NewStringLen(ctx, chosenCode.data(), chosenCode.size()));
         setObjProperty(ctx, result, "response", JS_GetPropertyStr(ctx, argv[0], chosenCode.c_str()));
         return result;
@@ -425,22 +425,22 @@ JSValue flattenAllOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSVa
 {
     return runAndCatchExceptions(ctx, [&] {
         if (argc < 1)
-            throw runtime_error("<d4e5f6a7> flattenAllOf requires 1 argument (schema: object)");
+            throw runtime_error("<8ed774c8> flattenAllOf requires 1 argument (schema: object)");
 
         auto propertiesObj = JS_NewObject(ctx);
-        checkForException(ctx, propertiesObj, "<e5f6a7b8> Cannot create object");
+        checkForException(ctx, propertiesObj, "<d3ceb1a8> Cannot create object");
         vector<string> required;
         set<string> seenRequired;
         flattenAllOfInto(ctx, argv[0], propertiesObj, required, seenRequired);
 
         auto requiredArr = JS_NewArray(ctx);
-        checkForException(ctx, requiredArr, "<f6a7b8c9> Cannot create array");
+        checkForException(ctx, requiredArr, "<bf5da566> Cannot create array");
         for (size_t i = 0; i < required.size(); i++)
             JS_DefinePropertyValueUint32(ctx, requiredArr, (uint32_t)i,
                                          JS_NewStringLen(ctx, required[i].data(), required[i].size()), JS_PROP_C_W_E);
 
         auto result = JS_NewObject(ctx);
-        checkForException(ctx, result, "<a7b8c9d0> Cannot create object");
+        checkForException(ctx, result, "<f48a424f> Cannot create object");
         setObjProperty(ctx, result, "properties", propertiesObj);
         setObjProperty(ctx, result, "required", requiredArr);
         return result;
@@ -551,7 +551,7 @@ JSValue copyFile(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* a
         const auto& gen = *jsValueToPtr<const OpenApiGenerator>(*data);
 
         if (argc != 2)
-            throw runtime_error("<a9b8c7d6> copyFile requires 2 arguments (srcFileName: string, outFileName: string)");
+            throw runtime_error("<5b91ded0> copyFile requires 2 arguments (srcFileName: string, outFileName: string)");
         auto srcFileName = jsValueToString(ctx, argv[0]);
         auto outFileName = jsValueToString(ctx, argv[1]);
 
@@ -633,7 +633,7 @@ void OpenApiGenerator::generate(const string& specPath)
     // being reported after all that work is done.
     auto vars = getFinalVars(opts.vars, metadata);
 
-    logger.debug("<c1d2e3f4> Reading spec file: {}", specPath);
+    logger.debug("<5e2e9a47> Reading spec file: {}", specPath);
     auto versioned = convertToGeneratorVersion(metadata, readSpecFile(specPath));
     auto& schemaNode = versioned.node;
 

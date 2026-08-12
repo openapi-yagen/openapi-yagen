@@ -19,7 +19,7 @@ const MODEL_TEMPLATES = {
 for (const name of registry.order) {
   const model = registry.models.get(name);
   const tmpl = MODEL_TEMPLATES[model.kind];
-  if (!tmpl) throw Error(`<a1b2c3d4> Unknown model kind: ${model.kind}`);
+  if (!tmpl) throw Error(`<15755a9e> Unknown model kind: ${model.kind}`);
   renderTemplate(tmpl, { packageName, model }, `models/${name}.kt`);
 }
 

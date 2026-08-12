@@ -140,7 +140,7 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
     kindOf(unwrapSingleBranch(itemSchema)) === "Enum" ? `${itemT.type}.fromWireValue(it)` : PARAM_CONVERTERS[itemT.type];
   if (!itemConverter) {
     throw Error(
-      `<f1a2b3c4> Unsupported query parameter array item type for "${p.name}": array items must be ` +
+      `<ba151d07> Unsupported query parameter array item type for "${p.name}": array items must be ` +
         `primitive scalar types (string/integer/number/boolean) or enums, got "${itemT.type}"`
     );
   }
@@ -179,7 +179,7 @@ function buildParam(registry, hintBase, p) {
   const converter = kindOf(resolved) === "Enum" ? `${t.type}.fromWireValue(it)` : PARAM_CONVERTERS[t.type];
   if (!converter) {
     throw Error(
-      `<e9faabbc> Unsupported parameter type for "${p.name}" (in: ${p.in}): only primitive scalar ` +
+      `<4414ebee> Unsupported parameter type for "${p.name}" (in: ${p.in}): only primitive scalar ` +
         `types (string/integer/number/boolean) or enums are supported in path/query/header position, got "${t.type}"`
     );
   }
@@ -214,7 +214,7 @@ function buildParam(registry, hintBase, p) {
 // param in non-strict mode - see collectOperationsByTag).
 function buildAuthParamForScheme(schemeName, scheme) {
   if (!scheme) {
-    throw Error(`<a1b2c3d4> security references scheme "${schemeName}", not declared in components.securitySchemes`);
+    throw Error(`<590e8da1> security references scheme "${schemeName}", not declared in components.securitySchemes`);
   }
   const { kotlinName } = fieldName(schemeName);
   if (scheme.type === "http" && String(scheme.scheme || "").toLowerCase() === "bearer") {
@@ -223,7 +223,7 @@ function buildAuthParamForScheme(schemeName, scheme) {
   if (scheme.type === "apiKey") {
     const loc = scheme.in;
     if (loc !== "header" && loc !== "query" && loc !== "cookie") {
-      throw Error(`<b2c3d4e5> apiKey security scheme "${schemeName}" has an unsupported location "in: ${loc}"`);
+      throw Error(`<4f7bcbf0> apiKey security scheme "${schemeName}" has an unsupported location "in: ${loc}"`);
     }
     return {
       ktName: kotlinName,
@@ -233,7 +233,7 @@ function buildAuthParamForScheme(schemeName, scheme) {
     };
   }
   throw Error(
-    `<c3d4e5f6> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer and ` +
+    `<13404665> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer and ` +
       `apiKey are currently supported`
   );
 }
@@ -249,7 +249,7 @@ function buildAuthParams(op) {
   if (reqs.length === 0) return [];
   if (reqs.length > 1) {
     throw Error(
-      `<d4e5f6a7> Operation has ${reqs.length} alternative security requirements (OR) - only a single ` +
+      `<48aa07d7> Operation has ${reqs.length} alternative security requirements (OR) - only a single ` +
         `requirement is supported`
     );
   }
