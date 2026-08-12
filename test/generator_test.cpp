@@ -261,6 +261,272 @@ renderTemplate("test_template", {
     REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("legacyRespStatusCode=default"));
 }
 
+TEST_CASE("Generate exposes unwrapSchema/buildDocComment/disambiguateName", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js", R"JS(
+// unwrapSchema: peels single-branch allOf/oneOf/anyOf wrappers down to the shape-determining
+// schema - these are plain object literals, not part of the resolved `schema` graph, since
+// unwrapSchema only ever reads shallow properties off whatever it's handed.
+const wrappedEnum = { allOf: [ { type: "string", enum: ["A", "B"] } ] };
+const unwrapped = unwrapSchema(wrappedEnum);
+
+const notWrapped = { type: "object", properties: { a: { type: "string" } } };
+const unwrappedNoop = unwrapSchema(notWrapped);
+
+const multiOneOf = { oneOf: [ { type: "string" }, { type: "integer" } ] };
+const unwrappedMulti = unwrapSchema(multiOneOf);
+
+renderTemplate("test_template", {
+  unwrappedKind: kindOf(unwrapped),
+  unwrappedNoopIsSameObject: unwrappedNoop === notWrapped,
+  unwrappedNoopKind: kindOf(unwrappedNoop),
+  unwrappedMultiKind: kindOf(unwrappedMulti),
+
+  docFull: buildDocComment("Summary line", "A longer description.", [
+    { name: "a", description: "the a param" },
+    { name: "b", description: null },
+  ]),
+  docSummaryOnly: buildDocComment("Just a summary", null, []),
+  docNone: buildDocComment(null, null, []),
+
+  docSlash: buildDocComment("Summary line", "A longer description.", [
+    { name: "a", description: "the a param" },
+  ], "//"),
+  docTripleSlash: buildDocComment("Just a summary", null, [], "///"),
+  docHash: buildDocComment("Summary line", "A longer description.", [
+    { name: "a", description: "the a param" },
+  ], "#"),
+
+  nameNoCollision: disambiguateName("Foo", ["Bar", "Baz"]),
+  nameOneCollision: disambiguateName("Foo", ["Foo", "Bar"]),
+  nameTwoCollisions: disambiguateName("Foo", ["Foo", "FooWrapper", "Bar"]),
+  nameThreeCollisions: disambiguateName("Foo", ["Foo", "FooWrapper", "FooWrapper2"]),
+}, "outfile");
+)JS" },
+        { "generator.yml", readResource("generator.yml") },
+    };
+
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { make_shared<MockedFileReaderBackend>(files) },
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { },
+    });
+
+    gen.generate(getResourcePath("petstore.yaml"));
+
+    auto& out = fileWriter->files["outfile"];
+    // unwrapSchema
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("unwrappedKind=Enum"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("unwrappedNoopIsSameObject=1"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("unwrappedNoopKind=Object"));
+    // a 2-variant oneOf isn't a single-branch wrapper - stays unchanged (still OneOf-kind)
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("unwrappedMultiKind=OneOf"));
+
+    // buildDocComment
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring(
+                           "docFull=/**\n * Summary line\n * A longer description.\n *\n * @param a the a param\n */"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("docSummaryOnly=/** Just a summary */"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("docNone=null"));
+
+    // buildDocComment: line-comment styles ("//"/"///"/"#") - one marker per line, no trailing
+    // space on the blank separator line before @param entries.
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring(
+                           "docSlash=// Summary line\n// A longer description.\n//\n// @param a the a param"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("docTripleSlash=/// Just a summary"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring(
+                           "docHash=# Summary line\n# A longer description.\n#\n# @param a the a param"));
+
+    // disambiguateName
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("nameNoCollision=Foo"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("nameOneCollision=FooWrapper"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("nameTwoCollisions=FooWrapper2"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("nameThreeCollisions=FooWrapper3"));
+}
+
+TEST_CASE("buildDocComment rejects an unrecognized style", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js", R"JS(
+buildDocComment("x", null, [], "/* */");
+)JS" },
+        { "generator.yml", readResource("generator.yml") },
+    };
+
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { make_shared<MockedFileReaderBackend>(files) },
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { },
+    });
+
+    REQUIRE_THROWS_WITH(gen.generate(getResourcePath("petstore.yaml")),
+                        Catch::Matchers::ContainsSubstring("unrecognized style"));
+}
+
+TEST_CASE("Generate exposes resolveUnionDispatch", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js", R"JS(
+// Two object variants, each with its own required field the other doesn't declare.
+const shape = { oneOf: [
+  { type: "object", required: ["shapeType", "radius"],
+    properties: { shapeType: { type: "string" }, radius: { type: "number" } } },
+  { type: "object", required: ["shapeType", "base"],
+    properties: { shapeType: { type: "string" }, base: { type: "number" } } },
+] };
+const dispatch = resolveUnionDispatch(shape);
+
+const notUnion = { type: "string" };
+const notUnionDispatch = resolveUnionDispatch(notUnion);
+
+// A scalar variant, an object variant with a distinguishing field, and a field-less object
+// variant (a subset of the other's fields) that can only ever be a trailing fallback - order is
+// preserved exactly as declared (no "fallback sorts last" reordering at this layer).
+const mixed = { oneOf: [
+  { type: "string" },
+  { type: "object", required: ["kind", "extra"],
+    properties: { kind: { type: "string" }, extra: { type: "string" } } },
+  { type: "object", properties: { kind: { type: "string" } } },
+] };
+const mixedDispatch = resolveUnionDispatch(mixed);
+
+renderTemplate("test_template", {
+  dispatchLen: dispatch.variants.length,
+  dispatchKind0: dispatch.variants[0].dispatchKind,
+  dispatchField0: dispatch.variants[0].dispatchField,
+  dispatchKind1: dispatch.variants[1].dispatchKind,
+  dispatchField1: dispatch.variants[1].dispatchField,
+  notUnionIsNull: notUnionDispatch === null,
+  mixedKind0: mixedDispatch.variants[0].dispatchKind,
+  mixedField0: mixedDispatch.variants[0].dispatchField,
+  mixedKind1: mixedDispatch.variants[1].dispatchKind,
+  mixedField1: mixedDispatch.variants[1].dispatchField,
+  mixedKind2: mixedDispatch.variants[2].dispatchKind,
+  mixedField2: mixedDispatch.variants[2].dispatchField,
+}, "outfile");
+)JS" },
+        { "generator.yml", readResource("generator.yml") },
+    };
+
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { make_shared<MockedFileReaderBackend>(files) },
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { },
+    });
+
+    gen.generate(getResourcePath("petstore.yaml"));
+
+    auto& out = fileWriter->files["outfile"];
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("dispatchLen=2"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("dispatchKind0=object"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("dispatchField0=radius"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("dispatchKind1=object"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("dispatchField1=base"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("notUnionIsNull=1"));
+
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("mixedKind0=string"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("mixedField0=null"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("mixedKind1=object"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("mixedField1=extra"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("mixedKind2=object"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("mixedField2=null"));
+}
+
+TEST_CASE("resolveUnionDispatch rejects unresolvable/ambiguous oneOf shapes", "[generator]")
+{
+    auto makeGen = [](const string& mainJs, const shared_ptr<MockedFileWriter>& fileWriter,
+                      const shared_ptr<Templates::TemplateRenderer>& templateRenderer) {
+        MockedFileReaderBackend::Files files = {
+            { "main.js", mainJs },
+            { "generator.yml", readResource("generator.yml") },
+        };
+        auto fileReader
+            = make_shared<FileReader>(FileReader::Opts { .backends = { make_shared<MockedFileReaderBackend>(files) } });
+        auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+        return Generator::OpenApiGenerator(Generator::OpenApiGenerator::Opts {
+            .fileReader = fileReader,
+            .fileWriter = fileWriter,
+            .jsExecutor = jsExecutor,
+            .templateRenderer = templateRenderer,
+            .defaultMainSciptPath = "main.js",
+            .metadataPath = "generator.yml",
+            .vars = { },
+        });
+    };
+    // Every scenario captures resolveUnionDispatch's thrown error message via try/catch rather
+    // than asserting on the exception directly, since it's simpler to inspect the rendered output
+    // than the exact exception type crossing the JS/C++ boundary.
+    auto runAndCaptureError = [&](const char* badSchemaLiteral) {
+        auto fileWriter = make_shared<MockedFileWriter>();
+        auto templateRenderer = make_shared<MockedTemplateRenderer>();
+        string mainJs = string("let errMsg = \"none\";\ntry { resolveUnionDispatch(") + badSchemaLiteral
+            + "); } catch (e) { errMsg = e.message; }\nrenderTemplate(\"test_template\", { errMsg }, \"outfile\");\n";
+        auto gen = makeGen(mainJs, fileWriter, templateRenderer);
+        gen.generate(getResourcePath("petstore.yaml"));
+        return fileWriter->files["outfile"];
+    };
+
+    SECTION("A variant with no recognizable JSON shape (nested oneOf) throws")
+    {
+        auto out = runAndCaptureError("{ oneOf: [ { oneOf: [ {type: \"string\"}, {type: \"integer\"} ] }, "
+                                       "{ type: \"string\" } ] }");
+        REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("no recognizable JSON shape to dispatch on"));
+    }
+
+    SECTION("Two object variants with no distinguishing field between them throws")
+    {
+        auto out = runAndCaptureError(
+            "{ oneOf: [ { type: \"object\", properties: { a: {type: \"string\"} } }, "
+            "{ type: \"object\", properties: { a: {type: \"string\"} } } ] }");
+        REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("Cannot disambiguate object-shaped oneOf/anyOf variants"));
+    }
+
+    SECTION("Two variants of the same non-object dispatch kind throws")
+    {
+        auto out = runAndCaptureError("{ oneOf: [ { type: \"string\" }, { type: \"string\" } ] }");
+        REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("Cannot disambiguate multiple \"string\"-shaped"));
+    }
+
+    SECTION("Two unconstrained catch-all variants throws")
+    {
+        auto out = runAndCaptureError("{ oneOf: [ {}, {} ] }");
+        REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("unconstrained (\"{}\") variants"));
+    }
+}
+
 TEST_CASE("Generate validates the spec structurally while parsing (no external JSON-schema step anymore)", "[generator]")
 {
     auto fileWriter = make_shared<MockedFileWriter>();

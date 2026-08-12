@@ -1,15 +1,10 @@
+{%- include "templates/_macros.kt.j2" -%}
 package {{ packageName }}
 
 import io.ktor.client.HttpClient
 
 // Bundles one instance of every tag's API client class, constructed once from a shared
 // HttpClient/baseUrl, so callers don't have to instantiate each tag class individually.
-{% if apiDescription %}/**
-{{ apiDescription | indent(" * ", true) }}
- */
-{% endif %}class ApiClient(client: HttpClient, baseUrl: String = "") {
-{% if groups %}{% filter indent(4, true) %}{% for g in groups %}{% if g.description %}/**
-{{ g.description | indent(" * ", true) }}
- */
-{% endif %}val {{ g.propertyName }} = {{ g.tagClass }}(client, baseUrl)
+{{ docComment(apiDescription) }}class ApiClient(client: HttpClient, baseUrl: String = "") {
+{% if groups %}{% filter indent(4, true) %}{% for g in groups %}{{ docComment(g.description) }}val {{ g.propertyName }} = {{ g.tagClass }}(client, baseUrl)
 {% endfor %}{% endfilter %}{% endif %}}

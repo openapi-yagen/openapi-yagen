@@ -1,3 +1,4 @@
+{%- include "templates/_macros.ts.j2" -%}
 {% for m in models -%}
 export * from "./models/{{ m }}{{ importExt }}";
 {% endfor -%}
@@ -11,14 +12,8 @@ import type { ApiClientConfig } from "./runtime{{ importExt }}";
 import { {{ g.tagClass }} } from "./apis/{{ g.tagClass }}{{ importExt }}";
 {% endfor %}
 // Bundles one instance of every tag's client class, constructed once from a shared config.
-{% if apiDescription %}/**
-{{ apiDescription | indent(" * ", true) }}
- */
-{% endif %}export class ApiClient {
-{% if tagGroups %}{% filter indent(2, true) %}{% for g in tagGroups %}{% if g.description %}/**
-{{ g.description | indent(" * ", true) }}
- */
-{% endif %}readonly {{ g.propertyName }}: {{ g.tagClass }};
+{{ docComment(apiDescription) }}export class ApiClient {
+{% if tagGroups %}{% filter indent(2, true) %}{% for g in tagGroups %}{{ docComment(g.description) }}readonly {{ g.propertyName }}: {{ g.tagClass }};
 {% endfor %}{% endfilter %}{% endif %}
   constructor(config: ApiClientConfig) {
 {% if tagGroups %}{% filter indent(4, true) %}{% for g in tagGroups %}this.{{ g.propertyName }} = new {{ g.tagClass }}(config);

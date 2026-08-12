@@ -1,3 +1,4 @@
+{%- include "templates/_macros.kt.j2" -%}
 package {{ packageName }}
 
 import io.ktor.client.HttpClient
@@ -5,26 +6,23 @@ import io.ktor.client.call.body
 import io.ktor.client.request.*
 import io.ktor.http.*
 
-{% if tagDescription %}/**
-{{ tagDescription | indent(" * ", true) }}
- */
-{% endif %}class {{ tagClass }}(private val client: HttpClient, private val baseUrl: String = "") {
+{{ docComment(tagDescription) }}class {{ tagClass }}(private val client: HttpClient, private val baseUrl: String = "") {
 {% for op in operations %}
 {% if op.docComment %}    {{ op.docComment | indent(4) }}
 {% endif %}    suspend fun {{ op.name }}({{ op.signatureParams }}){% if op.returnsValue %}: {{ op.response.type }}{% endif %} {
 {% filter indent(8, true) %}{% if op.returnsValue %}val response = client.{{ op.method }}("$baseUrl{{ op.pathExpr }}") {
 {% else %}client.{{ op.method }}("$baseUrl{{ op.pathExpr }}") {
-{% endif %}{% for p in op.queryParams %}{% if p.isArray %}    queryParamList("{{ p.wireName }}", {{ p.ktName }})
+{% endif %}{% for p in op.queryParams %}{% if p.isArray %}    queryParamList({{ toStringLiteral(p.wireName) }}, {{ p.ktName }})
 {% else %}{% if p.queryArms %}    {{ p.ktName }}?.let { v ->
         when (v) {
 {% for arm in p.queryArms %}{% if arm.kind == "object" %}            is {{ p.type }}.{{ arm.wrapperName }} -> {
-{% for f in arm.fields %}                queryParam("{{ p.wireName }}[{{ f.wireName }}]", v.value.{{ f.ktName }})
+{% for f in arm.fields %}                queryParam({{ toStringLiteral(p.wireName + "[" + f.wireName + "]") }}, v.value.{{ f.ktName }})
 {% endfor %}            }
-{% else %}            is {{ p.type }}.{{ arm.wrapperName }} -> queryParam("{{ p.wireName }}", v.value)
+{% else %}            is {{ p.type }}.{{ arm.wrapperName }} -> queryParam({{ toStringLiteral(p.wireName) }}, v.value)
 {% endif %}{% endfor %}        }
     }
-{% else %}    queryParam("{{ p.wireName }}", {{ p.ktName }})
-{% endif %}{% endif %}{% endfor %}{% for p in op.headerParams %}    headerParam("{{ p.wireName }}", {{ p.ktName }})
+{% else %}    queryParam({{ toStringLiteral(p.wireName) }}, {{ p.ktName }})
+{% endif %}{% endif %}{% endfor %}{% for p in op.headerParams %}    headerParam({{ toStringLiteral(p.wireName) }}, {{ p.ktName }})
 {% endfor %}{% if op.body %}    contentType(ContentType.Application.Json)
     setBody(body)
 {% endif %}}{% if op.returnsValue %}

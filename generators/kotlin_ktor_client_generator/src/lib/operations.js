@@ -9,45 +9,25 @@
 // erases it afterwards).
 
 import { className, fieldName, operationName } from "./naming.js";
-import { ktType, buildValidationCalls } from "./types.js";
+import { ktType } from "./types.js";
 import { escapeKotlinStringContent } from "./keywords.js";
 import { withResilience } from "./strict.js";
 
-const PARAM_CONVERTERS = {
-  String: "it",
-  Int: "it.toInt()",
-  Long: "it.toLong()",
-  Float: "it.toFloat()",
-  Double: "it.toDouble()",
-  Boolean: "it.toBoolean()",
-  // kotlinx.datetime's own parse() throws DateTimeFormatException, itself an
-  // IllegalArgumentException (see primitiveKtType in types.js for the format:date/date-time
-  // mapping), so it needs no special handling in convertOrThrow's catch clause.
-  "kotlinx.datetime.LocalDate": "kotlinx.datetime.LocalDate.parse(it)",
-  "kotlinx.datetime.Instant": "kotlinx.datetime.Instant.parse(it)",
-};
-
-// Unwraps a schema through any chain of single-branch oneOf/anyOf/allOf wrappers (see ktType's
-// identical handling in types.js) down to the schema that actually determines its wire shape -
-// e.g. `allOf: [$ref EnumSchema]` (a common .NET/Swashbuckle idiom for attaching a description
-// next to a $ref) unwraps to EnumSchema itself. kindOf() only looks at the schema handed to it,
-// not through composition wrappers, so anything inspecting a param's actual shape (as opposed to
-// just its Kotlin type name, which ktType already resolves correctly on its own) needs this.
-function unwrapSingleBranch(schema) {
-  let s = schema;
-  for (;;) {
-    const kind = kindOf(s);
-    if ((kind === "OneOf" || kind === "AnyOf") && (s.oneOf || s.anyOf || []).length === 1) {
-      s = (s.oneOf || s.anyOf)[0];
-      continue;
-    }
-    if (kind === "AllOf" && s.allOf.length === 1) {
-      s = s.allOf[0];
-      continue;
-    }
-    return s;
-  }
-}
+// Kotlin scalar types a path/query/header param can resolve to - the client passes these through
+// directly (Kotlin string templates/`queryParam(name, value: Any?)` handle any of them, and an
+// enum-typed param converts via its own generated `wireValue`/`fromWireValue`, see
+// model_enum.kt.j2), so this is only ever used as a "is this actually a supported scalar shape"
+// gate, not to pick a conversion snippet.
+const SUPPORTED_SCALAR_PARAM_TYPES = new Set([
+  "String",
+  "Int",
+  "Long",
+  "Float",
+  "Double",
+  "Boolean",
+  "kotlinx.datetime.LocalDate",
+  "kotlinx.datetime.Instant",
+]);
 
 // A oneOf/anyOf in parameter position can't reuse the JSON-shape-dispatching "union" model (see
 // registerUnion in types.js) - a path/query/header value is always just a string on the wire,
@@ -107,9 +87,6 @@ function tryBuildFilterUnionQueryParam(registry, hintBase, p, schema) {
     nullable: !required,
     isArray: false,
     queryArms,
-    converter: null,
-    extractFn: null,
-    validationCalls: [],
     description: p.description || null,
   };
 }
@@ -117,16 +94,13 @@ function tryBuildFilterUnionQueryParam(registry, hintBase, p, schema) {
 // A query param whose (unwrapped) schema is Array-kind - serialized as repeated `?name=a&name=b`
 // keys (OpenAPI 3's default `style: form, explode: true`), matching the typescript_fetch_client
 // generator's own support for this (path/header positions have no standard "repeated value"
-// serialization, so those stay scalar-only). `converter`/`typeLabel` describe the ITEM type, not
-// the `List<...>` as a whole - queryParamListAs/requireQueryParamListAs (unused on the client
-// side, kept for structural parity with the server generator) apply it per element.
+// serialization, so those stay scalar-only).
 function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
   const itemT = ktType(registry, itemSchema, hintBase + className(p.name) + "Item");
-  const itemConverter =
-    kindOf(unwrapSingleBranch(itemSchema)) === "Enum" ? `${itemT.type}.fromWireValue(it)` : PARAM_CONVERTERS[itemT.type];
-  if (!itemConverter) {
+  const isSupported = kindOf(unwrapSchema(itemSchema)) === "Enum" || SUPPORTED_SCALAR_PARAM_TYPES.has(itemT.type);
+  if (!isSupported) {
     throw Error(
-      `<93017100> Unsupported query parameter array item type for "${p.name}": array items must be ` +
+      `<01534acc> Unsupported query parameter array item type for "${p.name}": array items must be ` +
         `primitive scalar types (string/integer/number/boolean) or enums, got "${itemT.type}"`
     );
   }
@@ -141,16 +115,13 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
     nullable: !required,
     isArray: true,
     queryArms: null,
-    converter: itemConverter,
-    extractFn: required ? "requireQueryParamListAs" : "queryParamListAs",
-    validationCalls: [],
     description: p.description || null,
   };
 }
 
 function buildParam(registry, hintBase, p) {
   const schema = p.schema || { type: "string" };
-  const resolved = unwrapSingleBranch(schema);
+  const resolved = unwrapSchema(schema);
   if (p.in === "query" && kindOf(resolved) === "Array") {
     return buildArrayQueryParam(registry, hintBase, p, resolved.items || { type: "string" });
   }
@@ -159,24 +130,16 @@ function buildParam(registry, hintBase, p) {
     if (filterParam) return filterParam;
   }
   const t = isPrimitiveLikeUnion(resolved) ? { type: "String" } : ktType(registry, schema, hintBase + className(p.name));
-  // An enum-typed param parses/prints via the enum's own wireValue/fromWireValue (see
-  // model_enum.kt.j2) rather than a fixed PARAM_CONVERTERS entry, since the conversion snippet
-  // needs the enum's own class name embedded in it.
-  const converter = kindOf(resolved) === "Enum" ? `${t.type}.fromWireValue(it)` : PARAM_CONVERTERS[t.type];
-  if (!converter) {
+  const isSupported = kindOf(resolved) === "Enum" || SUPPORTED_SCALAR_PARAM_TYPES.has(t.type);
+  if (!isSupported) {
     throw Error(
-      `<e9faabbc> Unsupported parameter type for "${p.name}" (in: ${p.in}): only primitive scalar ` +
+      `<394d7fec> Unsupported parameter type for "${p.name}" (in: ${p.in}): only primitive scalar ` +
         `types (string/integer/number/boolean) or enums are supported in path/query/header position, got "${t.type}"`
     );
   }
   const isPath = p.in === "path";
   const required = isPath || !!p.required;
   const { kotlinName } = fieldName(p.name);
-  const constraints = constraintsOf(p.schema || {});
-  let extractFn;
-  if (isPath) extractFn = "pathParamAs";
-  else if (p.in === "header") extractFn = required ? "requireHeaderParamAs" : "headerParamAs";
-  else extractFn = required ? "requireQueryParamAs" : "queryParamAs";
   return {
     ktName: kotlinName,
     wireName: p.name,
@@ -186,9 +149,6 @@ function buildParam(registry, hintBase, p) {
     nullable: !required,
     isArray: false,
     queryArms: null,
-    converter,
-    extractFn,
-    validationCalls: buildValidationCalls(kotlinName, p.name, t.type, constraints),
     description: p.description || null,
   };
 }
@@ -228,8 +188,7 @@ function buildRequestBody(registry, hintBase, requestBody) {
   const jsonContent = (requestBody.content || {})["application/json"];
   if (!jsonContent) return null;
   const t = ktType(registry, jsonContent.schema || {}, hintBase + "Body");
-  const model = registry.models.get(t.type);
-  return { type: t.type, required: requestBody.required === true, hasValidate: !!model && model.kind === "object" };
+  return { type: t.type, required: requestBody.required === true };
 }
 
 // Uses the engine's firstSuccessResponse() (see docs/javascript-api.md) instead of hand-rolling
@@ -243,26 +202,6 @@ function buildResponse(registry, hintBase, responses) {
   if (!content) return { type: "Unit", statusCode };
   const t = ktType(registry, content.schema || {}, hintBase + "Response");
   return { type: t.type, statusCode };
-}
-
-// Builds a KDoc comment string from a summary, a longer description, and a list of {name,
-// description} @param entries - or [] if there's nothing to say (Inja's {% for %} throws on
-// null/undefined rather than treating it as zero iterations, so this must never be nullish).
-// Returns null (NOT "") when there's nothing to document - Inja's {% if %} treats an empty string
-// as truthy (only false/null/0/[] are falsy), so templates guard with {% if op.docComment %} and
-// reindent the whole (possibly multi-line) string to their own call site's depth via Inja's
-// indent() (see the templates), instead of each one re-splitting/printing per line.
-function buildDocComment(summary, description, params) {
-  const paramLines = (params || []).filter((p) => p.description).map((p) => `@param ${p.name} ${p.description}`);
-  const bodyLines = [summary, description].filter(Boolean);
-  const lines = [...bodyLines];
-  if (paramLines.length) {
-    if (lines.length) lines.push("");
-    lines.push(...paramLines);
-  }
-  if (lines.length === 0) return null;
-  if (lines.length === 1) return `/** ${lines[0]} */`;
-  return ["/**", ...lines.map((l) => (l ? ` * ${l}` : " *")), " */"].join("\n");
 }
 
 // Looks up a tag's own document-level description (schema.tags: [{name, description}] - distinct

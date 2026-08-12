@@ -3,14 +3,15 @@
 // Supported: object/array/primitives (with format mapping), $ref, enum, allOf (flattened merge),
 // oneOf/anyOf with a discriminator and $ref-only variants (sealed interface + one @Serializable
 // subtype per variant), and *undiscriminated* oneOf/anyOf (kind "union": a sealed interface with
-// one value-wrapping variant per branch, deserialized via a generated
-// JsonContentPolymorphicSerializer that dispatches on the JSON value's shape - see
-// classifyVariantDispatch/registerUnion below and templates/model_union.kt.j2).
+// one value-wrapping variant per branch, deserialized via a generated hand-rolled KSerializer that
+// dispatches on the JSON value's shape - see the engine's resolveUnionDispatch()
+// (docs/javascript-api.md), registerUnion below, and templates/model_union.kt.j2).
 //
 // A union's variants must be pairwise distinguishable from the raw JSON alone: at most one
 // variant per non-object JSON shape (string/number/boolean/array), and for multiple object-shaped
 // variants, each one needs a `required` property that no other object variant also requires. If a
-// oneOf/anyOf can't be dispatched this way, that's a hard error (not a silent guess).
+// oneOf/anyOf can't be dispatched this way, that's a hard error (not a silent guess) -
+// resolveUnionDispatch() throws with details.
 //
 // External types are always referenced fully-qualified (kotlinx.datetime.Instant,
 // kotlinx.serialization.json.JsonElement/JsonObject) so callers never need per-file import
@@ -102,17 +103,14 @@ function newRegistry(reservedNames) {
 // "FinancialConnectionsAccountOwnership", which is also the literal generated name of the schema
 // "financial_connections.account_ownership" (X) it's $ref'ing to alongside the plain string ID -
 // the single-variant shortcut in ktType avoids this for a 1-variant oneOf/anyOf, but a 2+-variant
-// one still needs its own wrapper name. Only checks `reservedNames` (every real top-level schema's
-// generated name, computed once upfront) - not `registry.models` - so reprocessing the exact same
-// hint name for the exact same inline schema still correctly reuses the earlier registration via
-// registerObject/registerUnion/registerMerged's own idempotent guard, instead of spuriously
-// "colliding with itself" on every repeat visit.
+// one still needs its own wrapper name. Uses the engine's disambiguateName() (docs/javascript-api.md)
+// against `reservedNames` (every real top-level schema's generated name, computed once upfront) -
+// not `registry.models` - so reprocessing the exact same hint name for the exact same inline
+// schema still correctly reuses the earlier registration via registerObject/registerUnion/
+// registerMerged's own idempotent guard, instead of spuriously "colliding with itself" on every
+// repeat visit.
 function disambiguateHintName(registry, candidate) {
-  if (!registry.reservedNames.has(candidate)) return candidate;
-  if (!registry.reservedNames.has(candidate + "Wrapper")) return candidate + "Wrapper";
-  let i = 2;
-  while (registry.reservedNames.has(`${candidate}Wrapper${i}`)) i++;
-  return `${candidate}Wrapper${i}`;
+  return disambiguateName(candidate, registry.reservedNames);
 }
 
 function addModel(registry, name, entry) {
@@ -180,125 +178,42 @@ function registerMerged(registry, name, schema, variantOpts) {
   registerObject(registry, name, merged, variantOpts);
 }
 
-// Classifies a oneOf/anyOf variant by the shape it takes on the wire (what a
-// JsonContentPolymorphicSerializer can actually branch on): "object"/"array"/"string"/"number"/
-// "boolean"/"any" (a schema with no recognizable constraints at all, e.g. a bare `{}` - see
-// registerUnion's catch-all handling), or null if the variant has a shape we genuinely can't
-// resolve (e.g. a nested oneOf/anyOf/$ref - not supported as a union variant).
-function classifyVariantDispatch(variant) {
-  const kind = kindOf(variant);
-  if (kind === "Object" || kind === "Map" || kind === "AllOf") return "object";
-  if (kind === "Array") return "array";
-  if (kind === "Enum") return variant.type === "integer" || variant.type === "number" ? "number" : "string";
-  if (kind === "Primitive") {
-    if (variant.type === "string") return "string";
-    if (variant.type === "integer" || variant.type === "number") return "number";
-    if (variant.type === "boolean") return "boolean";
-    return null;
+// Turns a variant's {dispatchKind, dispatchField} (see the engine's resolveUnionDispatch(),
+// docs/javascript-api.md) into a ready Kotlin boolean expression testing the decoded `element:
+// JsonElement`, for model_union.kt.j2's generated deserializer - collapses what used to be a
+// hand-written per-kind {% if/else if %} chain in the template itself down to a single `{{
+// v.dispatchCondition }} -> ...` line per variant. Returns null for dispatchKind "any": that
+// variant isn't tested at all, it's the deserializer's trailing `else` branch instead (see
+// registerUnion's catchAllVariant, below).
+function buildDispatchCondition(dispatchKind, dispatchField) {
+  if (dispatchKind === "object") {
+    return dispatchField
+      ? `element is JsonObject && ${toStringLiteral(dispatchField)} in element`
+      : "element is JsonObject";
   }
-  // An unconstrained schema (no ref/enum/composition/type at all - the JSON Schema idiom for "or
-  // literally anything else") matches every possible JSON value, so it can never be one of several
-  // shape-discriminated branches - it can only ever be a single trailing catch-all (see
-  // registerUnion), never something to dispatch *on*.
-  if (kind === "Unknown") return "any";
-  return null;
-}
-
-// A variant's own declared properties/required list, flattening allOf first (an AllOf-kind schema
-// has no `properties`/`required` of its own - those live on its allOf branches) so disambiguation
-// below sees the actual merged field set, same as registerMerged does for a named model.
-function declaredFields(variant) {
-  if (kindOf(variant) === "AllOf") {
-    const flat = flattenAllOf(variant);
-    return { properties: flat.properties || {}, required: flat.required || [] };
-  }
-  return { properties: variant.properties || {}, required: variant.required || [] };
-}
-
-// Finds a property name of `variant` that no other object-shaped variant in `objectVariants`
-// also declares - what selectDeserializer uses to tell apart multiple object-shaped oneOf/anyOf
-// variants that have no discriminator. Prefers one of `variant`'s `required` fields (a stronger
-// signal: the property is guaranteed present whenever this variant occurs), falling back to any
-// of its other declared-but-optional properties - the runtime check is just "is this key present
-// in the JSON object", which works just as well for an optional field the payload happens to
-// include as for a required one.
-function findUniqueDistinguishingField(variant, objectVariants) {
-  const { properties, required } = declaredFields(variant);
-  const others = objectVariants.filter((v) => v !== variant).map(declaredFields);
-  const isUnique = (field) => !others.some((o) => field in o.properties);
-  for (const field of required) if (isUnique(field)) return field;
-  for (const field of Object.keys(properties)) if (isUnique(field)) return field;
+  if (dispatchKind === "array") return "element is JsonArray";
+  if (dispatchKind === "string") return "element is JsonPrimitive && element.isString";
+  if (dispatchKind === "boolean")
+    return 'element is JsonPrimitive && !element.isString && (element.content == "true" || element.content == "false")';
+  if (dispatchKind === "number")
+    return "element is JsonPrimitive && !element.isString && element.content.toDoubleOrNull() != null";
   return null;
 }
 
 // Registers an undiscriminated oneOf/anyOf as a "union" model: a sealed interface with one
-// value-wrapping data class per variant, plus a JsonContentPolymorphicSerializer that dispatches
-// on the JSON value's shape (see classifyVariantDispatch/findUniqueDistinguishingField above). At
-// most one variant may be an unconstrained catch-all ("any"/`{}`) - it becomes the deserializer's
-// trailing `else` branch instead of a shape-predicate branch (see model_union.kt.j2).
+// value-wrapping data class per variant, plus a hand-rolled KSerializer that dispatches on the
+// JSON value's shape - classification/validation is the engine's resolveUnionDispatch()
+// (docs/javascript-api.md), which throws a descriptive error if the variants can't be
+// unambiguously told apart. At most one variant may be an unconstrained catch-all ("any"/`{}`) -
+// it becomes the deserializer's trailing `else` branch instead of a shape-predicate branch (see
+// model_union.kt.j2).
 function registerUnion(registry, name, schema, variantOpts) {
   if (registry.models.has(name)) return;
   const variants = schema.oneOf || schema.anyOf || [];
+  const dispatch = resolveUnionDispatch(schema);
 
-  const classified = variants.map((variant, index) => {
-    const dispatchKind = classifyVariantDispatch(variant);
-    if (!dispatchKind) {
-      throw Error(
-        `<e353e9f9> oneOf/anyOf variant #${index + 1} of "${name}" has no recognizable JSON shape to ` +
-          `dispatch on (nested oneOf/anyOf variants aren't supported)`
-      );
-    }
-    return { variant, dispatchKind, index };
-  });
-
-  const objectVariants = classified.filter((c) => c.dispatchKind === "object").map((c) => c.variant);
-  const dispatchFieldByVariant = new Map();
-  if (objectVariants.length > 1) {
-    // At most one object variant may lack a field no other object variant also declares - a
-    // common real-world shape (e.g. Stripe's "application" vs. "deleted_application": the deleted
-    // variant is the non-deleted one's own properties plus a unique "deleted" flag, so the
-    // non-deleted variant - a strict subset - can never have a property absent from the other).
-    // That variant becomes the object-shaped fallback: reordered (see below) to sort after every
-    // other object variant, so its unconditional `element is JsonObject -> ...` branch in the
-    // generated `when` (see model_union.kt.j2) is only ever reached once every more specific
-    // field-presence check above it has already failed to match.
-    const withoutField = [];
-    for (const variant of objectVariants) {
-      const field = findUniqueDistinguishingField(variant, objectVariants);
-      if (field) dispatchFieldByVariant.set(variant, field);
-      else withoutField.push(variant);
-    }
-    if (withoutField.length > 1) {
-      throw Error(
-        `<ab84d1de> Cannot disambiguate object-shaped oneOf/anyOf variants of "${name}": ${withoutField.length} ` +
-          `variants have no property (required or not) that no other object variant also declares - at most one ` +
-          `object variant may lack one (it becomes the shape-based fallback, tried last)`
-      );
-    }
-  }
-  const countByKind = new Map();
-  for (const { dispatchKind } of classified) countByKind.set(dispatchKind, (countByKind.get(dispatchKind) || 0) + 1);
-  for (const [dispatchKind, count] of countByKind) {
-    if (dispatchKind !== "object" && count > 1) {
-      throw Error(
-        dispatchKind === "any"
-          ? `<35fcb50b> oneOf/anyOf of "${name}" has ${count} unconstrained ("{}") variants - at most one ` +
-              `catch-all is supported (they'd be indistinguishable from each other)`
-          : `<cbe2ed80> Cannot disambiguate multiple "${dispatchKind}"-shaped oneOf/anyOf variants of "${name}" ` +
-              `(only one variant per non-object JSON shape is supported)`
-      );
-    }
-  }
-
-  // Stable sort: moves the one field-less object variant (if any) after every other object
-  // variant, without disturbing relative order otherwise - see the fallback comment above.
-  classified.sort((a, b) => {
-    const aFallback = a.dispatchKind === "object" && !dispatchFieldByVariant.has(a.variant) ? 1 : 0;
-    const bFallback = b.dispatchKind === "object" && !dispatchFieldByVariant.has(b.variant) ? 1 : 0;
-    return aFallback - bFallback;
-  });
-
-  const variantModels = classified.map(({ variant, dispatchKind, index }) => {
+  const variantModels = variants.map((variant, index) => {
+    const { dispatchKind, dispatchField } = dispatch.variants[index];
     const variantRawName = nameOf(variant);
     const suffix = variantRawName ? className(variantRawName) : `Variant${index + 1}`;
     const wrapperName = name + suffix;
@@ -314,8 +229,23 @@ function registerUnion(registry, name, schema, variantOpts) {
       wrapperName,
       valueType: t.type,
       dispatchKind,
-      dispatchField: dispatchFieldByVariant.get(variant) || null,
+      dispatchField,
+      dispatchCondition: buildDispatchCondition(dispatchKind, dispatchField),
     };
+  });
+
+  // Stable sort: moves the one field-less object variant (if any, resolveUnionDispatch guarantees
+  // at most one) after every other object variant, without disturbing relative order otherwise -
+  // a common real-world shape (e.g. Stripe's "application" vs. "deleted_application": the deleted
+  // variant is the non-deleted one's own properties plus a unique "deleted" flag, so the
+  // non-deleted variant - a strict subset - can never have a property absent from the other).
+  // That variant's unconditional `element is JsonObject -> ...` branch (see model_union.kt.j2) is
+  // only ever reached once every more specific field-presence check above it has already failed
+  // to match.
+  variantModels.sort((a, b) => {
+    const aFallback = a.dispatchKind === "object" && !a.dispatchField ? 1 : 0;
+    const bFallback = b.dispatchKind === "object" && !b.dispatchField ? 1 : 0;
+    return aFallback - bFallback;
   });
 
   addModel(registry, name, {
@@ -472,7 +402,7 @@ function registerTopLevel(registry, name, schema, variantOpts) {
 // and plain data classes - including any inline types discovered transitively along the way.
 export function buildModelRegistry(root) {
   const schemas = (root.components && root.components.schemas) || {};
-  const registry = newRegistry(new Set(Object.keys(schemas).map(className)));
+  const registry = newRegistry(Object.keys(schemas).map(className));
 
   // Pass 1: find discriminated sealed parents via the engine's resolveDiscriminator() (see
   // docs/javascript-api.md - it already resolves each variant's component name and discriminator

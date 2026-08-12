@@ -1,7 +1,5 @@
-{% if model.description %}/**
-{{ model.description | indent(" * ", true) }}
- */
-{% endif %}export enum {{ model.name }} {
+{%- include "templates/_macros.ts.j2" -%}
+{{ docComment(model.description) }}export enum {{ model.name }} {
 {% if model.entries %}{% filter indent(2, true) %}{% for e in model.entries %}{{ e.memberName }} = {{ e.valueLiteral }},
 {% endfor %}{% endfilter %}{% endif %}}
 {% if validateResponses %}

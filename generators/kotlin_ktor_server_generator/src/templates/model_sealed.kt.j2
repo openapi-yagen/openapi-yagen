@@ -8,5 +8,5 @@ import kotlinx.serialization.json.JsonClassDiscriminator
 {% endif -%}
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
-@JsonClassDiscriminator("{{ model.discriminatorProperty }}")
+@JsonClassDiscriminator({{ toStringLiteral(model.discriminatorProperty) }})
 sealed interface {{ model.name }}

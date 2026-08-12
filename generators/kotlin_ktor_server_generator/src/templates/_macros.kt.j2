@@ -1,0 +1,7 @@
+{% macro docComment(text) %}{% if text %}/**
+{{ text | indent(" * ", true) }}
+ */
+{% endif %}{% endmacro -%}
+{% macro extractAndValidate(p) %}val {{ p.ktName }} = call.{{ p.extractFn }}({{ toStringLiteral(p.wireName) }}, "{{ p.typeLabel }}") { {{ p.converter }} }
+{% for v in p.validationCalls %}{{ v }}
+{% endfor %}{% endmacro -%}

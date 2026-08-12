@@ -1,5 +1,9 @@
 #include "functions.h"
 
+#include <optional>
+#include <set>
+#include <sstream>
+
 #include "../common/node.h"
 #include "../common/std_tools.h"
 #include "../common/string_tools.h"
@@ -44,6 +48,140 @@ Node nodeSplitPathTemplate(const Node::Vec& args)
     return { segments };
 }
 
+// Builds a doc comment block from a summary, a longer description, and a list of {name,
+// description} @param entries, in one of four comment styles selected by the literal marker
+// string `style` itself (so a call site reads as what it produces, not an enum name to look up):
+// - `"/** */"` (default) - Javadoc/KDoc/TSDoc/Doxygen: Kotlin, TypeScript/JS, Java, C#, C/C++.
+// - `"//"` - a plain line-comment block, one `//` per line: Go, Rust (a plain, non-rustdoc
+//   comment), C/C++/Java/C#/Kotlin/TS/JS/Dart when a doc-comment marker isn't wanted/supported.
+// - `"///"` - triple-slash doc comments: Dart (dartdoc) and Rust (rustdoc) both parse this as
+//   markdown prose with no formal `@param`-style tag syntax of their own - the `@param` lines this
+//   function still emits are perfectly valid markdown text, just not a tag either tool recognizes
+//   specially; still useful for the human reading the source.
+// - `"#"` - a plain line-comment block, one `#` per line: Python (a preceding comment, NOT a
+//   docstring - Python's actual convention is a `"""..."""` string literal as the function/class
+//   body's first statement, which needs to be positioned *inside* the body, not attached above the
+//   declaration like every other style here, so it isn't reachable via this same "one string,
+//   printed above the declaration" shape a generator template expects), Ruby (RDoc/YARD's own
+//   convention - a comment block directly above the method/class), Bash/shell, Perl, YAML, TOML.
+// Unrecognized `style` values throw rather than silently falling back, so a typo in a generator's
+// own call site fails loudly at generation time instead of emitting silently-wrong comments.
+//
+// Returns Node::NullValue (not "") when there's nothing to document: Inja's {% if %} treats an
+// empty string as truthy (only false/null/0/[] are falsy), so templates can guard with a plain
+// `{% if docComment %}` and reindent the (possibly multi-line) result to their own call site's
+// depth via indent() (see docs/templating.md) instead of each generator re-splitting/reindenting
+// per line by hand.
+Node nodeBuildDocComment(const Node::Vec& args)
+{
+    if (args.size() < 1)
+        throw runtime_error("<9a93f7b2> buildDocComment requires 1-4 arguments (summary: string|null, "
+                             "description?: string|null, params?: [{name, description}], "
+                             "style?: \"/** */\"|\"//\"|\"///\"|\"#\")");
+    auto getOptStr = [&](size_t i) -> optional<string> {
+        if (i >= args.size())
+            return nullopt;
+        auto s = args[i].getIf<string>();
+        return s ? optional<string>(*s) : nullopt;
+    };
+
+    auto style = getOptStr(3).value_or("/** */");
+    if (style != "/** */" && style != "//" && style != "///" && style != "#")
+        throw runtime_error(format(
+            "<219d3c07> buildDocComment: unrecognized style \"{}\" - expected one of \"/** */\", \"//\", \"///\", \"#\"",
+            style));
+
+    vector<string> paramLines;
+    if (args.size() >= 3) {
+        auto params = args[2].getIf<Node::Vec>();
+        if (params) {
+            for (const auto& p : *params) {
+                auto m = p.getIf<Node::Map>();
+                if (!m)
+                    continue;
+                auto nameIt = m->find("name");
+                auto descIt = m->find("description");
+                if (descIt == m->end())
+                    continue;
+                auto desc = descIt->second.getIf<string>();
+                if (!desc || desc->empty())
+                    continue;
+                auto name = nameIt != m->end() && nameIt->second.getIf<string>() ? *nameIt->second.getIf<string>() : "";
+                paramLines.push_back(format("@param {} {}", name, *desc));
+            }
+        }
+    }
+
+    vector<string> lines;
+    for (auto s : { getOptStr(0), getOptStr(1) })
+        if (s && !s->empty())
+            lines.push_back(*s);
+    if (!paramLines.empty()) {
+        if (!lines.empty())
+            lines.push_back("");
+        for (auto& l : paramLines)
+            lines.push_back(l);
+    }
+
+    if (lines.empty())
+        return { Node::NullValue };
+
+    if (style == "/** */") {
+        if (lines.size() == 1)
+            return { format("/** {} */", lines[0]) };
+        stringstream ss;
+        ss << "/**";
+        for (const auto& l : lines)
+            ss << "\n" << (l.empty() ? " *" : " * " + l);
+        ss << "\n */";
+        return { ss.str() };
+    }
+
+    // "//" / "///" / "#": every line (including the blank separator before @param lines) gets its
+    // own leading marker, with no trailing space on an otherwise-blank line - mirrors "/** */"'s
+    // bare " *" continuation line above.
+    stringstream ss;
+    for (size_t i = 0; i < lines.size(); i++) {
+        if (i > 0)
+            ss << "\n";
+        ss << style;
+        if (!lines[i].empty())
+            ss << " " << lines[i];
+    }
+    return { ss.str() };
+}
+
+// Disambiguates `candidate` against `reservedNames`: returns `candidate` unchanged if it doesn't
+// collide, else the first of `candidateWrapper`, `candidateWrapper2`, `candidateWrapper3`, ... not
+// itself in `reservedNames`. For a generator's hint-derived synthetic type name that turns out to
+// collide with a real top-level schema's own generated name (nameOf() only resolves names reached
+// via $ref, so every generator that synthesizes a name for an inline oneOf/allOf/object needs its
+// own collision check against real schema names).
+Node nodeDisambiguateName(const Node::Vec& args)
+{
+    if (args.size() < 2)
+        throw runtime_error(
+            "<f9f48ac8> disambiguateName requires 2 arguments (candidate: string, reservedNames: [string])");
+    auto candidate = args[0].get<string>();
+    auto reservedVec = args[1].getIf<Node::Vec>();
+    if (!reservedVec)
+        throw runtime_error("<af74e55c> disambiguateName's reservedNames argument must be an array of strings");
+    set<string> reserved;
+    for (const auto& n : *reservedVec)
+        if (auto s = n.getIf<string>())
+            reserved.insert(*s);
+
+    if (!reserved.count(candidate))
+        return { candidate };
+    if (auto withWrapper = candidate + "Wrapper"; !reserved.count(withWrapper))
+        return { withWrapper };
+    for (int i = 2;; i++) {
+        auto attempt = format("{}Wrapper{}", candidate, i);
+        if (!reserved.count(attempt))
+            return { attempt };
+    }
+}
+
 Node dumpNode(const Node::Vec& args)
 {
     bool first = true;
@@ -71,6 +209,8 @@ Functions getCommonFunctions()
     res.push_back({ .name = "sanitizeIdentifier", .func = nodeSanitizeIdentifier });
     res.push_back({ .name = "toStringLiteral", .func = nodeToStringLiteral });
     res.push_back({ .name = "splitPathTemplate", .func = nodeSplitPathTemplate });
+    res.push_back({ .name = "buildDocComment", .func = nodeBuildDocComment });
+    res.push_back({ .name = "disambiguateName", .func = nodeDisambiguateName });
     return res;
 }
 

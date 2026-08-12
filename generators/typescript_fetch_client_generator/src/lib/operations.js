@@ -24,35 +24,13 @@ import { collectReferencedModelNames } from "./imports.js";
 import { buildValidationExpr } from "./validation.js";
 import { withResilience } from "./strict.js";
 
-// Unwraps a schema through any chain of single-branch oneOf/anyOf/allOf wrappers (see tsType's
-// identical handling in types.js) down to the schema that actually determines its wire shape -
-// e.g. `allOf: [$ref EnumSchema]` (a common .NET/Swashbuckle idiom for attaching a description
-// next to a $ref) unwraps to EnumSchema itself. kindOf() only looks at the schema handed to it,
-// not through composition wrappers, so anything inspecting a param's actual shape (as opposed to
-// just its TS type name, which tsType already resolves correctly on its own) needs this.
-function unwrapSingleBranch(schema) {
-  let s = schema;
-  for (;;) {
-    const kind = kindOf(s);
-    if ((kind === "OneOf" || kind === "AnyOf") && (s.oneOf || s.anyOf || []).length === 1) {
-      s = (s.oneOf || s.anyOf)[0];
-      continue;
-    }
-    if (kind === "AllOf" && s.allOf.length === 1) {
-      s = s.allOf[0];
-      continue;
-    }
-    return s;
-  }
-}
-
 // Resolves a schema to a TS type string usable as an HTTP wire value (path/header/query scalar),
 // or null if the schema isn't a primitive or enum - both of which have a well-defined single-value
 // wire representation via `String(value)`. Object/Array/Map have no such representation and are
 // unsupported in these positions (array is separately special-cased for *query* params only, see
 // buildQueryParam).
 function scalarWireType(registry, schema, hintName) {
-  const kind = kindOf(unwrapSingleBranch(schema));
+  const kind = kindOf(unwrapSchema(schema));
   if (kind === "Primitive" || kind === "Enum") return tsType(registry, schema, hintName).type;
   return null;
 }
@@ -121,7 +99,7 @@ function tryBuildFilterQueryParam(registry, hintBase, p, schema) {
 
 function buildQueryParam(registry, hintBase, p) {
   const schema = p.schema || { type: "string" };
-  const resolved = unwrapSingleBranch(schema);
+  const resolved = unwrapSchema(schema);
   const kind = kindOf(resolved);
   if (kind === "OneOf" || kind === "AnyOf") {
     const filterParam = tryBuildFilterQueryParam(registry, hintBase, p, resolved);
@@ -267,26 +245,6 @@ function buildResponseValidatorExpr(response) {
   if (!response.descriptor || response.tsType === "void") return null;
   if (response.descriptor.kind === "ref") return `is${response.descriptor.refName}`;
   return `(value: unknown): boolean => ${buildValidationExpr(response.descriptor, "value")}`;
-}
-
-// Builds a TSDoc comment string from a summary, a longer description, and a list of {name,
-// description} @param entries - or [] if there's nothing to say (Inja's {% for %} throws on
-// null/undefined rather than treating it as zero iterations, so this must never be nullish).
-// Returns null (NOT "") when there's nothing to document - Inja's {% if %} treats an empty string
-// as truthy (only false/null/0/[] are falsy), so the template guards with {% if op.docComment %}
-// and reindents the whole (possibly multi-line) string to its own call site's depth via Inja's
-// indent(), instead of re-splitting/printing per line.
-function buildDocComment(summary, description, params) {
-  const paramLines = (params || []).filter((p) => p.description).map((p) => `@param ${p.name} ${p.description}`);
-  const bodyLines = [summary, description].filter(Boolean);
-  const lines = [...bodyLines];
-  if (paramLines.length) {
-    if (lines.length) lines.push("");
-    lines.push(...paramLines);
-  }
-  if (lines.length === 0) return null;
-  if (lines.length === 1) return `/** ${lines[0]} */`;
-  return ["/**", ...lines.map((l) => (l ? ` * ${l}` : " *")), " */"].join("\n");
 }
 
 // Looks up a tag's own document-level description (schema.tags: [{name, description}] - distinct

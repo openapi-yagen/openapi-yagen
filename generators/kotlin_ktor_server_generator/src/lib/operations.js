@@ -27,28 +27,6 @@ const PARAM_CONVERTERS = {
   "kotlinx.datetime.Instant": "kotlinx.datetime.Instant.parse(it)",
 };
 
-// Unwraps a schema through any chain of single-branch oneOf/anyOf/allOf wrappers (see ktType's
-// identical handling in types.js) down to the schema that actually determines its wire shape -
-// e.g. `allOf: [$ref EnumSchema]` (a common .NET/Swashbuckle idiom for attaching a description
-// next to a $ref) unwraps to EnumSchema itself. kindOf() only looks at the schema handed to it,
-// not through composition wrappers, so anything inspecting a param's actual shape (as opposed to
-// just its Kotlin type name, which ktType already resolves correctly on its own) needs this.
-function unwrapSingleBranch(schema) {
-  let s = schema;
-  for (;;) {
-    const kind = kindOf(s);
-    if ((kind === "OneOf" || kind === "AnyOf") && (s.oneOf || s.anyOf || []).length === 1) {
-      s = (s.oneOf || s.anyOf)[0];
-      continue;
-    }
-    if (kind === "AllOf" && s.allOf.length === 1) {
-      s = s.allOf[0];
-      continue;
-    }
-    return s;
-  }
-}
-
 // A oneOf/anyOf in parameter position can't reuse the JSON-shape-dispatching "union" model (see
 // registerUnion in types.js) - a path/query/header value is always just a string on the wire,
 // with no structural shape (object vs array vs ...) to dispatch on the way a JSON body has. If
@@ -137,7 +115,7 @@ function tryBuildFilterUnionQueryParam(registry, hintBase, p, schema) {
 function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
   const itemT = ktType(registry, itemSchema, hintBase + className(p.name) + "Item");
   const itemConverter =
-    kindOf(unwrapSingleBranch(itemSchema)) === "Enum" ? `${itemT.type}.fromWireValue(it)` : PARAM_CONVERTERS[itemT.type];
+    kindOf(unwrapSchema(itemSchema)) === "Enum" ? `${itemT.type}.fromWireValue(it)` : PARAM_CONVERTERS[itemT.type];
   if (!itemConverter) {
     throw Error(
       `<ba151d07> Unsupported query parameter array item type for "${p.name}": array items must be ` +
@@ -164,7 +142,7 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
 
 function buildParam(registry, hintBase, p) {
   const schema = p.schema || { type: "string" };
-  const resolved = unwrapSingleBranch(schema);
+  const resolved = unwrapSchema(schema);
   if (p.in === "query" && kindOf(resolved) === "Array") {
     return buildArrayQueryParam(registry, hintBase, p, resolved.items || { type: "string" });
   }
@@ -309,26 +287,6 @@ function buildResponse(registry, hintBase, responses) {
   if (!content) return { type: "Unit", statusCode };
   const t = ktType(registry, content.schema || {}, hintBase + "Response");
   return { type: t.type, statusCode };
-}
-
-// Builds a KDoc comment string from a summary, a longer description, and a list of {name,
-// description} @param entries - or [] if there's nothing to say (Inja's {% for %} throws on
-// null/undefined rather than treating it as zero iterations, so this must never be nullish).
-// Returns null (NOT "") when there's nothing to document - Inja's {% if %} treats an empty string
-// as truthy (only false/null/0/[] are falsy), so templates guard with {% if op.docComment %} and
-// reindent the whole (possibly multi-line) string to their own call site's depth via Inja's
-// indent() (see the templates), instead of each one re-splitting/printing per line.
-function buildDocComment(summary, description, params) {
-  const paramLines = (params || []).filter((p) => p.description).map((p) => `@param ${p.name} ${p.description}`);
-  const bodyLines = [summary, description].filter(Boolean);
-  const lines = [...bodyLines];
-  if (paramLines.length) {
-    if (lines.length) lines.push("");
-    lines.push(...paramLines);
-  }
-  if (lines.length === 0) return null;
-  if (lines.length === 1) return `/** ${lines[0]} */`;
-  return ["/**", ...lines.map((l) => (l ? ` * ${l}` : " *")), " */"].join("\n");
 }
 
 // Looks up a tag's own document-level description (schema.tags: [{name, description}] - distinct

@@ -119,6 +119,73 @@ splitPathTemplate("/pets/{petId}/ratings");
 // -> [{ literal: "pets" }, { param: "petId" }, { literal: "ratings" }]
 ```
 
+#### `buildDocComment`
+
+Builds a doc comment block from a summary, a longer description, and a list of `{ name,
+description }` `@param` entries, in one of four comment styles selected by `style` - the literal
+marker string itself, so a call site reads as what it produces. Returns `null` (not `""`) when
+there's nothing to document - Inja's `{% if %}` treats an empty string as truthy (only
+`false`/`null`/`0`/`[]` are falsy), so templates can guard with a plain `{% if docComment %}` and
+reindent the (possibly multi-line) result to their own call site's depth via `indent()` (see
+[`templating.md`](templating.md)) instead of re-splitting/reindenting it by hand.
+
+```typescript
+buildDocComment(
+    summary: string | null,
+    description?: string | null,
+    params?: Array<{ name: string, description?: string | null }>,
+    style?: "/** */" | "//" | "///" | "#" // default: "/** */"
+): string | null
+```
+
+- **`"/** */"`** (default) - Javadoc/KDoc/TSDoc/Doxygen block comment: Kotlin, TypeScript/JS, Java,
+  C#, C/C++.
+- **`"//"`** - a plain line-comment block, one `//` per line: Go, Rust (a plain, non-rustdoc
+  comment), or any C-family/Dart target when a doc-comment marker isn't wanted or supported.
+- **`"///"`** - triple-slash doc comments: Dart (dartdoc) and Rust (rustdoc) both parse this as
+  markdown prose, with no formal `@param`-style tag syntax of their own - the `@param` lines this
+  function still emits are valid markdown text, just not a tag either tool renders specially.
+- **`"#"`** - a plain line-comment block, one `#` per line: Ruby (RDoc/YARD's own convention - a
+  comment block directly above the `def`/class), Bash/shell, Perl, YAML, TOML, and Python **only**
+  as a preceding comment, *not* a docstring - Python's actual doc convention is a `"""..."""`
+  string literal as the function/class body's first statement, which has to be positioned *inside*
+  the body, not attached above the declaration the way every style here is; that shape doesn't fit
+  what this function returns (one string, meant to be printed immediately above a declaration), so
+  a Python generator wanting real docstrings needs to place `buildDocComment(...)`'s `"#"`-style
+  result (or the raw `description`) into a `"""..."""` block itself, at the right spot in its own
+  template.
+
+An unrecognized `style` throws rather than silently falling back, so a typo in a generator's own
+call site fails loudly at generation time instead of emitting silently-wrong comments.
+
+```js
+buildDocComment("Lists pets.", "Returns pets owned by the caller.", [{ name: "limit", description: "Max results." }]);
+// -> "/**\n * Lists pets.\n * Returns pets owned by the caller.\n *\n * @param limit Max results.\n */"
+buildDocComment(null, null, []); // -> null
+
+buildDocComment("Lists pets.", null, [], "//");   // -> "// Lists pets."
+buildDocComment("Lists pets.", null, [], "///");  // -> "/// Lists pets."
+buildDocComment("Lists pets.", null, [], "#");    // -> "# Lists pets."
+```
+
+#### `disambiguateName`
+
+Disambiguates `candidate` against a list of already-taken names: returns `candidate` unchanged if
+it isn't in `reservedNames`, else the first of `candidateWrapper`, `candidateWrapper2`, ... not
+itself reserved. For a generator's hint-derived synthetic type name (an inline `oneOf`/`allOf`/
+object with no `$ref` of its own) that turns out to collide with a real top-level schema's own
+generated name - `nameOf()` only resolves names reached via `$ref`, so every generator that
+synthesizes a name for an inline schema needs its own collision check against real schema names.
+
+```typescript
+disambiguateName(candidate: string, reservedNames: string[]): string
+```
+```js
+disambiguateName("Foo", ["Bar"]); // -> "Foo"
+disambiguateName("Foo", ["Foo", "Bar"]); // -> "FooWrapper"
+disambiguateName("Foo", ["Foo", "FooWrapper"]); // -> "FooWrapper2"
+```
+
 ### OpenAPI-specific functions (JS only)
 
 #### `kindOf`, `constraintsOf`, `nameOf`, `collectOperations`
@@ -161,6 +228,22 @@ generator on OAS 3.0 (`"string"`), or - for a generator that declared `openApiVe
 classifies correctly. Nullability follows the same split: OAS 3.0-targeting generators see a
 `schema.nullable` boolean, OAS 3.1/3.2-targeting ones see `"null"` inside the `type` array instead
 - there's no `nullable` key on that dialect.
+
+#### `unwrapSchema`
+
+Peels through a chain of single-branch `oneOf`/`anyOf`/`allOf` wrappers (the common "attach a
+sibling `description` next to a `$ref`" idiom, or a `allOf: [$ref X]` pattern some OAS tooling
+emits) down to the schema that actually determines the wire shape. A multi-variant `oneOf`/`anyOf`/
+`allOf` (or a schema that isn't a composition wrapper at all) is returned unchanged. The returned
+schema keeps its original JS object identity, so `nameOf`/`kindOf` still work on it.
+
+```typescript
+unwrapSchema(schema: object): object
+```
+```js
+kindOf(schema.components.schemas.WrappedEnum); // -> "AllOf" (allOf: [$ref Enum])
+kindOf(unwrapSchema(schema.components.schemas.WrappedEnum)); // -> "Enum"
+```
 
 #### `firstSuccessResponse`
 
@@ -211,7 +294,32 @@ const disc = resolveDiscriminator(schema.components.schemas.Shape);
 // -> { property: "shapeType", variants: [{ name: "Circle", literal: "circle" }, { name: "Square", literal: "Square" }] }
 ```
 
-`kindOf`/`constraintsOf`/`nameOf`/`firstSuccessResponse`/`flattenAllOf`/`resolveDiscriminator` only
+#### `resolveUnionDispatch`
+
+Sibling to `resolveDiscriminator`, for the case a `oneOf`/`anyOf` has *no* discriminator at all.
+What a generator targeting a language with algebraic/discriminated-union support but no native
+support for OpenAPI's undiscriminated unions (e.g. Kotlin's sealed interfaces) needs to build a
+runtime deserializer: classifies each variant's wire shape as `"object"`/`"array"`/`"string"`/
+`"number"`/`"boolean"`/`"any"` (an unconstrained schema matching every possible JSON value, e.g. a
+bare `{}`), and - for 2+ object-shaped variants - finds each one a property no sibling
+object-variant also declares (`dispatchField`), allowing at most one property-less variant as a
+trailing shape-only fallback (`dispatchField: null`). Returns variants in the *same* order as
+`schema.oneOf`/`schema.anyOf` - reorder them yourself (e.g. move the field-less fallback last) if
+your template needs a specific dispatch order. Returns `null` if `schema` isn't a `oneOf`/`anyOf`
+at all. Throws if a variant's shape can't be classified (e.g. a nested `oneOf`/`anyOf` variant), if
+2+ variants share a non-object dispatch kind, or if 2+ object variants have no distinguishing field
+between them - not every `oneOf`/`anyOf` can be dispatched on shape alone.
+
+```typescript
+resolveUnionDispatch(schema: object): { variants: Array<{ dispatchKind: string, dispatchField: string | null }> } | null
+```
+```js
+const dispatch = resolveUnionDispatch(schema.components.schemas.PaymentMethod);
+// -> { variants: [{ dispatchKind: "object", dispatchField: "card_number" }, { dispatchKind: "object", dispatchField: null }] }
+```
+
+`kindOf`/`unwrapSchema`/`constraintsOf`/`nameOf`/`firstSuccessResponse`/`flattenAllOf`/
+`resolveDiscriminator`/`resolveUnionDispatch` only
 work while a schema still has its original JS object identity - that is, before it's passed into
 `renderTemplate`/`renderTemplateToString` (which converts `data` via an internal value tree with no
 object identity) or into a function called from inside a template. Call them in `main.js` first,

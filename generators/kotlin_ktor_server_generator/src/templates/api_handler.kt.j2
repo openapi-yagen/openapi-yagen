@@ -1,9 +1,7 @@
+{%- include "templates/_macros.kt.j2" -%}
 package {{ packageName }}
 
-{% if tagDescription %}/**
-{{ tagDescription | indent(" * ", true) }}
- */
-{% endif %}interface {{ tagClass }}Handler {
+{{ docComment(tagDescription) }}interface {{ tagClass }}Handler {
 {% for op in operations -%}
 {% if op.docComment %}    {{ op.docComment | indent(4) }}
 {% endif %}    suspend fun {{ op.name }}({{ op.signatureParams }}){% if op.returnsValue %}: {{ op.response.type }}{% endif %}

@@ -1,0 +1,4 @@
+{% macro docComment(text) %}{% if text %}/**
+{{ text | indent(" * ", true) }}
+ */
+{% endif %}{% endmacro -%}

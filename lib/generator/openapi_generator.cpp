@@ -270,6 +270,42 @@ JSValue kindOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueCon
     });
 }
 
+// Peels through a chain of single-branch oneOf/anyOf/allOf wrappers (the common "attach a sibling
+// `description` next to a `$ref`" idiom, or a .NET/Swashbuckle-style `allOf: [$ref X]`) down to the
+// schema that actually determines the wire shape. Returns the unwrapped schema's own JSValue (a
+// dup of the original object reached while walking down, never a copy), so nameOf()/kindOf() still
+// work on the result exactly as they would on the schema reached by hand. Used to be duplicated
+// (as `unwrapSingleBranch`) in every generator's own operations.js.
+JSValue unwrapSchemaValue(JSContext* ctx, JSValueConst v)
+{
+    JSValue current = JS_DupValue(ctx, v);
+    for (;;) {
+        auto kind = kindOfShallow(ctx, current);
+        const char* arrKey = kind == "OneOf" ? "oneOf" : kind == "AnyOf" ? "anyOf" : kind == "AllOf" ? "allOf" : nullptr;
+        if (!arrKey)
+            return current;
+        auto arr = JS_GetPropertyStr(ctx, current, arrKey);
+        auto len = jsArrayLength(ctx, arr);
+        if (len != 1) {
+            JS_FreeValue(ctx, arr);
+            return current;
+        }
+        auto next = JS_GetPropertyUint32(ctx, arr, 0);
+        JS_FreeValue(ctx, arr);
+        JS_FreeValue(ctx, current);
+        current = next;
+    }
+}
+
+JSValue unwrapSchemaBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        if (argc < 1)
+            throw runtime_error("<01534acc> unwrapSchema requires 1 argument (schema: object)");
+        return unwrapSchemaValue(ctx, argv[0]);
+    });
+}
+
 // Only leaf/scalar constraint fields are read - none of these are ever nested schemas, so no
 // cycle-safety concern here at all (unlike kindOf's shape-classifying fields).
 JSValue constraintsOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv)
@@ -443,6 +479,252 @@ JSValue flattenAllOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSVa
         checkForException(ctx, result, "<f48a424f> Cannot create object");
         setObjProperty(ctx, result, "properties", propertiesObj);
         setObjProperty(ctx, result, "required", requiredArr);
+        return result;
+    });
+}
+
+// Returns the first meaningful (non-"null") value of a schema's `type` keyword, whether the
+// source spec's dialect wrote it as a single string (OAS 3.0) or a type array (OAS 3.1/3.2) -
+// classifyVariantDispatch below only ever needs one concrete scalar type name.
+optional<string> primaryTypeOf(JSContext* ctx, JSValueConst v)
+{
+    auto val = JS_GetPropertyStr(ctx, v, "type");
+    finalize { JS_FreeValue(ctx, val); };
+    if (JS_IsString(val)) {
+        auto s = jsValueToString(ctx, val);
+        return s == "null" ? nullopt : optional<string>(s);
+    }
+    if (auto len = jsArrayLength(ctx, val); len > 0) {
+        for (uint32_t i = 0; i < (uint32_t)len; i++) {
+            auto item = JS_GetPropertyUint32(ctx, val, i);
+            finalize { JS_FreeValue(ctx, item); };
+            if (JS_IsString(item)) {
+                auto s = jsValueToString(ctx, item);
+                if (s != "null")
+                    return s;
+            }
+        }
+    }
+    return nullopt;
+}
+
+// Classifies a oneOf/anyOf variant by the shape it takes on the wire (what a target language's
+// runtime dispatcher can actually branch on): "object"/"array"/"string"/"number"/"boolean"/"any"
+// (an unconstrained schema matching every possible JSON value, e.g. a bare `{}`), or "" when the
+// variant's shape can't be resolved at all (e.g. a nested oneOf/anyOf - not supported as a union
+// variant).
+string classifyVariantDispatch(JSContext* ctx, JSValueConst variant)
+{
+    auto kind = kindOfShallow(ctx, variant);
+    if (kind == "Object" || kind == "Map" || kind == "AllOf")
+        return "object";
+    if (kind == "Array")
+        return "array";
+    if (kind == "Enum") {
+        auto t = primaryTypeOf(ctx, variant);
+        return (t == "integer" || t == "number") ? "number" : "string";
+    }
+    if (kind == "Primitive") {
+        auto t = primaryTypeOf(ctx, variant);
+        if (t == "string")
+            return "string";
+        if (t == "integer" || t == "number")
+            return "number";
+        if (t == "boolean")
+            return "boolean";
+        return "";
+    }
+    if (kind == "Unknown")
+        return "any";
+    return "";
+}
+
+// A variant's own declared property names/required list, flattening allOf first (via the same
+// flattenAllOfInto used by flattenAllOf() above) so an AllOf-kind variant - which has no
+// `properties`/`required` of its own, only on its allOf branches - is compared by its actual
+// merged field set. `propertyNames` keeps declaration order (matters for
+// findUniqueDistinguishingField's "first declared, not just any" tie-break); `propertySet` is
+// just for O(1) membership checks.
+struct DeclaredFields {
+    vector<string> propertyNames;
+    set<string> propertySet;
+    vector<string> required;
+};
+
+DeclaredFields declaredFieldsOf(JSContext* ctx, JSValueConst variant)
+{
+    DeclaredFields result;
+    JSValue propsVal;
+    if (kindOfShallow(ctx, variant) == "AllOf") {
+        propsVal = JS_NewObject(ctx);
+        checkForException(ctx, propsVal, "<db0eb1c8> Cannot create object");
+        set<string> seenRequired;
+        flattenAllOfInto(ctx, variant, propsVal, result.required, seenRequired);
+    } else {
+        propsVal = JS_GetPropertyStr(ctx, variant, "properties");
+        auto reqVal = JS_GetPropertyStr(ctx, variant, "required");
+        if (JS_IsArray(ctx, reqVal)) {
+            auto len = jsArrayLength(ctx, reqVal);
+            for (int32_t i = 0; i < len; i++) {
+                auto item = JS_GetPropertyUint32(ctx, reqVal, (uint32_t)i);
+                if (JS_IsString(item))
+                    result.required.push_back(jsValueToString(ctx, item));
+                JS_FreeValue(ctx, item);
+            }
+        }
+        JS_FreeValue(ctx, reqVal);
+    }
+    if (JS_IsObject(propsVal)) {
+        jsIterateObjectProps(ctx, propsVal, [&](const string& name, const JSValue&) {
+            result.propertyNames.push_back(name);
+            result.propertySet.insert(name);
+        });
+    }
+    JS_FreeValue(ctx, propsVal);
+    return result;
+}
+
+// Finds a property name of `variant` that no other object-shaped variant in `objectVariants` also
+// declares - what a generated deserializer uses to tell apart multiple object-shaped oneOf/anyOf
+// variants that have no discriminator. Prefers one of `variant`'s `required` fields (a stronger
+// signal: the property is guaranteed present whenever this variant occurs), falling back to any
+// of its other declared-but-optional properties - the runtime check is just "is this key present
+// in the JSON object", which works just as well for an optional field the payload happens to
+// include as for a required one. Compares variants by JS object identity (a variant may equal
+// itself only), matching nameOf()'s own identity-based lookups.
+optional<string> findUniqueDistinguishingField(JSContext* ctx, JSValueConst variant, const vector<JSValueConst>& objectVariants)
+{
+    auto fields = declaredFieldsOf(ctx, variant);
+    vector<DeclaredFields> others;
+    for (auto v : objectVariants) {
+        if (JS_VALUE_GET_PTR(v) == JS_VALUE_GET_PTR(variant))
+            continue;
+        others.push_back(declaredFieldsOf(ctx, v));
+    }
+    auto isUnique = [&](const string& field) {
+        for (const auto& o : others)
+            if (o.propertySet.count(field))
+                return false;
+        return true;
+    };
+    for (const auto& f : fields.required)
+        if (isUnique(f))
+            return f;
+    for (const auto& f : fields.propertyNames)
+        if (isUnique(f))
+            return f;
+    return nullopt;
+}
+
+// Resolves the dispatch classification for every variant of an undiscriminated oneOf/anyOf -
+// sibling to resolveDiscriminator() below, for the case a spec's oneOf/anyOf has no discriminator
+// at all. What a generator targeting a language with algebraic/discriminated-union support but no
+// native support for OpenAPI's undiscriminated unions (e.g. Kotlin's sealed interfaces) needs to
+// build a runtime deserializer: classify each variant's wire shape as object/array/string/number/
+// boolean/any (see classifyVariantDispatch above), and - for 2+ object-shaped variants - find each
+// one a property no sibling object-variant also declares, allowing at most one property-less
+// variant as a trailing shape-only fallback. Throws a descriptive error (left for the caller's own
+// strict/permissive handling - see withResilience in generator JS) if a variant's shape can't be
+// classified at all, if more than one variant shares a non-object dispatch kind, or if 2+ object
+// variants have no distinguishing field between them. Returns variants in the SAME order as
+// `schema.oneOf`/`schema.anyOf` - no reordering: a caller wanting the "field-less fallback sorts
+// last" order (see model_union.kt.j2) does that itself, since only it knows how to re-zip the
+// result against other per-variant data (e.g. a generated wrapper type name) already computed
+// alongside it. Returns null (not every schema is a oneOf/anyOf at all) rather than throwing, same
+// as resolveDiscriminator.
+JSValue resolveUnionDispatchBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        if (argc < 1)
+            throw runtime_error("<394d7fec> resolveUnionDispatch requires 1 argument (schema: object)");
+        auto schemaVal = argv[0];
+
+        auto variantsVal = JS_GetPropertyStr(ctx, schemaVal, "oneOf");
+        if (!JS_IsArray(ctx, variantsVal)) {
+            JS_FreeValue(ctx, variantsVal);
+            variantsVal = JS_GetPropertyStr(ctx, schemaVal, "anyOf");
+        }
+        if (!JS_IsArray(ctx, variantsVal)) {
+            JS_FreeValue(ctx, variantsVal);
+            return JS_NULL;
+        }
+
+        auto len = jsArrayLength(ctx, variantsVal);
+        vector<JSValueWrapper> variants;
+        variants.reserve(len);
+        for (int32_t i = 0; i < len; i++)
+            variants.emplace_back(ctx, JS_GetPropertyUint32(ctx, variantsVal, (uint32_t)i));
+        JS_FreeValue(ctx, variantsVal);
+
+        vector<string> dispatchKinds(len);
+        for (int32_t i = 0; i < len; i++) {
+            auto k = classifyVariantDispatch(ctx, *variants[i]);
+            if (k.empty())
+                throw runtime_error(
+                    format("<31045be5> oneOf/anyOf variant #{} has no recognizable JSON shape to dispatch on "
+                           "(nested oneOf/anyOf variants aren't supported)",
+                           i + 1));
+            dispatchKinds[i] = k;
+        }
+
+        vector<int32_t> objectIndices;
+        for (int32_t i = 0; i < len; i++)
+            if (dispatchKinds[i] == "object")
+                objectIndices.push_back(i);
+
+        vector<optional<string>> dispatchFields(len);
+        if (objectIndices.size() > 1) {
+            vector<JSValueConst> objectVariants;
+            for (auto i : objectIndices)
+                objectVariants.push_back(*variants[i]);
+            int32_t withoutFieldCount = 0;
+            for (auto i : objectIndices) {
+                auto field = findUniqueDistinguishingField(ctx, *variants[i], objectVariants);
+                if (field)
+                    dispatchFields[i] = field;
+                else
+                    withoutFieldCount++;
+            }
+            if (withoutFieldCount > 1)
+                throw runtime_error(
+                    format("<9b149efe> Cannot disambiguate object-shaped oneOf/anyOf variants: {} variants have no "
+                           "property (required or not) that no other object variant also declares - at most one "
+                           "object variant may lack one (it becomes the shape-based fallback, tried last)",
+                           withoutFieldCount));
+        }
+
+        map<string, int32_t> countByKind;
+        for (const auto& k : dispatchKinds)
+            countByKind[k]++;
+        for (const auto& [k, count] : countByKind) {
+            if (k != "object" && count > 1) {
+                if (k == "any")
+                    throw runtime_error(
+                        format("<91c40b1e> oneOf/anyOf has {} unconstrained (\"{{}}\") variants - at most one "
+                               "catch-all is supported (they'd be indistinguishable from each other)",
+                               count));
+                throw runtime_error(
+                    format("<4afa7df0> Cannot disambiguate multiple \"{}\"-shaped oneOf/anyOf variants (only one "
+                           "variant per non-object JSON shape is supported)",
+                           k));
+            }
+        }
+
+        auto variantsArr = JS_NewArray(ctx);
+        checkForException(ctx, variantsArr, "<dd3f3193> Cannot create array");
+        for (int32_t i = 0; i < len; i++) {
+            auto obj = JS_NewObject(ctx);
+            checkForException(ctx, obj, "<73a4c169> Cannot create object");
+            setObjProperty(ctx, obj, "dispatchKind", JS_NewStringLen(ctx, dispatchKinds[i].data(), dispatchKinds[i].size()));
+            setObjProperty(ctx, obj, "dispatchField",
+                           dispatchFields[i] ? JS_NewStringLen(ctx, dispatchFields[i]->data(), dispatchFields[i]->size())
+                                              : JS_NULL);
+            JS_DefinePropertyValueUint32(ctx, variantsArr, (uint32_t)i, obj, JS_PROP_C_W_E);
+        }
+
+        auto result = JS_NewObject(ctx);
+        checkForException(ctx, result, "<9493c4e9> Cannot create object");
+        setObjProperty(ctx, result, "variants", variantsArr);
         return result;
     });
 }
@@ -666,6 +948,7 @@ void OpenApiGenerator::generate(const string& specPath)
             builder.emplace(ctx);
             setObjProperty(ctx, globalObj, "schema", builder->buildDocumentValue(schemaNode, doc));
             setObjFunction(ctx, globalObj, "kindOf", kindOfBuiltin);
+            setObjFunction(ctx, globalObj, "unwrapSchema", unwrapSchemaBuiltin);
             setObjFunction(ctx, globalObj, "constraintsOf", constraintsOfBuiltin);
             setObjFunction(ctx, globalObj, "nameOf", nameOfBuiltin, &*builder);
             collectOperationsCtx = { &*builder, &operations };
@@ -673,6 +956,7 @@ void OpenApiGenerator::generate(const string& specPath)
             setObjFunction(ctx, globalObj, "firstSuccessResponse", firstSuccessResponseBuiltin);
             setObjFunction(ctx, globalObj, "flattenAllOf", flattenAllOfBuiltin);
             setObjFunction(ctx, globalObj, "resolveDiscriminator", resolveDiscriminatorBuiltin, &*builder);
+            setObjFunction(ctx, globalObj, "resolveUnionDispatch", resolveUnionDispatchBuiltin);
 
             setObjProperty(ctx, globalObj, "vars", nodeToJSValue(ctx, vars));
 

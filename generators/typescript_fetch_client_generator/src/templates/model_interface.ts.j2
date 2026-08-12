@@ -1,3 +1,4 @@
+{%- include "templates/_macros.ts.j2" -%}
 {% if validateResponses -%}
 {% for m in modelImports -%}
 import { type {{ m }}, is{{ m }} } from "./{{ m }}{{ importExt }}";
@@ -7,14 +8,8 @@ import { type {{ m }}, is{{ m }} } from "./{{ m }}{{ importExt }}";
 import type { {{ m }} } from "./{{ m }}{{ importExt }}";
 {% endfor -%}
 {% endif -%}
-{% if model.description %}/**
-{{ model.description | indent(" * ", true) }}
- */
-{% endif %}export interface {{ model.name }} {
-{% if model.properties %}{% filter indent(2, true) %}{% for p in model.properties %}{% if p.description %}/**
-{{ p.description | indent(" * ", true) }}
- */
-{% endif %}{{ p.keyLiteral }}{% if not p.required %}?{% endif %}: {{ p.tsType }}{% if p.nullable %} | null{% endif %};
+{{ docComment(model.description) }}export interface {{ model.name }} {
+{% if model.properties %}{% filter indent(2, true) %}{% for p in model.properties %}{{ docComment(p.description) }}{{ p.keyLiteral }}{% if not p.required %}?{% endif %}: {{ p.tsType }}{% if p.nullable %} | null{% endif %};
 {% endfor %}{% endfilter %}{% endif %}}
 {% if validateResponses %}
 

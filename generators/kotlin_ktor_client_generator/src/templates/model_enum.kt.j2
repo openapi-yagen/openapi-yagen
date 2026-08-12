@@ -1,14 +1,12 @@
+{%- include "templates/_macros.kt.j2" -%}
 package {{ packageName }}
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-{% if model.description %}/**
-{{ model.description | indent(" * ", true) }}
- */
-{% endif %}@Serializable
+{{ docComment(model.description) }}@Serializable
 enum class {{ model.name }}(val wireValue: String) {
-{% filter indent(4, true) %}{% for e in model.entries %}@SerialName("{{ e.wireValue }}") {{ e.ktName }}("{{ e.wireValue }}"),
+{% filter indent(4, true) %}{% for e in model.entries %}@SerialName({{ toStringLiteral(e.wireValue) }}) {{ e.ktName }}({{ toStringLiteral(e.wireValue) }}),
 {% endfor %};{% endfilter %}
 
     // JSON (de)serialization goes through the @SerialName annotations above, not this override -

@@ -1,3 +1,4 @@
+{%- include "templates/_macros.ts.j2" -%}
 {% if validateResponses -%}
 {% for m in modelImports -%}
 import { type {{ m }}, is{{ m }} } from "../models/{{ m }}{{ importExt }}";
@@ -10,10 +11,7 @@ import type { {{ m }} } from "../models/{{ m }}{{ importExt }}";
 import { request } from "../runtime{{ importExt }}";
 import type { ApiClientConfig } from "../runtime{{ importExt }}";
 
-{% if tagDescription %}/**
-{{ tagDescription | indent(" * ", true) }}
- */
-{% endif %}export class {{ tagClass }} {
+{{ docComment(tagDescription) }}export class {{ tagClass }} {
   constructor(private readonly config: ApiClientConfig) {}
 {% for op in operations %}
 

@@ -1,3 +1,4 @@
+{%- include "templates/_macros.kt.j2" -%}
 package {{ packageName }}
 
 import kotlinx.serialization.KSerializer
@@ -14,10 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.serializer
 
-{% if model.description %}/**
-{{ model.description | indent(" * ", true) }}
- */
-{% endif %}@Serializable(with = {{ model.name }}.Serializer::class)
+{{ docComment(model.description) }}@Serializable(with = {{ model.name }}.Serializer::class)
 sealed interface {{ model.name }}{% if model.implements %} : {{ model.implements }}{% endif %} {
 {% filter indent(4, true) %}{% for v in model.variants %}data class {{ v.wrapperName }}(val value: {{ v.valueType }}) : {{ model.name }}
 
@@ -44,12 +42,7 @@ sealed interface {{ model.name }}{% if model.implements %} : {{ model.implements
             val jsonDecoder = decoder as? JsonDecoder ?: throw IllegalStateException("{{ model.name }} can only be deserialized from Json")
             val element = jsonDecoder.decodeJsonElement()
             return when {
-{% filter indent(16, true) %}{% for v in model.variants %}{% if v.dispatchKind == "object" %}{% if v.dispatchField %}element is JsonObject && "{{ v.dispatchField }}" in element -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
-{% else %}element is JsonObject -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
-{% endif %}{% else if v.dispatchKind == "array" %}element is JsonArray -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
-{% else if v.dispatchKind == "string" %}element is JsonPrimitive && element.isString -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
-{% else if v.dispatchKind == "boolean" %}element is JsonPrimitive && !element.isString && (element.content == "true" || element.content == "false") -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
-{% else if v.dispatchKind == "number" %}element is JsonPrimitive && !element.isString && element.content.toDoubleOrNull() != null -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
+{% filter indent(16, true) %}{% for v in model.variants %}{% if v.dispatchCondition %}{{ v.dispatchCondition }} -> {{ v.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ v.valueType }}>(), element))
 {% endif %}{% endfor %}{% if model.catchAllVariant %}else -> {{ model.catchAllVariant.wrapperName }}(jsonDecoder.json.decodeFromJsonElement(serializer<{{ model.catchAllVariant.valueType }}>(), element))
 {% else %}else -> throw IllegalArgumentException("Unrecognized JSON shape for {{ model.name }}: $element")
 {% endif %}{% endfilter %}            }

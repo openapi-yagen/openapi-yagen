@@ -22,7 +22,8 @@ something from a different version of the Jinja/Inja family works here without c
 
 The [common functions](javascript-api.md#common-functions-js-and-templates) (`dump`,
 `toCamelCase`/`toPascalCase`/`toSnakeCase`/`toScreamingSnakeCase`, `isValidIdentifier`,
-`sanitizeIdentifier`, `toStringLiteral`, `splitPathTemplate`) are available in every template
+`sanitizeIdentifier`, `toStringLiteral`, `splitPathTemplate`, `buildDocComment`,
+`disambiguateName`) are available in every template
 automatically:
 
 ```jinja
