@@ -86,10 +86,47 @@ function buildHeaderParam(registry, hintBase, p) {
   };
 }
 
+// A query parameter whose schema mixes exactly one plain scalar variant with exactly one
+// object-shaped variant (all-primitive properties) - a common "exact value or range filter"
+// list-endpoint idiom (e.g. Stripe's `created: oneOf[integer, {gt, gte, lt, lte}]`, declared with
+// `style: deepObject`). Unlike the Kotlin generators, this needs no special runtime dispatch at
+// all: tsType() already turns the oneOf into an ordinary structural union
+// (`number | { gt?: number; ... }`), and runtime.ts's buildUrl() already serializes a plain-object
+// query value generically via deepObject (`key[subkey]=value`) - see there. Returns null (caller
+// falls through to the ordinary unsupported-parameter-type error) if the shape doesn't fit - more
+// than one object variant, more than one scalar variant, or an object variant with a
+// non-primitive property.
+function tryBuildFilterQueryParam(registry, hintBase, p, schema) {
+  const variants = schema.oneOf || schema.anyOf || [];
+  const objectVariants = variants.filter((v) => ["Object", "Map", "AllOf"].includes(kindOf(v)));
+  const scalarVariants = variants.filter((v) => ["Primitive", "Enum"].includes(kindOf(v)));
+  if (objectVariants.length !== 1 || scalarVariants.length !== 1) return null;
+  const [objectVariant] = objectVariants;
+  const objectProps = Object.entries(objectVariant.properties || {});
+  if (objectProps.length === 0 || objectProps.some(([, propSchema]) => !["Primitive", "Enum"].includes(kindOf(propSchema)))) {
+    return null;
+  }
+
+  const t = tsType(registry, schema, hintBase + typeName(p.name));
+  return {
+    tsName: paramName(p.name),
+    wireName: p.name,
+    tsType: t.type,
+    isArray: false,
+    required: !!p.required,
+    description: p.description || null,
+    queryKeyLiteral: propertyKeyLiteral(p.name),
+  };
+}
+
 function buildQueryParam(registry, hintBase, p) {
   const schema = p.schema || { type: "string" };
   const resolved = unwrapSingleBranch(schema);
   const kind = kindOf(resolved);
+  if (kind === "OneOf" || kind === "AnyOf") {
+    const filterParam = tryBuildFilterQueryParam(registry, hintBase, p, resolved);
+    if (filterParam) return filterParam;
+  }
   let tsTypeStr;
   let isArray = false;
   if (kind === "Array") {

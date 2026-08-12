@@ -15,8 +15,16 @@ import io.ktor.http.*
 {% filter indent(8, true) %}{% if op.returnsValue %}val response = client.{{ op.method }}("$baseUrl{{ op.pathExpr }}") {
 {% else %}client.{{ op.method }}("$baseUrl{{ op.pathExpr }}") {
 {% endif %}{% for p in op.queryParams %}{% if p.isArray %}    queryParamList("{{ p.wireName }}", {{ p.ktName }})
+{% else %}{% if p.queryArms %}    {{ p.ktName }}?.let { v ->
+        when (v) {
+{% for arm in p.queryArms %}{% if arm.kind == "object" %}            is {{ p.type }}.{{ arm.wrapperName }} -> {
+{% for f in arm.fields %}                queryParam("{{ p.wireName }}[{{ f.wireName }}]", v.value.{{ f.ktName }})
+{% endfor %}            }
+{% else %}            is {{ p.type }}.{{ arm.wrapperName }} -> queryParam("{{ p.wireName }}", v.value)
+{% endif %}{% endfor %}        }
+    }
 {% else %}    queryParam("{{ p.wireName }}", {{ p.ktName }})
-{% endif %}{% endfor %}{% for p in op.headerParams %}    headerParam("{{ p.wireName }}", {{ p.ktName }})
+{% endif %}{% endif %}{% endfor %}{% for p in op.headerParams %}    headerParam("{{ p.wireName }}", {{ p.ktName }})
 {% endfor %}{% if op.body %}    contentType(ContentType.Application.Json)
     setBody(body)
 {% endif %}}{% if op.returnsValue %}

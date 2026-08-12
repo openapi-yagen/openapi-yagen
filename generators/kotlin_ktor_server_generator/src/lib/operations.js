@@ -63,6 +63,71 @@ function isPrimitiveLikeUnion(schema) {
   return variants.length > 0 && variants.every((v) => ["Primitive", "Enum"].includes(kindOf(v)));
 }
 
+// A query parameter whose schema mixes exactly one plain scalar variant with exactly one
+// object-shaped variant (all-primitive properties) - a common "exact value or range filter"
+// list-endpoint idiom (e.g. Stripe's `created: oneOf[integer, {gt, gte, lt, lte}]`, declared with
+// `style: deepObject`). Registers the union the ordinary way (ktType/registerUnion - same
+// sealed-interface + wrapper-per-variant shape as any other union), then returns a param
+// descriptor whose `queryFilter` the template uses to PARSE either wire form: the plain key
+// (`created=1700000000`) wins if present; otherwise, if any `name[field]` key is present, each
+// declared field is parsed individually (matching the client's serialization side - see the
+// client generator's own operations.js) into the filter object. Returns null (caller falls
+// through to the ordinary unsupported-parameter-type error) if the shape doesn't fit - anything
+// other than exactly one scalar/enum variant plus one all-primitive-property object variant.
+function tryBuildFilterUnionQueryParam(registry, hintBase, p, schema) {
+  const variants = schema.oneOf || schema.anyOf || [];
+  const objectVariants = variants.filter((v) => ["Object", "Map", "AllOf"].includes(kindOf(v)));
+  const scalarVariants = variants.filter((v) => ["Primitive", "Enum"].includes(kindOf(v)));
+  if (objectVariants.length !== 1 || scalarVariants.length !== 1) return null;
+  const [objectVariant] = objectVariants;
+  const [scalarVariant] = scalarVariants;
+  const objectProps = Object.entries(objectVariant.properties || {});
+  if (objectProps.length === 0 || objectProps.some(([, propSchema]) => !["Primitive", "Enum"].includes(kindOf(propSchema)))) {
+    return null;
+  }
+
+  const { kotlinName } = fieldName(p.name);
+  const required = !!p.required;
+  const t = ktType(registry, schema, hintBase + className(p.name));
+  const union = registry.models.get(t.type);
+  const scalarArm = union.variants.find((v) => v.dispatchKind !== "object");
+  const objectArm = union.variants.find((v) => v.dispatchKind === "object");
+  const scalarConverter =
+    kindOf(scalarVariant) === "Enum" ? `${scalarArm.valueType}.fromWireValue(it)` : PARAM_CONVERTERS[scalarArm.valueType];
+  if (!scalarConverter) return null;
+
+  const objectModel = registry.models.get(objectArm.valueType);
+  const fields = [];
+  for (const propModel of objectModel.properties) {
+    const propSchema = objectVariant.properties[propModel.wireName];
+    const converter = kindOf(propSchema) === "Enum" ? `${propModel.type}.fromWireValue(it)` : PARAM_CONVERTERS[propModel.type];
+    if (!converter) return null;
+    fields.push({ ktName: propModel.ktName, wireName: propModel.wireName, typeLabel: propModel.type, converter });
+  }
+
+  return {
+    ktName: kotlinName,
+    wireName: p.name,
+    in: p.in,
+    type: t.type,
+    typeLabel: t.type,
+    nullable: !required,
+    isArray: false,
+    queryFilter: {
+      scalarWrapper: scalarArm.wrapperName,
+      scalarTypeLabel: scalarArm.valueType,
+      scalarConverter,
+      objectWrapper: objectArm.wrapperName,
+      objectValueType: objectArm.valueType,
+      fields,
+    },
+    converter: null,
+    extractFn: null,
+    validationCalls: [],
+    description: p.description || null,
+  };
+}
+
 // A query param whose (unwrapped) schema is Array-kind - serialized as repeated `?name=a&name=b`
 // keys (OpenAPI 3's default `style: form, explode: true`), matching the typescript_fetch_client
 // generator's own support for this (path/header positions have no standard "repeated value"
@@ -89,6 +154,7 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
     typeLabel: itemT.type,
     nullable: !required,
     isArray: true,
+    queryFilter: null,
     converter: itemConverter,
     extractFn: required ? "requireQueryParamListAs" : "queryParamListAs",
     validationCalls: [],
@@ -101,6 +167,10 @@ function buildParam(registry, hintBase, p) {
   const resolved = unwrapSingleBranch(schema);
   if (p.in === "query" && kindOf(resolved) === "Array") {
     return buildArrayQueryParam(registry, hintBase, p, resolved.items || { type: "string" });
+  }
+  if (p.in === "query" && (kindOf(resolved) === "OneOf" || kindOf(resolved) === "AnyOf") && !isPrimitiveLikeUnion(resolved)) {
+    const filterParam = tryBuildFilterUnionQueryParam(registry, hintBase, p, resolved);
+    if (filterParam) return filterParam;
   }
   const t = isPrimitiveLikeUnion(resolved) ? { type: "String" } : ktType(registry, schema, hintBase + className(p.name));
   // An enum-typed param parses/prints via the enum's own wireValue/fromWireValue (see
@@ -129,6 +199,7 @@ function buildParam(registry, hintBase, p) {
     typeLabel: t.type,
     nullable: !required,
     isArray: false,
+    queryFilter: null,
     converter,
     extractFn,
     validationCalls: buildValidationCalls(kotlinName, p.name, t.type, constraints),

@@ -28,8 +28,28 @@
 import { typeName, enumMemberName, propertyKeyLiteral } from "./naming.js";
 import { withResilience } from "./strict.js";
 
-function newRegistry() {
-  return { models: new Map(), order: [] };
+function newRegistry(reservedNames) {
+  return { models: new Map(), order: [], reservedNames };
+}
+
+// Disambiguates a hint-derived synthetic type name (an inline oneOf/anyOf/allOf/object with no
+// $ref of its own) that collides with a REAL top-level schema's own generated name - a real
+// pattern in Stripe's spec: an "expandable" property (e.g. "ownership" on schema
+// "financial_connections.account") whose inline `anyOf: [string, $ref X]` hints to
+// "FinancialConnectionsAccountOwnership", which is also the literal generated name of the schema
+// "financial_connections.account_ownership" (X) it's $ref'ing to alongside the plain string ID -
+// the single-variant shortcut in tsType avoids this for a 1-variant oneOf/anyOf, but a 2+-variant
+// one still needs its own alias name. Only checks `reservedNames` (every real top-level schema's
+// generated name, computed once upfront) - not `registry.models` - so reprocessing the exact same
+// hint name for the exact same inline schema still correctly reuses the earlier registration via
+// registerInterface/registerUnionAlias/registerMergedAllOf's own idempotent guard, instead of
+// spuriously "colliding with itself" on every repeat visit.
+function disambiguateHintName(registry, candidate) {
+  if (!registry.reservedNames.has(candidate)) return candidate;
+  if (!registry.reservedNames.has(candidate + "Wrapper")) return candidate + "Wrapper";
+  let i = 2;
+  while (registry.reservedNames.has(`${candidate}Wrapper${i}`)) i++;
+  return `${candidate}Wrapper${i}`;
 }
 
 function addModel(registry, name, entry) {
@@ -150,8 +170,9 @@ export function tsType(registry, schema, hintName) {
 
   const kind = kindOf(s);
   if (kind === "Enum") {
-    registerEnum(registry, hintName, s);
-    return { type: hintName, descriptor: { kind: "ref", refName: hintName } };
+    const n = disambiguateHintName(registry, hintName);
+    registerEnum(registry, n, s);
+    return { type: n, descriptor: { kind: "ref", refName: n } };
   }
   if (kind === "OneOf" || kind === "AnyOf") {
     // A single-variant oneOf/anyOf is trivially just that one variant's schema - a common
@@ -159,11 +180,14 @@ export function tsType(registry, schema, hintName) {
     // doesn't allow a bare `nullable` next to a `$ref`) that shouldn't need its own wrapper
     // union alias; recursing avoids both an unnecessary synthetic type and a type-name collision
     // when the synthesized wrapper's hint name happens to match an actual schema name (as it did
-    // for Stripe's "business_profile" property vs. its "account_business_profile" schema).
+    // for Stripe's "business_profile" property vs. its "account_business_profile" schema). A
+    // 2+-variant oneOf/anyOf can hit the same collision (see disambiguateHintName) but still needs
+    // its own alias.
     const variants = s.oneOf || s.anyOf || [];
     if (variants.length === 1) return tsType(registry, variants[0], hintName);
-    registerUnionAlias(registry, hintName, s);
-    return { type: hintName, descriptor: { kind: "ref", refName: hintName } };
+    const n = disambiguateHintName(registry, hintName);
+    registerUnionAlias(registry, n, s);
+    return { type: n, descriptor: { kind: "ref", refName: n } };
   }
   if (kind === "AllOf") {
     // A single-branch allOf is trivially just that one branch's schema, whatever kind it is - a
@@ -173,16 +197,18 @@ export function tsType(registry, schema, hintName) {
     // multi-branch object case, but wrong (and silently produces an empty object type) when the
     // one branch is actually an enum/primitive/array, as it is for a wrapped enum parameter.
     if (s.allOf.length === 1) return tsType(registry, s.allOf[0], hintName);
-    registerMergedAllOf(registry, hintName, s);
-    return { type: hintName, descriptor: { kind: "ref", refName: hintName } };
+    const n = disambiguateHintName(registry, hintName);
+    registerMergedAllOf(registry, n, s);
+    return { type: n, descriptor: { kind: "ref", refName: n } };
   }
   if (kind === "Array") {
     const itemType = tsType(registry, s.items || {}, hintName + "Item");
     return { type: `${itemType.type}[]`, descriptor: { kind: "array", item: itemType.descriptor } };
   }
   if (kind === "Object") {
-    registerInterface(registry, hintName, s);
-    return { type: hintName, descriptor: { kind: "ref", refName: hintName } };
+    const n = disambiguateHintName(registry, hintName);
+    registerInterface(registry, n, s);
+    return { type: n, descriptor: { kind: "ref", refName: n } };
   }
   if (kind === "Map") {
     if (s.additionalProperties && typeof s.additionalProperties === "object") {
@@ -268,8 +294,8 @@ function registerTopLevel(registry, name, schema, variantOpts) {
 // the way (via tsType, called both here and from lib/operations.js while building operation
 // param/body/response descriptors).
 export function buildModelRegistry(root) {
-  const registry = newRegistry();
   const schemas = (root.components && root.components.schemas) || {};
+  const registry = newRegistry(new Set(Object.keys(schemas).map(typeName)));
 
   // Pass 1: find discriminated unions via the engine's resolveDiscriminator() (see
   // docs/javascript-api.md - it already resolves each variant's component name and discriminator

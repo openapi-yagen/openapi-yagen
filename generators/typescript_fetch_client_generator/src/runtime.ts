@@ -50,7 +50,20 @@ export interface RequestOptions {
   /** Already interpolated by the caller (see each operation's generated path template); must
    * start with "/". */
   path: string;
-  query?: Record<string, string | number | boolean | Array<string | number | boolean> | undefined>;
+  query?: Record<
+    string,
+    | string
+    | number
+    | boolean
+    | Array<string | number | boolean>
+    // deepObject-style filter object (e.g. a Stripe-style range filter: { gte?: number }) - typed
+    // loosely as `object` rather than `Record<string, ...>`: a named interface with specific
+    // optional properties isn't structurally assignable to an index-signature type in TypeScript
+    // even when every property matches value-wise, but buildUrl() below only ever reads its own
+    // enumerable properties at runtime, so `object` is exact enough without fighting the checker.
+    | object
+    | undefined
+  >;
   headers?: Record<string, string | undefined>;
   /** JSON-serializable request body; entirely omitted from the request when `undefined`. */
   body?: unknown;
@@ -105,6 +118,13 @@ function buildUrl(baseUrl: string, path: string, query: RequestOptions["query"])
       if (value === undefined) continue;
       if (Array.isArray(value)) {
         for (const v of value) url.searchParams.append(key, String(v));
+      } else if (typeof value === "object") {
+        // deepObject serialization (OpenAPI `style: deepObject`) - each of the value's own
+        // properties becomes its own `key[subkey]=...` pair, e.g. a Stripe-style range filter
+        // (`created: { gte: 1700000000 }`) becomes `created[gte]=1700000000`.
+        for (const [subKey, subValue] of Object.entries(value)) {
+          if (subValue !== undefined) url.searchParams.append(`${key}[${subKey}]`, String(subValue));
+        }
       } else {
         url.searchParams.append(key, String(value));
       }

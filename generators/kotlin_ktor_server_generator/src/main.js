@@ -1,4 +1,4 @@
-import { buildModelRegistry } from "./lib/types.js";
+import { buildModelRegistry, finalizeValidationCalls } from "./lib/types.js";
 import { collectOperationsByTag } from "./lib/operations.js";
 
 const packageName = vars.packageName;
@@ -7,6 +7,9 @@ const registry = buildModelRegistry(schema);
 // May register additional inline models discovered only in operation params/bodies/responses -
 // must run before rendering models below so nothing is missed.
 const groups = collectOperationsByTag(registry);
+// Only now is every model's final registration state settled - see finalizeValidationCalls's own
+// comment (lib/types.js) for why this can't run any earlier.
+finalizeValidationCalls(registry);
 
 const MODEL_TEMPLATES = {
   object: "templates/model_data_class.kt.j2",

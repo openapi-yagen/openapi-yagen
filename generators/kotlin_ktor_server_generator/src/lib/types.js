@@ -54,31 +54,65 @@ export function buildValidationCalls(varExpr, fieldLabel, type, constraints) {
 // called; an array property gets each element either .validate()'d (object items) or
 // constraint-checked (primitive items with maxLength/pattern/etc, same as a scalar property).
 // Both model_data_class.kt.j2's validate() and this file share the resulting call list.
-function buildNestedValidationCalls(varExpr, fieldLabel, propSchema, nullable) {
+//
+// A nested `.validate()` call is only valid if its target type actually has one - a $ref'd schema
+// that failed its own registration (permissive mode - see withResilience in buildModelRegistry)
+// falls back to a plain `typealias X = JsonElement`, which has no generated validate() extension
+// at all. But Pass 2 (see buildModelRegistry) registers schemas in declaration order, so at THIS
+// property's registration time, its target schema may not have had its own turn yet - its
+// eventual kind ("object" vs. permissive-fallback "typealias") genuinely isn't knowable here.
+// Every call below is therefore returned tagged with `requiresType` (the type name it depends on,
+// or null for a plain constraint check with no dependency) instead of emitted unconditionally;
+// buildModelRegistry's pass 3, run only after every schema has been fully registered one way or
+// the other, drops any call whose `requiresType` didn't end up as a genuine "object" kind. Each
+// entry's `text` is the plain Kotlin snippet - what a caller conceptually building this list
+// straightforwardly, but pass 3 needs the untagged text back out for the templates.
+function buildNestedValidationCalls(varExpr, fieldLabel, propSchema, propType, nullable) {
   const calls = [];
   const kind = kindOf(propSchema);
   const accessor = nullable ? "?." : ".";
   if (kind === "Object" || kind === "AllOf") {
-    calls.push(`${varExpr}${accessor}validate()`);
+    calls.push({ text: `${varExpr}${accessor}validate()`, requiresType: propType });
   } else if (kind === "Array") {
     const itemSchema = propSchema.items || {};
     const itemKind = kindOf(itemSchema);
     if (itemKind === "Object" || itemKind === "AllOf") {
+      const itemType = (/^(?:List|Set)<(.+)>$/.exec(propType) || [])[1] || null;
       const itemAccessor = itemSchema.nullable === true ? "?." : ".";
-      calls.push(`${varExpr}${accessor}forEach { it${itemAccessor}validate() }`);
+      calls.push({ text: `${varExpr}${accessor}forEach { it${itemAccessor}validate() }`, requiresType: itemType });
     } else {
       const itemType = primitiveKtType(itemSchema);
       if (itemType) {
         const itemCalls = buildValidationCalls("it", `${fieldLabel}[]`, itemType, constraintsOf(itemSchema));
-        if (itemCalls.length > 0) calls.push(`${varExpr}${accessor}forEach { ${itemCalls.join("; ")} }`);
+        if (itemCalls.length > 0) calls.push({ text: `${varExpr}${accessor}forEach { ${itemCalls.join("; ")} }`, requiresType: null });
       }
     }
   }
   return calls;
 }
 
-function newRegistry() {
-  return { models: new Map(), order: [] };
+function newRegistry(reservedNames) {
+  return { models: new Map(), order: [], reservedNames };
+}
+
+// Disambiguates a hint-derived synthetic type name (an inline oneOf/anyOf/allOf/object with no
+// $ref of its own) that collides with a REAL top-level schema's own generated name - a real
+// pattern in Stripe's spec: an "expandable" property (e.g. "ownership" on schema
+// "financial_connections.account") whose inline `anyOf: [string, $ref X]` hints to
+// "FinancialConnectionsAccountOwnership", which is also the literal generated name of the schema
+// "financial_connections.account_ownership" (X) it's $ref'ing to alongside the plain string ID -
+// the single-variant shortcut in ktType avoids this for a 1-variant oneOf/anyOf, but a 2+-variant
+// one still needs its own wrapper name. Only checks `reservedNames` (every real top-level schema's
+// generated name, computed once upfront) - not `registry.models` - so reprocessing the exact same
+// hint name for the exact same inline schema still correctly reuses the earlier registration via
+// registerObject/registerUnion/registerMerged's own idempotent guard, instead of spuriously
+// "colliding with itself" on every repeat visit.
+function disambiguateHintName(registry, candidate) {
+  if (!registry.reservedNames.has(candidate)) return candidate;
+  if (!registry.reservedNames.has(candidate + "Wrapper")) return candidate + "Wrapper";
+  let i = 2;
+  while (registry.reservedNames.has(`${candidate}Wrapper${i}`)) i++;
+  return `${candidate}Wrapper${i}`;
 }
 
 function addModel(registry, name, entry) {
@@ -106,9 +140,12 @@ function registerObject(registry, name, schema, variantOpts) {
       nullable,
       description: propSchema.description || null,
       constraints,
+      // Untagged (plain-string) pass-1 constraint calls have no cross-type dependency; tag them
+      // uniformly with buildNestedValidationCalls's {text, requiresType} shape so pass 3 (see
+      // buildModelRegistry) can filter this whole list the same way regardless of source.
       validationCalls: [
-        ...buildValidationCalls(kotlinName, propName, t.type, constraints),
-        ...buildNestedValidationCalls(kotlinName, propName, propSchema, nullable),
+        ...buildValidationCalls(kotlinName, propName, t.type, constraints).map((text) => ({ text, requiresType: null })),
+        ...buildNestedValidationCalls(kotlinName, propName, propSchema, t.type, nullable),
       ],
     });
   }
@@ -217,15 +254,26 @@ function registerUnion(registry, name, schema, variantOpts) {
   const objectVariants = classified.filter((c) => c.dispatchKind === "object").map((c) => c.variant);
   const dispatchFieldByVariant = new Map();
   if (objectVariants.length > 1) {
+    // At most one object variant may lack a field no other object variant also declares - a
+    // common real-world shape (e.g. Stripe's "application" vs. "deleted_application": the deleted
+    // variant is the non-deleted one's own properties plus a unique "deleted" flag, so the
+    // non-deleted variant - a strict subset - can never have a property absent from the other).
+    // That variant becomes the object-shaped fallback: reordered (see below) to sort after every
+    // other object variant, so its unconditional `element is JsonObject -> ...` branch in the
+    // generated `when` (see model_union.kt.j2) is only ever reached once every more specific
+    // field-presence check above it has already failed to match.
+    const withoutField = [];
     for (const variant of objectVariants) {
       const field = findUniqueDistinguishingField(variant, objectVariants);
-      if (!field) {
-        throw Error(
-          `<f2a3b4c5> Cannot disambiguate object-shaped oneOf/anyOf variants of "${name}": every variant ` +
-            `needs a property (required or not) that no other object variant also declares`
-        );
-      }
-      dispatchFieldByVariant.set(variant, field);
+      if (field) dispatchFieldByVariant.set(variant, field);
+      else withoutField.push(variant);
+    }
+    if (withoutField.length > 1) {
+      throw Error(
+        `<f2a3b4c5> Cannot disambiguate object-shaped oneOf/anyOf variants of "${name}": ${withoutField.length} ` +
+          `variants have no property (required or not) that no other object variant also declares - at most one ` +
+          `object variant may lack one (it becomes the shape-based fallback, tried last)`
+      );
     }
   }
   const countByKind = new Map();
@@ -242,11 +290,26 @@ function registerUnion(registry, name, schema, variantOpts) {
     }
   }
 
+  // Stable sort: moves the one field-less object variant (if any) after every other object
+  // variant, without disturbing relative order otherwise - see the fallback comment above.
+  classified.sort((a, b) => {
+    const aFallback = a.dispatchKind === "object" && !dispatchFieldByVariant.has(a.variant) ? 1 : 0;
+    const bFallback = b.dispatchKind === "object" && !dispatchFieldByVariant.has(b.variant) ? 1 : 0;
+    return aFallback - bFallback;
+  });
+
   const variantModels = classified.map(({ variant, dispatchKind, index }) => {
     const variantRawName = nameOf(variant);
     const suffix = variantRawName ? className(variantRawName) : `Variant${index + 1}`;
     const wrapperName = name + suffix;
-    const t = ktType(registry, variant, wrapperName);
+    // Hint name for the variant's OWN type is wrapperName + "Value", not wrapperName itself - an
+    // inline (non-$ref) variant with no distinguishing name of its own (e.g. an anonymous
+    // "range_query_specs"-style object) would otherwise register its synthesized type under the
+    // exact same name as the wrapper data class about to wrap it (`data class
+    // {wrapperName}(val value: {wrapperName})`), a direct self-collision - two different classes,
+    // same name, same file. A $ref'd variant is unaffected: ktType resolves its name via nameOf()
+    // before ever looking at this hint.
+    const t = ktType(registry, variant, wrapperName + "Value");
     return {
       wrapperName,
       valueType: t.type,
@@ -292,8 +355,9 @@ export function ktType(registry, schema, hintName) {
 
   const kind = kindOf(s);
   if (kind === "Enum") {
-    registerEnum(registry, hintName, s);
-    return { type: hintName };
+    const n = disambiguateHintName(registry, hintName);
+    registerEnum(registry, n, s);
+    return { type: n };
   }
   if (kind === "OneOf" || kind === "AnyOf") {
     // A single-variant oneOf/anyOf is trivially just that one variant's schema - a common
@@ -301,11 +365,13 @@ export function ktType(registry, schema, hintName) {
     // doesn't allow a bare `nullable` next to a `$ref`) that shouldn't need its own wrapper
     // union; recursing avoids both an unnecessary synthetic type and a type-name collision when
     // the synthesized wrapper's hint name happens to match an actual schema name (as it did for
-    // Stripe's "business_profile" property vs. its "account_business_profile" schema).
+    // Stripe's "business_profile" property vs. its "account_business_profile" schema). A 2+-variant
+    // oneOf/anyOf can hit the same collision (see disambiguateHintName) but still needs a wrapper.
     const variants = s.oneOf || s.anyOf || [];
     if (variants.length === 1) return ktType(registry, variants[0], hintName);
-    registerUnion(registry, hintName, s);
-    return { type: hintName };
+    const n = disambiguateHintName(registry, hintName);
+    registerUnion(registry, n, s);
+    return { type: n };
   }
   if (kind === "AllOf") {
     // A single-branch allOf is trivially just that one branch's schema, whatever kind it is - a
@@ -315,8 +381,9 @@ export function ktType(registry, schema, hintName) {
     // multi-branch object case, but wrong (and silently produces an empty object type) when the
     // one branch is actually an enum/primitive/array, as it is for a wrapped enum parameter.
     if (s.allOf.length === 1) return ktType(registry, s.allOf[0], hintName);
-    registerMerged(registry, hintName, s);
-    return { type: hintName };
+    const n = disambiguateHintName(registry, hintName);
+    registerMerged(registry, n, s);
+    return { type: n };
   }
   if (kind === "Array") {
     const itemType = ktType(registry, s.items || {}, hintName + "Item");
@@ -324,8 +391,9 @@ export function ktType(registry, schema, hintName) {
     return { type: `${container}<${itemType.type}>` };
   }
   if (kind === "Object") {
-    registerObject(registry, hintName, s);
-    return { type: hintName };
+    const n = disambiguateHintName(registry, hintName);
+    registerObject(registry, n, s);
+    return { type: n };
   }
   if (kind === "Map") {
     if (s.additionalProperties && typeof s.additionalProperties === "object") {
@@ -403,8 +471,8 @@ function registerTopLevel(registry, name, schema, variantOpts) {
 // discriminated oneOf/anyOf plus their variants, enums, merged allOf objects, array typealiases,
 // and plain data classes - including any inline types discovered transitively along the way.
 export function buildModelRegistry(root) {
-  const registry = newRegistry();
   const schemas = (root.components && root.components.schemas) || {};
+  const registry = newRegistry(new Set(Object.keys(schemas).map(className)));
 
   // Pass 1: find discriminated sealed parents via the engine's resolveDiscriminator() (see
   // docs/javascript-api.md - it already resolves each variant's component name and discriminator
@@ -453,4 +521,23 @@ export function buildModelRegistry(root) {
   }
 
   return registry;
+}
+
+// Must run after EVERY model is registered - not just buildModelRegistry's own schema-driven
+// pass 1/2, but also whatever collectOperationsByTag (lib/operations.js) registers afterward for
+// inline operation params/bodies/responses (main.js calls this in between the two) - only then is
+// every schema's final registration state (real "object" model, or a permissive-mode "typealias"
+// fallback) actually settled, which is what a nested `.validate()` call's target (see
+// buildNestedValidationCalls) needs to be reliably checked against. Drops any nested-validate call
+// that doesn't resolve to a genuine "object" kind, and flattens every property's validationCalls
+// from {text, requiresType} back down to the plain strings the templates expect.
+export function finalizeValidationCalls(registry) {
+  for (const model of registry.models.values()) {
+    if (model.kind !== "object") continue;
+    for (const prop of model.properties) {
+      prop.validationCalls = prop.validationCalls
+        .filter((c) => c.requiresType === null || (registry.models.get(c.requiresType) || {}).kind === "object")
+        .map((c) => c.text);
+    }
+  }
 }

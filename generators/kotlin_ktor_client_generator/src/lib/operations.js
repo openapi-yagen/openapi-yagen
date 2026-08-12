@@ -63,6 +63,57 @@ function isPrimitiveLikeUnion(schema) {
   return variants.length > 0 && variants.every((v) => ["Primitive", "Enum"].includes(kindOf(v)));
 }
 
+// A query parameter whose schema mixes plain scalar variant(s) with exactly one object-shaped
+// variant (all-primitive properties) - a common "exact value or range filter" list-endpoint idiom
+// (e.g. Stripe's `created: oneOf[integer, {gt, gte, lt, lte}]`, declared with `style: deepObject`).
+// Registers the union the ordinary way (ktType/registerUnion - the same sealed-interface +
+// wrapper-per-variant shape as any other union), then returns a param descriptor whose
+// `queryArms` the template dispatches on at the call site: the scalar arm emits a single
+// `queryParam(name, value)`; the object arm emits one `queryParam("name[field]", value)` per
+// property (deepObject serialization, e.g. `created[gte]=1700000000`). Returns null (caller falls
+// through to the ordinary unsupported-parameter-type error) if the shape doesn't fit - more than
+// one object variant, or an object variant with a non-primitive property; those stay unsupported
+// rather than guessing at a nested serialization.
+function tryBuildFilterUnionQueryParam(registry, hintBase, p, schema) {
+  const variants = schema.oneOf || schema.anyOf || [];
+  const objectVariants = variants.filter((v) => ["Object", "Map", "AllOf"].includes(kindOf(v)));
+  if (objectVariants.length !== 1) return null;
+  const [objectVariant] = objectVariants;
+  const objectProps = Object.entries(objectVariant.properties || {});
+  if (objectProps.length === 0 || objectProps.some(([, propSchema]) => !["Primitive", "Enum"].includes(kindOf(propSchema)))) {
+    return null;
+  }
+
+  const { kotlinName } = fieldName(p.name);
+  const required = !!p.required;
+  const t = ktType(registry, schema, hintBase + className(p.name));
+  const union = registry.models.get(t.type);
+  const queryArms = union.variants.map((v) => {
+    if (v.dispatchKind !== "object") return { wrapperName: v.wrapperName, kind: "scalar" };
+    const objectModel = registry.models.get(v.valueType);
+    return {
+      wrapperName: v.wrapperName,
+      kind: "object",
+      fields: objectModel.properties.map((f) => ({ ktName: f.ktName, wireName: f.wireName })),
+    };
+  });
+
+  return {
+    ktName: kotlinName,
+    wireName: p.name,
+    in: p.in,
+    type: t.type,
+    typeLabel: t.type,
+    nullable: !required,
+    isArray: false,
+    queryArms,
+    converter: null,
+    extractFn: null,
+    validationCalls: [],
+    description: p.description || null,
+  };
+}
+
 // A query param whose (unwrapped) schema is Array-kind - serialized as repeated `?name=a&name=b`
 // keys (OpenAPI 3's default `style: form, explode: true`), matching the typescript_fetch_client
 // generator's own support for this (path/header positions have no standard "repeated value"
@@ -89,6 +140,7 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
     typeLabel: itemT.type,
     nullable: !required,
     isArray: true,
+    queryArms: null,
     converter: itemConverter,
     extractFn: required ? "requireQueryParamListAs" : "queryParamListAs",
     validationCalls: [],
@@ -101,6 +153,10 @@ function buildParam(registry, hintBase, p) {
   const resolved = unwrapSingleBranch(schema);
   if (p.in === "query" && kindOf(resolved) === "Array") {
     return buildArrayQueryParam(registry, hintBase, p, resolved.items || { type: "string" });
+  }
+  if (p.in === "query" && (kindOf(resolved) === "OneOf" || kindOf(resolved) === "AnyOf") && !isPrimitiveLikeUnion(resolved)) {
+    const filterParam = tryBuildFilterUnionQueryParam(registry, hintBase, p, resolved);
+    if (filterParam) return filterParam;
   }
   const t = isPrimitiveLikeUnion(resolved) ? { type: "String" } : ktType(registry, schema, hintBase + className(p.name));
   // An enum-typed param parses/prints via the enum's own wireValue/fromWireValue (see
@@ -129,6 +185,7 @@ function buildParam(registry, hintBase, p) {
     typeLabel: t.type,
     nullable: !required,
     isArray: false,
+    queryArms: null,
     converter,
     extractFn,
     validationCalls: buildValidationCalls(kotlinName, p.name, t.type, constraints),
