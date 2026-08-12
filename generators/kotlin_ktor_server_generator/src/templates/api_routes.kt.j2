@@ -15,47 +15,28 @@ import io.ktor.server.routing.put
 // Parses and validates each request (path/query/header parameters via Validation.kt, and the
 // body via its generated validate() when the body model has constraints) before calling into
 // the handler - handler implementations only ever see clean, typed, already-validated values.
-{% if tagDescription %}/** {{ tagDescription }} */
-{% endif -%}
-class {{ tagClass }}Routes(route: Route, private val handler: {{ tagClass }}Handler) {
+{% if tagDescription %}/**
+{{ tagDescription | indent(" * ", true) }}
+ */
+{% endif %}class {{ tagClass }}Routes(route: Route, private val handler: {{ tagClass }}Handler) {
     init {
 {% for op in operations %}
-{% for line in op.docLines %}        {{ line }}
-{% endfor -%}
-        route.{{ op.method }}("{{ op.pathStr }}") {
-{% for p in op.pathParams %}
-            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.typeLabel }}") { {{ p.converter }} }
-{% for v in p.validationCalls %}
-            {{ v }}
-{% endfor %}
-{% endfor %}
-{% for p in op.queryParams %}
-            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.typeLabel }}") { {{ p.converter }} }
-{% for v in p.validationCalls %}
-            {{ v }}
-{% endfor %}
-{% endfor %}
-{% for p in op.headerParams %}
-            val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.typeLabel }}") { {{ p.converter }} }
-{% for v in p.validationCalls %}
-            {{ v }}
-{% endfor %}
-{% endfor %}
-{% for p in op.authParams %}
-            val {{ p.ktName }} = {{ p.extractExpr }}
-{% endfor %}
-{% if op.body %}
-            val body = call.receive<{{ op.body.type }}>(){% if op.body.hasValidate %}.validate(){% endif %}
+{% if op.docComment %}        {{ op.docComment | indent(8) }}
+{% endif %}        route.{{ op.method }}("{{ op.pathStr }}") {
+{% filter indent(12, true) %}{% for p in op.pathParams %}val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.typeLabel }}") { {{ p.converter }} }
+{% for v in p.validationCalls %}{{ v }}
+{% endfor %}{% endfor %}{% for p in op.queryParams %}val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.typeLabel }}") { {{ p.converter }} }
+{% for v in p.validationCalls %}{{ v }}
+{% endfor %}{% endfor %}{% for p in op.headerParams %}val {{ p.ktName }} = call.{{ p.extractFn }}("{{ p.wireName }}", "{{ p.typeLabel }}") { {{ p.converter }} }
+{% for v in p.validationCalls %}{{ v }}
+{% endfor %}{% endfor %}{% for p in op.authParams %}val {{ p.ktName }} = {{ p.extractExpr }}
+{% endfor %}{% if op.body %}val body = call.receive<{{ op.body.type }}>(){% if op.body.hasValidate %}.validate(){% endif %}
 
-{% endif %}
-{% if op.returnsValue %}
-            val result = handler.{{ op.name }}({{ op.handlerArgs }})
-            call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}), result)
-{% else %}
-            handler.{{ op.name }}({{ op.handlerArgs }})
-            call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}))
-{% endif %}
-        }
+{% endif %}{% if op.returnsValue %}val result = handler.{{ op.name }}({{ op.handlerArgs }})
+call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}), result)
+{% else %}handler.{{ op.name }}({{ op.handlerArgs }})
+call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}))
+{% endif %}{% endfilter %}        }
 {% endfor %}
     }
 }

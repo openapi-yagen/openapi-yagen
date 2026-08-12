@@ -11,18 +11,16 @@ import type { ApiClientConfig } from "./runtime{{ importExt }}";
 import { {{ g.tagClass }} } from "./apis/{{ g.tagClass }}{{ importExt }}";
 {% endfor %}
 // Bundles one instance of every tag's client class, constructed once from a shared config.
-{% if apiDescription %}/** {{ apiDescription }} */
-{% endif -%}
-export class ApiClient {
-{% for g in tagGroups -%}
-{% if g.description %}/** {{ g.description }} */
-{% endif -%}
-  readonly {{ g.propertyName }}: {{ g.tagClass }};
-{% endfor -%}
-
+{% if apiDescription %}/**
+{{ apiDescription | indent(" * ", true) }}
+ */
+{% endif %}export class ApiClient {
+{% if tagGroups %}{% filter indent(2, true) %}{% for g in tagGroups %}{% if g.description %}/**
+{{ g.description | indent(" * ", true) }}
+ */
+{% endif %}readonly {{ g.propertyName }}: {{ g.tagClass }};
+{% endfor %}{% endfilter %}{% endif %}
   constructor(config: ApiClientConfig) {
-{% for g in tagGroups -%}
-    this.{{ g.propertyName }} = new {{ g.tagClass }}(config);
-{% endfor -%}
-  }
+{% if tagGroups %}{% filter indent(4, true) %}{% for g in tagGroups %}this.{{ g.propertyName }} = new {{ g.tagClass }}(config);
+{% endfor %}{% endfilter %}{% endif %}  }
 }

@@ -77,10 +77,11 @@ if you use the `StatusPages` mapping shown above (recommended).
 
 ## Formatting generated sources
 
-Generated files aren't run through a formatter by default (see `templates/*.kt.j2` - Inja isn't
-a Kotlin-aware pretty-printer, so indentation/blank lines are cosmetically rough). Pipe them
-through [ktfmt](https://kotlin.github.io/ktfmt/) via `openapi-yagen`'s `-p`/`--post-process`
-option, which runs a command per generated file:
+Templates (`templates/*.kt.j2`) emit correctly indented Kotlin directly, using Inja's `indent()`/
+`{% filter %}` (see [`docs/templating.md`](../../docs/templating.md)), so a formatter isn't
+required for readable output. `-p`/`--post-process` is still available for house-style polish
+(import ordering, trailing commas, line-wrapping) - pipe through
+[ktfmt](https://kotlin.github.io/ktfmt/):
 
 ```bash
 openapi-yagen g -o out -g kotlin_ktor_server_generator openapi.yaml \

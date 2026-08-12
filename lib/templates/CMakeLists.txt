@@ -1,6 +1,6 @@
 set(TARGET openapi-yagen-lib-templates)
 
-find_package(inja REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 set(SOURCES
   definitions.h
@@ -11,7 +11,8 @@ set(SOURCES
 )
 
 set(DEPS
-  pantor::inja
+  openapi-yagen-lib-3rdparty-inja
+  nlohmann_json::nlohmann_json
   openapi-yagen-lib-fs
   openapi-yagen-lib-logger
 )

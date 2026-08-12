@@ -119,8 +119,9 @@ debugging a generator, or when changing what globals/functions are exposed to `m
 ## Building
 
 Dependencies are managed via Conan 2 (`conanfile.txt`): termcolor, yaml-cpp, cli11, quickjs,
-kuba-zip, inja, catch2, battery-embed (embeds the built-in generators, see `lib/filesystem/`'s
-`EMBEDDED_GENERATOR_DIRS`). Requires CMake ≥ 3.21 and a C++20 compiler (both driven by
+kuba-zip, catch2, nlohmann_json, battery-embed (embeds the built-in generators, see
+`lib/filesystem/`'s `EMBEDDED_GENERATOR_DIRS`). Inja itself is vendored, not a Conan dependency -
+see `lib/3rdparty/inja/NOTICE.md`. Requires CMake ≥ 3.21 and a C++20 compiler (both driven by
 battery-embed's own floor).
 
 Local build:

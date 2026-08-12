@@ -135,9 +135,11 @@ tag?: string;
 }
 ```
 
-(Generated files aren't run through a formatter by default, hence the flat indentation - see the
-`-p/--post-process` flag in the root [`README.md`](../README.md#post-processing-generated-files)
-to pipe output through `prettier` or similar.)
+(This minimal example doesn't reindent the property loop, hence the flat output - see
+[`templating.md`](templating.md#indent-and-center) for `indent()`/`{% filter %}`, which the
+built-in generators use to emit correctly nested code directly. Either reach for those in your own
+templates, or pipe output through a formatter via the `-p/--post-process` flag in the root
+[`README.md`](../README.md#post-processing-generated-files).)
 
 ## 5. A generator variable
 

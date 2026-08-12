@@ -3,20 +3,15 @@ package {{ packageName }}
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-{% if model.description %}/** {{ model.description }} */
-{% endif -%}
-@Serializable
-{% if model.serialName -%}
-@SerialName("{{ model.serialName }}")
-{% endif -%}
-data class {{ model.name }}(
-{% for p in model.properties -%}
-    {% if p.description -%}
-    /** {{ p.description }} */
-    {% endif -%}
-    {% if p.needsSerialName -%}
-    @SerialName("{{ p.wireName }}")
-    {% endif -%}
-    val {{ p.ktName }}: {{ p.type }}{% if p.nullable %}? = null{% endif %},
-{% endfor -%}
-){% if model.implements %} : {{ model.implements }}{% endif %}
+{% if model.description %}/**
+{{ model.description | indent(" * ", true) }}
+ */
+{% endif %}@Serializable
+{% if model.serialName %}@SerialName("{{ model.serialName }}")
+{% endif %}data class {{ model.name }}(
+{% if model.properties %}{% filter indent(4, true) %}{% for p in model.properties %}{% if p.description %}/**
+{{ p.description | indent(" * ", true) }}
+ */
+{% endif %}{% if p.needsSerialName %}@SerialName("{{ p.wireName }}")
+{% endif %}val {{ p.ktName }}: {{ p.type }}{% if p.nullable %}? = null{% endif %},
+{% endfor %}{% endfilter %}{% endif %}){% if model.implements %} : {{ model.implements }}{% endif %}

@@ -180,9 +180,11 @@ contract, or for a high-volume internal API where the extra walk isn't worth pay
 
 ## Formatting generated sources
 
-Generated files aren't run through a formatter by default (Inja isn't a TS-aware pretty-printer,
-so indentation/blank lines are cosmetically rough). Pipe them through
-[prettier](https://prettier.io) via `openapi-yagen`'s `-p`/`--post-process` option:
+Templates (`templates/*.ts.j2`) emit correctly indented TypeScript directly, using Inja's
+`indent()`/`{% filter %}` (see [`docs/templating.md`](../../docs/templating.md)), so a formatter
+isn't required for readable output. `-p`/`--post-process` is still available for house-style
+polish (quote style, trailing commas, line-wrapping) - pipe through
+[prettier](https://prettier.io):
 
 ```bash
 openapi-yagen g -o out -g typescript_fetch_client_generator openapi.yaml \

@@ -7,14 +7,16 @@ description: Inja syntax, functions, inheritance, includes, and whitespace contr
 
 # Templating reference
 
-[Inja](https://pantor.github.io/inja/) (version 3.5.0 - see `inja/` in `conanfile.txt`) is the
-template rendering engine (Jinja-like syntax). This page covers the syntax itself, plus how this
-project's built-in functions and generator-supplied data connect to it. Everything below was
-verified against this project's actual pinned Inja version - if in doubt, [Inja's own
+[Inja](https://pantor.github.io/inja/) is the template rendering engine (Jinja-like syntax). This
+project vendors a fork of Inja 3.5.0 - see `lib/3rdparty/inja/NOTICE.md` for provenance - that adds
+`{% filter %}`/`{% endfilter %}` blocks, `indent`/`center` functions, and macros on top of upstream
+3.5.0 (all documented below). This page covers the syntax itself, plus how this project's built-in
+functions and generator-supplied data connect to it. Everything below was verified against this
+project's actual vendored Inja version - if in doubt, [Inja's own
 docs](https://pantor.github.io/inja/) and [source](https://github.com/pantor/inja) are the
-tie-breaker, but note that Inja's feature set has changed across versions (e.g. no ternary
-operator, `range()` only takes one argument), so don't assume something from a different version
-of the Jinja/Inja family works here without checking.
+tie-breaker for anything *not* specific to this fork, but note that Inja's feature set has changed
+across versions (e.g. no ternary operator, `range()` only takes one argument), so don't assume
+something from a different version of the Jinja/Inja family works here without checking.
 
 ## Calling built-in functions from a template
 
@@ -67,6 +69,13 @@ Operators, in the usual precedence:
 There is **no ternary operator** (`? :`) and no Python-style `a if cond else b` - use
 `{% if %}`/`{% else %}` instead, or a `default()`/`{% set %}` combination for a single value.
 
+Array literals are also expressions - elements can be arbitrary expressions, not just constants:
+
+```jinja
+{{ [neighbour, "Anna"] }}
+{% for guest in [neighbour, "Anna"] %}{{ guest }}{% endfor %}
+```
+
 ## Basic control flow
 
 ```jinja
@@ -80,6 +89,12 @@ struct {{ schemaKey }} {
 {% endif %}
 {% endfor %}
 ```
+
+**Truthiness**: `false`, `null`, `0`, and `[]` (an empty array) are falsy in `{% if %}`/`{% for %}`
+conditions - but an **empty string `""` is truthy**, unlike JS/Python. A value that's sometimes
+`""` and should be treated as "nothing" (e.g. a doc comment string that's `""` when there's nothing
+to document) needs to actually be `null` from the JS side, or the template needs an explicit
+`{% if value != "" %}` check - `{% if value %}` alone won't skip it.
 
 `{% if %}` chains with `{% else if %}` / `{% else %}` (not Jinja's `{% elif %}`):
 
@@ -195,6 +210,8 @@ a fixed set of its own, callable the same way (`{{ upper(name) }}`) or piped (`{
 | `existsIn` | `(object, key)` | Is `key` set in `object` |
 | `default` | `(value, fallback)` | `fallback` if `value` is undefined |
 | `isArray`, `isBoolean`, `isFloat`, `isInteger`, `isNumber`, `isObject`, `isString` | `(value)` | Type checks |
+| `indent` | `(value, width=4, first=false, blank=false)` | Indent every line of `value` - see below |
+| `center` | `(str, width=80)` | Center `str` in a field of `width`, padding with spaces |
 
 ```jinja
 {{ model.properties | length }} properties
@@ -203,7 +220,107 @@ a fixed set of its own, callable the same way (`{{ upper(name) }}`) or piped (`{
 
 There's no `reverse`, `urlencode`, or `trim` in this version - roll your own with `main.js` and
 pass it in as a custom function ([see above](#calling-built-in-functions-from-a-template)) if you
-need one.
+need one. (`indent`/`center` below, from this project's fork, are the only additions beyond stock
+Inja 3.5.0's own function set.)
+
+### `indent` and `center`
+
+Both are additions from this project's Inja fork (see the top of this page) - not present in
+stock/upstream Inja. `indent(value, width=4, first=false, blank=false)` indents every line of
+`value` except the first by default:
+
+```jinja
+{{ indent("line1\nline2", 4) }}          {# "line1\n    line2" #}
+{{ indent("line1\nline2", "> ") }}       {# "line1\n> line2" - a string prefix instead of a width #}
+{{ indent("line1\nline2", 4, true) }}    {# "    line1\n    line2" - first=true also indents the first line #}
+{{ indent("a\n\nb", 2) }}                {# "a\n\n  b" - blank lines are left alone by default #}
+{{ indent("a\n\nb", 2, false, true) }}   {# "a\n  \n  b" - blank=true indents blank lines too #}
+{{ "a\nb" | indent(2) }}                 {# "a\n  b" - pipe form #}
+```
+
+This is the tool for reindenting a multi-line value (a description turned into a doc comment, a
+nested block built up elsewhere) to match its call site's indentation, instead of hand-placing
+spaces per nesting level - see the model/API templates under `generators/*/src/templates/` for
+real uses.
+
+`center(str, width=80)` centers a string in a field of the given width:
+
+```jinja
+{{ center(neighbour, 11) }}   {# "   Peter   " #}
+{{ "a" | center(11) }}        {# "     a     " #}
+```
+
+## Filter blocks
+
+Beyond piping a single expression through a function (`{{ name | upper }}`), a
+`{% filter %}`/`{% endfilter %}` block (another addition from this project's Inja fork) pipes an
+entire *rendered block's* output through a filter chain - handy for applying `indent`/`upper`/a
+custom function to more than one line, or to the result of `{% if %}`/`{% for %}` content:
+
+```jinja
+{% filter upper %}Hello {{ neighbour }}!{% endfilter %}
+{# "HELLO PETER!" #}
+
+{% filter indent(4, true) %}
+{% for p in model.properties %}
+val {{ p.name }}: {{ p.type }},
+{% endfor %}
+{% endfilter %}
+{# every line of the rendered loop, indented 4 spaces #}
+```
+
+Filters chain with `|` just like the expression form, and can take extra parenthesized arguments:
+
+```jinja
+{% filter replace("e", "3") | upper %}{{ neighbour }}{% endfilter %}   {# "P3T3R" #}
+{% filter indent("// ", true) %}line1
+line2{% endfilter %}   {# "// line1\n// line2" #}
+```
+
+Any function that takes a string as its first argument and returns a string works as a filter -
+this project's own custom `functions` ([see above](#calling-built-in-functions-from-a-template))
+included, not just Inja's built-ins.
+
+## Macros
+
+Also new in this project's fork: `{% macro name(params) %}...{% endmacro %}` defines a reusable
+block, called like a function with `{{ name(args) }}`:
+
+```jinja
+{% macro link(href, label="click me") %}<a href="{{ href }}">{{ label }}</a>{% endmacro %}
+{{ link("/pets") }}                 {# uses the default label #}
+{{ link("/pets", "See pets") }}
+```
+
+Parameters can have default expressions (`label="click me"` above) - omitted positional arguments
+fall back to them; a required parameter with no default raises `inja::RenderError` if the caller
+doesn't supply it, and passing too many arguments is also an error.
+
+**Scoping is isolated**: a macro body sees only its own bound parameters plus the original root
+`data` object passed to `render`/`renderTemplate` - it does **not** see the caller's `{% set %}`
+variables, loop variables, or anything else from the calling scope, and nothing it does leaks back
+out either. Pass in everything the macro needs as an explicit parameter.
+
+Macros can call themselves or other macros (recursion works):
+
+```jinja
+{% macro down(n) %}{% if n > 0 %}{{ n }},{{ down(n - 1) }}{% endif %}{% endmacro %}
+{{ down(3) }}   {# "3,2,1," #}
+```
+
+A macro defined in an `{% include %}`d file becomes callable in the including template afterward
+([see below](#including-other-templates)) - a natural way to share one macro (e.g. a doc-comment
+or field-rendering helper) across several templates in a generator, by defining it once in a small
+`_macros.j2`-style partial and including that partial wherever it's needed. Macros also work in
+the `##` line-statement form, and duplicate macro names within one template are a
+`inja::ParserError`:
+
+```jinja
+## macro foo()
+test
+## endmacro
+[{{ foo() }}]   {# "[test]" #}
+```
 
 ## Template inheritance
 

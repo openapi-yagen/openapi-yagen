@@ -7,15 +7,15 @@ import { type {{ m }}, is{{ m }} } from "./{{ m }}{{ importExt }}";
 import type { {{ m }} } from "./{{ m }}{{ importExt }}";
 {% endfor -%}
 {% endif -%}
-{% if model.description %}/** {{ model.description }} */
-{% endif -%}
-export interface {{ model.name }} {
-{% for p in model.properties -%}
-  {% if p.description %}/** {{ p.description }} */
-  {% endif -%}
-  {{ p.keyLiteral }}{% if not p.required %}?{% endif %}: {{ p.tsType }}{% if p.nullable %} | null{% endif %};
-{% endfor -%}
-}
+{% if model.description %}/**
+{{ model.description | indent(" * ", true) }}
+ */
+{% endif %}export interface {{ model.name }} {
+{% if model.properties %}{% filter indent(2, true) %}{% for p in model.properties %}{% if p.description %}/**
+{{ p.description | indent(" * ", true) }}
+ */
+{% endif %}{{ p.keyLiteral }}{% if not p.required %}?{% endif %}: {{ p.tsType }}{% if p.nullable %} | null{% endif %};
+{% endfor %}{% endfilter %}{% endif %}}
 {% if validateResponses %}
 
 {{ guardSource }}

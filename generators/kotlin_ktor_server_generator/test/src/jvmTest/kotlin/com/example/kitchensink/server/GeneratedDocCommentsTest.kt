@@ -15,13 +15,19 @@ class GeneratedDocCommentsTest {
 
     @Test
     fun `model and property descriptions land as KDoc`() {
+        // Model/property descriptions render via the multi-line-safe "/**\n * ...\n */" block
+        // form (see docs/templating.md's indent()) - even for a single-sentence description -
+        // rather than a single-line "/** ... */", so a description containing an embedded
+        // newline still produces valid KDoc.
         val pet = File(generatedDir, "models/Pet.kt").readText()
-        assertTrue(pet.contains("/** A pet available in the store. */"), "missing model-level KDoc:\n$pet")
-        assertTrue(pet.contains("/** The pet's display name. */"), "missing property-level KDoc:\n$pet")
+        assertTrue(pet.contains("* A pet available in the store."), "missing model-level KDoc:\n$pet")
+        assertTrue(pet.contains("* The pet's display name."), "missing property-level KDoc:\n$pet")
 
         val petStatus = File(generatedDir, "models/PetStatus.kt").readText()
-        assertTrue(petStatus.contains("/** A pet's availability status. */"), "missing enum KDoc:\n$petStatus")
+        assertTrue(petStatus.contains("* A pet's availability status."), "missing enum KDoc:\n$petStatus")
 
+        // model_typealias.kt.j2 has no nested/multi-line content to protect against, so it keeps
+        // the single-line "/** ... */" form.
         val pets = File(generatedDir, "models/Pets.kt").readText()
         assertTrue(pets.contains("/** A page of pets. */"), "missing typealias KDoc:\n$pets")
     }
@@ -30,7 +36,7 @@ class GeneratedDocCommentsTest {
     fun `operation summary, description, and param docs land as KDoc on the handler interface, and the class itself gets the tag's description`() {
         val handler = File(generatedDir, "apis/PetsApiHandler.kt").readText()
         assertTrue(
-            handler.contains("/** Operations for browsing and managing pets"),
+            handler.contains("* Operations for browsing and managing pets"),
             "missing interface-level (tag) KDoc:\n$handler"
         )
         assertTrue(handler.contains("* List all pets."), "missing operation summary:\n$handler")
@@ -46,7 +52,7 @@ class GeneratedDocCommentsTest {
     fun `operation docs and the tag description also land on the routes class`() {
         val routes = File(generatedDir, "apis/PetsApiRoutes.kt").readText()
         assertTrue(
-            routes.contains("/** Operations for browsing and managing pets"),
+            routes.contains("* Operations for browsing and managing pets"),
             "missing routes class-level (tag) KDoc:\n$routes"
         )
         assertTrue(routes.contains("* List all pets."), "missing operation summary on routes:\n$routes")

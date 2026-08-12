@@ -10,47 +10,31 @@ import type { {{ m }} } from "../models/{{ m }}{{ importExt }}";
 import { request } from "../runtime{{ importExt }}";
 import type { ApiClientConfig } from "../runtime{{ importExt }}";
 
-{% if tagDescription %}/** {{ tagDescription }} */
-{% endif -%}
-export class {{ tagClass }} {
+{% if tagDescription %}/**
+{{ tagDescription | indent(" * ", true) }}
+ */
+{% endif %}export class {{ tagClass }} {
   constructor(private readonly config: ApiClientConfig) {}
 {% for op in operations %}
 
-  {% for line in op.docLines %}{{ line }}
-  {% endfor -%}
-  {{ op.name }}({% for p in op.pathParams %}{{ p.tsName }}: {{ p.tsType }}, {% endfor %}options: {
-{% for f in op.optionsFields -%}
-    {{ f.tsName }}{% if not f.required %}?{% endif %}: {{ f.tsType }};
-{% endfor -%}
-  }{% if not op.optionsRequired %} = {}{% endif %}): Promise<{{ op.response.tsType }}> {
+{% if op.docComment %}  {{ op.docComment | indent(2) }}
+{% endif %}  {{ op.name }}({% for p in op.pathParams %}{{ p.tsName }}: {{ p.tsType }}, {% endfor %}options: {
+{% if op.optionsFields %}{% filter indent(4, true) %}{% for f in op.optionsFields %}{{ f.tsName }}{% if not f.required %}?{% endif %}: {{ f.tsType }};
+{% endfor %}{% endfilter %}{% endif %}  }{% if not op.optionsRequired %} = {}{% endif %}): Promise<{{ op.response.tsType }}> {
     return request<{{ op.response.tsType }}>(this.config, {
-      method: "{{ op.method }}",
-      path: `{{ op.pathExpr }}`,
-{% if op.hasQueryParams -%}
-      query: {
-{% for p in op.queryParams -%}
-        {{ p.queryKeyLiteral }}: options.{{ p.tsName }},
-{% endfor -%}
-      },
-{% endif -%}
-{% if op.hasHeaderParams -%}
-      headers: {
-{% for p in op.headerParams -%}
-        {{ p.headerKeyLiteral }}: options.{{ p.tsName }},
-{% endfor -%}
-      },
-{% endif -%}
-{% if op.hasBody -%}
-      body: options.body,
-{% endif -%}
-      signal: options.signal,
-{% if op.authLiteral -%}
-      auth: {{ op.authLiteral }},
-{% endif -%}
-{% if op.response.hasValidator -%}
-      validate: {{ op.response.validatorExpr }},
-{% endif -%}
-    });
+{% filter indent(6, true) %}method: "{{ op.method }}",
+path: `{{ op.pathExpr }}`,
+{% if op.hasQueryParams %}query: {
+{% for p in op.queryParams %}  {{ p.queryKeyLiteral }}: options.{{ p.tsName }},
+{% endfor %}},
+{% endif %}{% if op.hasHeaderParams %}headers: {
+{% for p in op.headerParams %}  {{ p.headerKeyLiteral }}: options.{{ p.tsName }},
+{% endfor %}},
+{% endif %}{% if op.hasBody %}body: options.body,
+{% endif %}signal: options.signal,
+{% if op.authLiteral %}auth: {{ op.authLiteral }},
+{% endif %}{% if op.response.hasValidator %}validate: {{ op.response.validatorExpr }},
+{% endif %}{% endfilter %}    });
   }
 {% endfor %}
 }

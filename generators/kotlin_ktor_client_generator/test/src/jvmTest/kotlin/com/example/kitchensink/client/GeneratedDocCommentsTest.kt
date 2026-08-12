@@ -15,13 +15,19 @@ class GeneratedDocCommentsTest {
 
     @Test
     fun `model and property descriptions land as KDoc`() {
+        // Model/property descriptions render via the multi-line-safe "/**\n * ...\n */" block
+        // form (see docs/templating.md's indent()) - even for a single-sentence description -
+        // rather than a single-line "/** ... */", so a description containing an embedded
+        // newline still produces valid KDoc.
         val pet = File(generatedDir, "models/Pet.kt").readText()
-        assertTrue(pet.contains("/** A pet available in the store. */"), "missing model-level KDoc:\n$pet")
-        assertTrue(pet.contains("/** The pet's display name. */"), "missing property-level KDoc:\n$pet")
+        assertTrue(pet.contains("* A pet available in the store."), "missing model-level KDoc:\n$pet")
+        assertTrue(pet.contains("* The pet's display name."), "missing property-level KDoc:\n$pet")
 
         val petStatus = File(generatedDir, "models/PetStatus.kt").readText()
-        assertTrue(petStatus.contains("/** A pet's availability status. */"), "missing enum KDoc:\n$petStatus")
+        assertTrue(petStatus.contains("* A pet's availability status."), "missing enum KDoc:\n$petStatus")
 
+        // model_typealias.kt.j2 has no nested/multi-line content to protect against, so it keeps
+        // the single-line "/** ... */" form.
         val pets = File(generatedDir, "models/Pets.kt").readText()
         assertTrue(pets.contains("/** A page of pets. */"), "missing typealias KDoc:\n$pets")
     }
@@ -30,7 +36,7 @@ class GeneratedDocCommentsTest {
     fun `operation summary, description, and param docs land as KDoc, and the class itself gets the tag's description`() {
         val petsApi = File(generatedDir, "apis/PetsApi.kt").readText()
         assertTrue(
-            petsApi.contains("/** Operations for browsing and managing pets"),
+            petsApi.contains("* Operations for browsing and managing pets"),
             "missing class-level (tag) KDoc:\n$petsApi"
         )
         assertTrue(petsApi.contains("* List all pets."), "missing operation summary:\n$petsApi")
@@ -46,7 +52,7 @@ class GeneratedDocCommentsTest {
     fun `ApiClient bundle class gets the document's top-level info description`() {
         val apiClient = File(generatedDir, "ApiClient.kt").readText()
         assertTrue(
-            apiClient.contains("/** A small, purpose-built spec exercising every feature this generator's README claims to support"),
+            apiClient.contains("* A small, purpose-built spec exercising every feature this generator's README claims to support"),
             "missing top-level (info.description) KDoc on the bundle class:\n$apiClient"
         )
     }
@@ -55,7 +61,7 @@ class GeneratedDocCommentsTest {
     fun `each ApiClient property gets the same tag description as the class it points to`() {
         val apiClient = File(generatedDir, "ApiClient.kt").readText()
         assertTrue(
-            apiClient.contains("/** Operations for browsing and managing pets"),
+            apiClient.contains("* Operations for browsing and managing pets"),
             "missing property-level (tag) KDoc on ApiClient.pets:\n$apiClient"
         )
     }

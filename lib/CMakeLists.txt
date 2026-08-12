@@ -2,6 +2,7 @@ if(RELEASE_MODE)
     add_link_options(-s -Os)
 endif()
 
+add_subdirectory(3rdparty)
 add_subdirectory(common)
 add_subdirectory(filesystem)
 add_subdirectory(js)

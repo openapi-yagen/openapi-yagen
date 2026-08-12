@@ -1,12 +1,12 @@
 package {{ packageName }}
 
-{% if tagDescription %}/** {{ tagDescription }} */
-{% endif -%}
-interface {{ tagClass }}Handler {
+{% if tagDescription %}/**
+{{ tagDescription | indent(" * ", true) }}
+ */
+{% endif %}interface {{ tagClass }}Handler {
 {% for op in operations -%}
-    {% for line in op.docLines %}{{ line }}
-    {% endfor -%}
-    suspend fun {{ op.name }}({{ op.signatureParams }}){% if op.returnsValue %}: {{ op.response.type }}{% endif %}
+{% if op.docComment %}    {{ op.docComment | indent(4) }}
+{% endif %}    suspend fun {{ op.name }}({{ op.signatureParams }}){% if op.returnsValue %}: {{ op.response.type }}{% endif %}
 
 {% endfor -%}
 }

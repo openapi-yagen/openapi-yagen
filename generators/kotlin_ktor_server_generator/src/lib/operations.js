@@ -240,13 +240,14 @@ function buildResponse(registry, hintBase, responses) {
   return { type: t.type, statusCode };
 }
 
-// Builds the lines of a KDoc comment from a summary, a longer description, and a list of
-// {name, description} @param entries - or [] if there's nothing to say (Inja's {% for %} throws
-// on null/undefined rather than treating it as zero iterations, so this must never be nullish).
-// Each line is ready to print verbatim (already has "/**"/" * "/" */" as needed); callers prepend
-// their own call site's indentation per line (interface method vs. routing block - see the
-// templates).
-function buildDocLines(summary, description, params) {
+// Builds a KDoc comment string from a summary, a longer description, and a list of {name,
+// description} @param entries - or [] if there's nothing to say (Inja's {% for %} throws on
+// null/undefined rather than treating it as zero iterations, so this must never be nullish).
+// Returns null (NOT "") when there's nothing to document - Inja's {% if %} treats an empty string
+// as truthy (only false/null/0/[] are falsy), so templates guard with {% if op.docComment %} and
+// reindent the whole (possibly multi-line) string to their own call site's depth via Inja's
+// indent() (see the templates), instead of each one re-splitting/printing per line.
+function buildDocComment(summary, description, params) {
   const paramLines = (params || []).filter((p) => p.description).map((p) => `@param ${p.name} ${p.description}`);
   const bodyLines = [summary, description].filter(Boolean);
   const lines = [...bodyLines];
@@ -254,9 +255,9 @@ function buildDocLines(summary, description, params) {
     if (lines.length) lines.push("");
     lines.push(...paramLines);
   }
-  if (lines.length === 0) return [];
-  if (lines.length === 1) return [`/** ${lines[0]} */`];
-  return ["/**", ...lines.map((l) => (l ? ` * ${l}` : " *")), " */"];
+  if (lines.length === 0) return null;
+  if (lines.length === 1) return `/** ${lines[0]} */`;
+  return ["/**", ...lines.map((l) => (l ? ` * ${l}` : " *")), " */"].join("\n");
 }
 
 // Looks up a tag's own document-level description (schema.tags: [{name, description}] - distinct
@@ -314,7 +315,7 @@ export function collectOperationsByTag(registry) {
           method: op.method,
           pathStr: op.path,
           pathExpr: buildPathExpr(op.path),
-          docLines: buildDocLines(
+          docComment: buildDocComment(
             op.summary,
             op.description,
             allParams.filter((p) => p.description).map((p) => ({ name: p.ktName, description: p.description }))
