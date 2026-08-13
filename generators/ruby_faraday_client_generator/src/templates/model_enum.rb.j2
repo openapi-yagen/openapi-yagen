@@ -1,0 +1,25 @@
+module {{ moduleName }}
+{% if model.description %}{{ model.description | indent("  # ", true) }}
+{% endif %}  module {{ model.name }}
+{% for e in model.entries %}    {{ e.constantName }} = {{ e.valueLiteral }}
+{% endfor %}
+    ALL_VALUES = [{% for e in model.entries %}{{ e.constantName }}{% if not loop.is_last %}, {% endif %}{% endfor %}].freeze
+
+    # @param value [String, Integer, Float, nil] a raw wire value
+    # @return [String, Integer, Float, nil] `value`, unchanged
+    # @raise [ArgumentError] if `value` isn't nil and isn't one of ALL_VALUES
+    def self.from_h(value)
+      return nil if value.nil?
+      unless ALL_VALUES.include?(value)
+        raise ArgumentError, "invalid #{name} value: #{value.inspect} (expected one of #{ALL_VALUES.inspect})"
+      end
+      value
+    end
+
+    # @param value [String, Integer, Float, nil]
+    # @return [String, Integer, Float, nil] `value`, unchanged - already wire-shaped
+    def self.to_wire(value)
+      value
+    end
+  end
+end

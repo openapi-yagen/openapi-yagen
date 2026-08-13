@@ -43,9 +43,23 @@ for pkg_file in "$REPO_ROOT"/generators/*/test/package.json; do
     fi
 done
 
+for gemfile in "$REPO_ROOT"/generators/*/test/Gemfile; do
+    [ -e "$gemfile" ] || continue
+    FOUND=$((FOUND + 1))
+    dir="$(dirname "$gemfile")"
+    name="$(basename "$(dirname "$dir")")"
+
+    echo
+    echo "=== $name ==="
+    if ! (cd "$dir" && bundle install && bundle exec rake test); then
+        echo "FAIL ($name)" >&2
+        FAILURES=$((FAILURES + 1))
+    fi
+done
+
 echo
 if [ "$FOUND" -eq 0 ]; then
-    echo "No generator test suites found (generators/*/test/build.gradle.kts or generators/*/test/package.json)."
+    echo "No generator test suites found (generators/*/test/build.gradle.kts, generators/*/test/package.json, or generators/*/test/Gemfile)."
     exit 0
 elif [ "$FAILURES" -eq 0 ]; then
     echo "All $FOUND generator test suite(s) passed."

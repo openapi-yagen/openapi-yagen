@@ -1,0 +1,35 @@
+module {{ moduleName }}
+{% if model.description %}{{ model.description | indent("  # ", true) }}
+{% endif %}  class {{ model.name }}
+{% if model.properties %}    attr_accessor {% for p in model.properties %}:{{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %}
+
+{% endif %}    def initialize({% for p in model.properties %}{{ p.rubyName }}:{% if not p.required %} nil{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
+{% for p in model.properties %}      @{{ p.rubyName }} = {{ p.rubyName }}
+{% endfor %}    end
+
+    # Builds a {{ model.name }} from a parsed-JSON Hash (string keys, as JSON.parse returns it).
+    # @param h [Hash, nil]
+    # @return [{{ model.name }}, nil]
+    def self.from_h(h)
+      return nil if h.nil?
+
+      new(
+{% for p in model.properties %}        {{ p.rubyName }}: {{ p.fromHExpr }},
+{% endfor %}      )
+    end
+
+    # @param value [{{ model.name }}, nil]
+    # @return [Hash, nil] wire-shaped Hash (string keys), ready for JSON.generate
+    def self.to_wire(value)
+      value&.to_h
+    end
+
+    # @return [Hash] wire-shaped Hash (string keys) - properties that are nil are omitted rather
+    #   than sent as an explicit JSON null.
+    def to_h
+      {
+{% for p in model.properties %}        {{ p.wireLiteral }} => {{ p.toWireExpr }},
+{% endfor %}      }.compact
+    end
+  end
+end

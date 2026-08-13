@@ -1,0 +1,172 @@
+---
+title: Ruby Faraday client generator
+sidebar_label: Ruby Faraday client
+slug: /generators/ruby-faraday-client
+description: Generate a Ruby API client that takes a caller-supplied Faraday::Connection.
+---
+
+# ruby_faraday_client_generator
+
+Generates a Ruby API client: one plain Ruby class per OpenAPI object schema (hand-written
+`to_h`/`from_h` JSON (de)serialization - no runtime-reflection gem needed), one module per enum,
+one dispatching module per `oneOf`/`anyOf`, plus one client class per tag with a method per
+operation.
+
+The generated code never picks (or creates) an HTTP adapter - each client class takes an
+already-configured [`Faraday::Connection`](https://lostisland.github.io/faraday/) in its
+constructor. That's what makes it work with whichever Faraday adapter (the default `net_http`,
+`Typhoeus`, `httpx`, ...) your own `Gemfile` already uses, and lets you configure retries, default
+headers, logging, or anything else via ordinary Faraday middleware on the connection you pass in -
+none of that is the generated code's concern.
+
+## Usage
+
+```bash
+openapi-yagen g -o out -g ruby_faraday_client_generator openapi.yaml -v moduleName=PetStore
+```
+
+| Variable     | Required | Description                                                          |
+|--------------|----------|------------------------------------------------------------------------|
+| `moduleName` | yes      | Ruby module namespace for the generated client and model classes (e.g. `PetStore`). Also determines the file layout below (`lib/<snake_case moduleName>/...`), following ordinary Ruby gem conventions. |
+| `strict`     | no (default `true`) | `true`: an unsupported schema/operation aborts generation with an error. `false`: skip it with a printed warning and generate everything else - useful for large real-world specs (see "Known limitations" below). |
+
+## Output layout
+
+```
+lib/<module>/models/<name>.rb   one file per schema (class / enum module / union dispatch module)
+lib/<module>/apis/<tag>_client.rb   one client class per OpenAPI tag
+lib/<module>/api_client.rb      ApiClient - bundles one instance of every tag's client class
+lib/<module>/runtime.rb         OpenapiYagenRuntime - the shared request()/query/auth/error helper
+lib/<module>.rb                 aggregator - requires every file above, in a safe order
+```
+
+(`<module>` is `moduleName` converted to `snake_case`, e.g. `PetStore` -> `pet_store`.)
+
+## Integrating the generated code
+
+You own the `Faraday::Connection` - build one however you like, and inject it into `ApiClient` (or
+directly into one tag's own client class, if you only need one):
+
+```ruby
+require_relative "out/pet_store"
+
+connection = Faraday.new(url: "https://api.example.com/v1") do |f|
+  f.adapter Faraday.default_adapter # net_http by default - swap for Typhoeus/httpx/... freely
+end
+
+api = PetStore::ApiClient.new(connection: connection)
+pet = api.pets.get_pet_by_id(pet_id: "123")
+```
+
+```ruby
+pets_api = PetStore::PetsClient.new(connection: connection) # only need one tag? skip ApiClient
+```
+
+Do **not** install a JSON-parsing response middleware (e.g. `faraday-json`'s
+`Faraday::Response::Json`) on the connection you inject - `OpenapiYagenRuntime.request` parses the
+raw response body itself (there's no equivalent of Ktor's installed `ContentNegotiation` plugin for
+the generated code to lean on instead), and a response body that's already been parsed into a Hash
+by your own middleware would make it try to `JSON.parse` a Hash and fail.
+
+### Authentication (`components.securitySchemes`)
+
+An operation with a non-empty `security` in the spec pulls its credential from the client's own
+`auth:` constructor argument, not a request-level header - the generated method already knows which
+scheme it needs (and, for `apiKey`, which header/query parameter to put it in), so `auth` only needs
+to supply the raw value:
+
+```ruby
+api = PetStore::ApiClient.new(
+  connection: connection,
+  auth: {
+    bearer: -> { fetch_fresh_access_token },  # http, scheme: bearer - re-invoked every request
+    api_key: "sk_live_...",                   # apiKey (header or query) - a plain value is fine too
+  }
+)
+```
+
+A rotating/expiring bearer token needs the callable form (`-> { ... }`, or any object responding to
+`#call`) - a plain string captured once at construction would go stale. Calling a method that needs
+a kind of credential you didn't provide raises `ArgumentError` immediately (before any request is
+sent), naming which one (`auth[:bearer]`/`auth[:api_key]`) is missing. `oauth2`/`openIdConnect`
+schemes, an `apiKey` scheme located `in: cookie`, and an operation with more than one simultaneous
+or alternative `security` requirement aren't supported yet - see "Known limitations".
+
+On any non-2xx response, `OpenapiYagenRuntime.request` raises `OpenapiYagenRuntime::ApiError`
+(`#status`, `#response_body` - the best-effort-parsed response body):
+
+```ruby
+begin
+  api.pets.get_pet_by_id(pet_id: "missing")
+rescue OpenapiYagenRuntime::ApiError => e
+  raise unless e.status == 404
+  # handle not-found
+end
+```
+
+## oneOf/anyOf support
+
+- **Discriminated** (`discriminator.propertyName` + every variant a `$ref` to a named schema): the
+  union gets its own module (e.g. `Shape`) whose `from_h` reads the discriminator property and
+  delegates to the matching variant class's own `from_h` (e.g. `Circle.from_h`/`Square.from_h`);
+  `to_wire` delegates to `value.class.to_wire(value)`, since every variant is itself an ordinary
+  registered class.
+- **Undiscriminated** (or discriminated but unresolvable): a shape-dispatching module instead,
+  built from the same variant-distinguishing analysis the Kotlin Ktor client generator uses for its
+  own sealed-interface deserializer - checking each object variant's own distinguishing property
+  first, then any array/string/number/boolean-shaped variant, then falling back to whatever's left
+  (at most one property-less/unconstrained variant is allowed as that trailing fallback). A
+  `oneOf`/`anyOf` that can't be dispatched this way (e.g. two variants sharing the same non-object
+  shape with nothing else to tell them apart, more than one fallback, or a variant that's itself a
+  nested `oneOf`/`anyOf`) is a generator error (see `strict` above).
+- A path/header **parameter's** schema is a different position - see "Known limitations" below.
+
+## Known limitations (v1)
+
+- Only `application/json` request/response bodies are handled; other content types are ignored.
+- Path/header parameters must resolve to a primitive scalar or enum (string/number/boolean) - an
+  object or array in one of those positions is a generator error. Query parameters have no such
+  restriction: any shape (scalar, enum, array, or a plain object for the `deepObject`-style filter
+  idiom) is passed straight through - `runtime.rb`'s `build_query` walks it generically at request
+  time, since Ruby has no static type to get right ahead of time the way TypeScript/Kotlin do.
+- Query array parameters serialize as a repeated key (`?tag=a&tag=b`, OpenAPI 3's default `style:
+  form, explode: true`) - other serialization styles (`explode: false`,
+  `spaceDelimited`/`pipeDelimited`) aren't supported.
+- `to_h` omits a `nil`-valued property entirely rather than sending an explicit JSON `null` - an
+  optional field explicitly set to `null` and one simply left unset are indistinguishable on the
+  wire.
+- `string` schemas with format `date`/`date-time`/`byte`/`binary` all map to a plain `String` - no
+  `Time`/`Date` object, no base64/binary decoding.
+- `security` only supports a single scheme, of type `http`/`scheme: bearer` or `apiKey` (`in:
+  header` or `in: query` - not `cookie`) - `oauth2`/`openIdConnect`, multiple schemes required
+  together (AND), and multiple alternative requirements (OR) are a generator error.
+- `moduleName` is a single flat Ruby module name (e.g. `PetStore`) - a nested namespace (`Foo::Bar`)
+  isn't supported.
+- Generated files are not run through a formatter - pipe the output through
+  [rubocop](https://rubocop.org)'s `--autocorrect` or [rufo](https://github.com/ruby-formatter/rufo)
+  yourself via `-p`/`--post-process` if you want one:
+  ```bash
+  openapi-yagen g -o out -g ruby_faraday_client_generator openapi.yaml -v moduleName=PetStore \
+      -p "rb:rufo %file%"
+  ```
+
+## Try it
+
+From the `generators/` directory, with `openapi-yagen` on `PATH` (see `run_ruby_client.sh`,
+sibling to `run.sh`/`run_kotlin_client.sh`/`run_ts_client.sh`):
+
+```bash
+cd generators && ./run_ruby_client.sh
+```
+
+generates into `generators/out/ruby-client` from `test/resources/petstore.yaml`.
+
+For a real generate-then-run check exercising every operation, positive and negative, see
+[`test/`](https://github.com/openapi-yagen/openapi-yagen/tree/master/generators/ruby_faraday_client_generator/test) -
+this generator's own self-contained test suite (see also
+[`../README.md`](../README.md) for the collection-wide convention):
+
+```bash
+cd generators/ruby_faraday_client_generator/test
+OPENAPI_YAGEN=/path/to/openapi-yagen bundle install && bundle exec rake test
+```

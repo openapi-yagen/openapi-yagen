@@ -1,0 +1,57 @@
+module {{ moduleName }}
+{% if model.kind == "union_discriminated" %}{% if model.description %}{{ model.description | indent("  # ", true) }}
+{% endif %}  # Dispatches on the {{ toStringLiteral(model.property) }} discriminator property.
+  module {{ model.name }}
+    # @param h [Hash, nil] a parsed-JSON Hash (wire-shaped, string keys)
+    # @return [Object, nil] an instance of whichever variant class the discriminator selects
+    def self.from_h(h)
+      return nil if h.nil?
+
+      case h[{{ toStringLiteral(model.property) }}]
+{% for v in model.variants %}      when {{ toStringLiteral(v.literal) }} then {{ v.className }}.from_h(h)
+{% endfor %}      else
+        raise ArgumentError, "unknown {{ model.name }} discriminator value: #{h[{{ toStringLiteral(model.property) }}].inspect}"
+      end
+    end
+
+    # @param value [Object, nil] an instance of one of {{ model.name }}'s variant classes
+    # @return [Hash, nil] wire-shaped Hash (string keys)
+    def self.to_wire(value)
+      return nil if value.nil?
+
+      value.class.to_wire(value)
+    end
+  end
+{% endif %}{% if model.kind == "union_dispatch" %}{% if model.description %}{{ model.description | indent("  # ", true) }}
+{% endif %}  # Dispatches on the raw JSON value's own shape - no discriminator property here, so
+  # this checks object variants' distinguishing field first, then any array/string/number/
+  # boolean-shaped variant, then falls back to whatever's left (see the generator's
+  # lib/types.js:registerUnionDispatch for the exact ordering rules).
+  module {{ model.name }}
+    # @param value [Object, nil] a parsed-JSON value (Hash/Array/String/Numeric/true/false/nil)
+    # @return [Object, nil] an instance of whichever variant matched
+    def self.from_h(value)
+      return nil if value.nil?
+
+{% for v in model.variants %}{% if v.guardExpr %}      {% if loop.is_first %}if{% else %}elsif{% endif %} {{ v.guardExpr }}
+        {{ v.fromHExpr }}
+{% else %}      else
+        {{ v.fromHExpr }}
+{% endif %}{% endfor %}{% if not model.hasUnconditionalFallback %}      else
+        raise ArgumentError, "value does not match any variant of {{ model.name }}: #{value.inspect}"
+{% endif %}      end
+    end
+
+    # @param value [Object, nil] an instance of whichever variant class produced it
+    # @return [Object, nil] wire-shaped value
+    def self.to_wire(value)
+      return nil if value.nil?
+
+      case value
+{% for v in model.variants %}{% if v.classPattern %}      when {{ v.classPattern }} then {{ v.toWireExpr }}
+{% endif %}{% endfor %}      else
+        value
+      end
+    end
+  end
+{% endif %}end

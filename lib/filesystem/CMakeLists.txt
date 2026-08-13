@@ -46,6 +46,7 @@ set(EMBEDDED_GENERATOR_DIRS
   kotlin_ktor_client_generator
   kotlin_ktor_server_generator
   typescript_fetch_client_generator
+  ruby_faraday_client_generator
 )
 
 set(EMBEDDED_GENERATORS_REGISTRATIONS "")

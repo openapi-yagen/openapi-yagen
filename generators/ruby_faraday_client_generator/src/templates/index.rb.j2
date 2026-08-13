@@ -1,0 +1,12 @@
+# Aggregator - requires every generated file in dependency-safe order (see main.js). Cross-model
+# references (a model's from_h/to_wire calling another model's) are resolved lazily, inside method
+# bodies that only run once something actually calls them - by then every file below is already
+# loaded, so the require order here doesn't need to match any particular reference graph.
+require_relative "{{ moduleSnake }}/runtime"
+{% for m in models -%}
+require_relative "{{ moduleSnake }}/models/{{ m }}"
+{% endfor -%}
+{% for g in tagGroups -%}
+require_relative "{{ moduleSnake }}/apis/{{ g.fileName }}"
+{% endfor -%}
+require_relative "{{ moduleSnake }}/api_client"

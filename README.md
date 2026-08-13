@@ -230,6 +230,9 @@ Generators are located in the `generators` folder:
 - [`typescript_fetch_client_generator`](generators/typescript_fetch_client_generator/README.md) -
   browser-first TypeScript API client using native `fetch`, zero third-party runtime dependencies,
   works unchanged from any web framework.
+- [`ruby_faraday_client_generator`](generators/ruby_faraday_client_generator/README.md) - Ruby API
+  client built on [Faraday](https://lostisland.github.io/faraday/), taking a caller-supplied
+  `Faraday::Connection`, adapter-agnostic (works with `net_http`, Typhoeus, httpx, ...).
 
 ## Development
 

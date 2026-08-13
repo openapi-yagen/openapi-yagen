@@ -1,0 +1,33 @@
+# Generator name
+name: ruby_faraday_client
+
+# Generator description
+description: >-
+  Ruby API client generator built on Faraday. Generates one plain Ruby class per OpenAPI schema
+  (with hand-written to_h/from_h JSON (de)serialization, no runtime-reflection gem needed) plus
+  one client class per tag, taking a caller-supplied Faraday::Connection in its constructor - no
+  HTTP adapter is chosen by the generated code, so it works with whichever Faraday adapter
+  (net_http, Typhoeus, httpx, ...) the caller's own Gemfile already uses.
+
+# Main JavaScript file (entrypoint).
+mainScriptPath: main.js
+
+# The OpenAPI version this generator's main.js/templates are written to consume - the engine
+# converts the input spec to this version before running main.js if it declares a different one.
+openApiVersion: "3.0"
+
+# Variables that can be used to customize script execution
+variables:
+  - name: moduleName
+    description: >-
+      Ruby module namespace for the generated client and model classes (e.g. PetStore). Also
+      determines the generated file layout: lib/<snake_case moduleName>/... plus a top-level
+      lib/<snake_case moduleName>.rb aggregator, following ordinary Ruby gem conventions.
+    required: true
+  - name: strict
+    description: >-
+      When "true" (default), a schema or operation the generator can't handle aborts generation
+      with an error. Set to "false" to instead skip it with a printed warning and generate
+      everything else - useful for large real-world specs where a handful of unsupported
+      constructs shouldn't block the rest of the generated code.
+    defaultValue: "true"

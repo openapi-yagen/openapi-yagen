@@ -1,0 +1,36 @@
+module {{ moduleName }}
+{% if tagDescription %}{{ tagDescription | indent("  # ", true) }}
+{% endif %}  class {{ tagClass }}
+    # @param connection [Faraday::Connection] a connection the caller has already configured
+    #   (adapter, retries, default headers, ...) - this class never creates its own.
+    # @param base_url [String] prefixed onto every operation's path
+    # @param auth [Hash] credential providers for operations that declare a security requirement,
+    #   e.g. `{ bearer: -> { token } }` or `{ api_key: "..." }` - a static value or a zero-arg
+    #   callable (re-invoked per request, for a rotating/expiring token) are both accepted.
+    def initialize(connection:, base_url: "", auth: {})
+      @connection = connection
+      @base_url = base_url
+      @auth = auth
+    end
+{% for op in operations %}
+{% if op.docComment %}    {{ op.docComment | indent(4) }}
+{% endif %}    def {{ op.name }}({% for k in op.kwargs %}{{ k.rubyName }}:{% if not k.required %} nil{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
+{% if op.hasQueryParams %}      query = { {% for p in op.queryParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
+{% endif %}{% if op.hasHeaderParams %}      headers = { {% for p in op.headerParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
+{% endif %}{% if op.body %}      body = {{ op.bodyWireExpr }}
+{% endif %}      parsed = OpenapiYagenRuntime.request(
+        connection: @connection,
+        method: :{{ op.method }},
+        path: "#{@base_url}{{ op.pathExpr }}",
+{% if op.hasQueryParams %}        query: query,
+{% endif %}{% if op.hasHeaderParams %}        headers: headers,
+{% endif %}{% if op.body %}        body: body,
+{% endif %}{% if op.authLiteral %}        auth: {{ op.authLiteral }},
+        auth_config: @auth,
+{% endif %}      )
+{% if op.hasResponse %}      {{ op.responseFromHExpr }}
+{% else %}      nil
+{% endif %}    end
+{% endfor %}
+  end
+end

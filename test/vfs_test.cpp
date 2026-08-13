@@ -190,11 +190,12 @@ TEST_CASE("Embedded generator file system backend", "[vfs]")
         }
     }
 
-    SECTION("At least the three documented generators are embedded")
+    SECTION("At least the four documented generators are embedded")
     {
         const auto& reg = Embedded::registry();
         REQUIRE(reg.contains("kotlin_ktor_client"));
         REQUIRE(reg.contains("kotlin_ktor_server"));
         REQUIRE(reg.contains("typescript_fetch_client"));
+        REQUIRE(reg.contains("ruby_faraday_client"));
     }
 }

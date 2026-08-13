@@ -1,0 +1,30 @@
+# Self-contained test project (see ../../README.md's collection-wide convention) - its only
+# repo-relative reference is "../src", pointing back at this generator's own payload. Regenerates
+# the client from resources/kitchensink.yaml on every `rake test`, then runs minitest against the
+# freshly generated code - never against a stale checked-in copy.
+
+require "rake/testtask"
+
+GENERATOR_SRC = File.expand_path("../src", __dir__)
+GENERATED_DIR = File.expand_path("generated", __dir__)
+SPEC_FILE = File.expand_path("resources/kitchensink.yaml", __dir__)
+
+# Points at a prebuilt openapi-yagen binary. Without it, falls back to this checkout's own
+# dist/openapi-yagen - same convention the Gradle/npm generator test suites use (see
+# generators/README.md).
+OPENAPI_YAGEN = ENV["OPENAPI_YAGEN"] || File.expand_path("../../../dist/openapi-yagen", __dir__)
+
+desc "Regenerate the client from resources/kitchensink.yaml"
+task :generate do
+  rm_rf GENERATED_DIR
+  sh OPENAPI_YAGEN, "g", "-o", GENERATED_DIR, "-g", GENERATOR_SRC, SPEC_FILE, "-v", "moduleName=Kitchensink"
+end
+
+Rake::TestTask.new(:test) do |t|
+  t.libs << "test"
+  t.test_files = FileList["test/**/*_test.rb"]
+  t.warning = false
+end
+
+task test: :generate
+task default: :test

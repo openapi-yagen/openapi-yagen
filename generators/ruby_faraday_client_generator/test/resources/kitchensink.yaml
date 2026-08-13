@@ -1,0 +1,350 @@
+openapi: 3.0.3
+info:
+  title: Kitchen Sink (ruby_faraday_client_generator test fixture)
+  version: "1.0"
+  description: >-
+    A small, purpose-built spec exercising every feature this generator's README claims to
+    support (required/optional/nullable properties, enums, arrays, discriminated and
+    undiscriminated oneOf/anyOf, allOf, path/query/header parameters including an array-typed
+    query param) plus operations designed to trigger ApiError (non-2xx) responses. Adapted from
+    (but not shared with) the sibling typescript_fetch_client_generator's own copy of this file,
+    per this repo's self-containment convention (see generators/README.md).
+tags:
+  - name: pets
+    description: Operations for browsing and managing pets - also exercises document-level
+      tags[].description reaching the generated <Tag>Client class's own doc comment.
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      tags: [pets]
+      summary: List all pets.
+      description: Returns a page of pets, optionally filtered by tag.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of pets to return.
+          schema:
+            type: integer
+            maximum: 100
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: tags
+          in: query
+          required: false
+          description: Array-typed query parameter - serialized as repeated `tags=a&tags=b`.
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        "200":
+          description: A page of pets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pets"
+    post:
+      operationId: createPet
+      tags: [pets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewPet"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+  /pets/{petId}:
+    get:
+      operationId: getPetById
+      tags: [pets]
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The pet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+    delete:
+      operationId: deletePet
+      tags: [pets]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+  /pets/{petId}/ratings:
+    post:
+      operationId: ratePet
+      tags: [pets]
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Request-Id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Rating"
+      responses:
+        "204":
+          description: Recorded
+  /pets/{petId}/named-tag:
+    get:
+      operationId: getNamedTag
+      tags: [pets]
+      description: Exercises allOf flattening (NamedPet merges Tag's id/name with an added species field).
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The pet's named tag
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NamedPet"
+  /widgets:
+    get:
+      operationId: listWidgets
+      tags: [widgets]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: X-Client-Version
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A page of widgets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Widgets"
+    post:
+      operationId: createWidget
+      tags: [widgets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Widget"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Widget"
+  /widgets/shapes/{shapeId}:
+    get:
+      operationId: getShape
+      tags: [widgets]
+      parameters:
+        - name: shapeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The shape
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shape"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    apiKeyAuth:
+      type: apiKey
+      name: X-Api-Key
+      in: header
+  schemas:
+    Pet:
+      description: A pet available in the store.
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: The pet's display name.
+        tag:
+          type: string
+        notes:
+          type: string
+        status:
+          $ref: "#/components/schemas/PetStatus"
+    NewPet:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        tag:
+          type: string
+        notes:
+          type: string
+        status:
+          $ref: "#/components/schemas/PetStatus"
+    PetStatus:
+      type: string
+      enum: [available, pending, sold]
+    Rating:
+      type: object
+      required: [score, label]
+      properties:
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+        label:
+          type: string
+          minLength: 2
+          maxLength: 20
+          pattern: "^[a-z]+$"
+    Tag:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+    NamedPet:
+      description: Exercises allOf flattening - merges Tag's id/name with an added species field.
+      allOf:
+        - $ref: "#/components/schemas/Tag"
+        - type: object
+          required: [species]
+          properties:
+            species:
+              type: string
+    Pets:
+      type: array
+      items:
+        $ref: "#/components/schemas/Pet"
+    TagSet:
+      type: array
+      uniqueItems: true
+      items:
+        $ref: "#/components/schemas/Tag"
+    Widget:
+      type: object
+      required: [id, name, variant]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        tags:
+          $ref: "#/components/schemas/TagSet"
+        variant:
+          $ref: "#/components/schemas/WidgetVariant"
+    Widgets:
+      type: array
+      items:
+        $ref: "#/components/schemas/Widget"
+    Shape:
+      description: A discriminated union - dispatched via the `shapeType` discriminator.
+      oneOf:
+        - $ref: "#/components/schemas/Circle"
+        - $ref: "#/components/schemas/Square"
+      discriminator:
+        propertyName: shapeType
+        mapping:
+          circle: "#/components/schemas/Circle"
+          square: "#/components/schemas/Square"
+    Circle:
+      type: object
+      required: [shapeType, radius]
+      properties:
+        shapeType:
+          type: string
+        radius:
+          type: number
+    Square:
+      type: object
+      required: [shapeType, side]
+      properties:
+        shapeType:
+          type: string
+        side:
+          type: number
+    WidgetVariant:
+      description: An undiscriminated union - dispatched at runtime on the raw JSON value's shape.
+      oneOf:
+        - $ref: "#/components/schemas/WidgetVariantA"
+        - $ref: "#/components/schemas/WidgetVariantB"
+        - type: string
+    WidgetVariantA:
+      type: object
+      required: [kind, value]
+      properties:
+        kind:
+          type: string
+        value:
+          type: integer
+    WidgetVariantB:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string

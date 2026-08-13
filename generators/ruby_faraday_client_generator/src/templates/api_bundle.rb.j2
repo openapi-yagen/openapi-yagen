@@ -1,0 +1,17 @@
+module {{ moduleName }}
+  # Bundles one instance of every tag's client class, constructed once from a shared
+  # Faraday::Connection/base_url/auth - a caller only needing one tag can still instantiate that
+  # tag's own class directly instead (e.g. `PetsClient.new(connection: conn)`).
+{% if apiDescription %}{{ apiDescription | indent("  # ", true) }}
+{% endif %}  class ApiClient
+{% if tagGroups %}    attr_reader {% for g in tagGroups %}:{{ g.propertyName }}{% if not loop.is_last %}, {% endif %}{% endfor %}
+
+{% endif %}    # @param connection [Faraday::Connection] a connection the caller has already configured -
+    #   shared by every tag's client class.
+    # @param base_url [String]
+    # @param auth [Hash] see any generated <Tag>Client#initialize's own doc comment
+    def initialize(connection:, base_url: "", auth: {})
+{% for g in tagGroups %}      @{{ g.propertyName }} = {{ g.tagClass }}.new(connection: connection, base_url: base_url, auth: auth)
+{% endfor %}    end
+  end
+end
