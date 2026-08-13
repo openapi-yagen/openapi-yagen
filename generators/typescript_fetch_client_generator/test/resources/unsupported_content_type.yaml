@@ -1,0 +1,23 @@
+openapi: 3.0.3
+info:
+  title: Unsupported content type fixture (typescript_fetch_client_generator test fixture)
+  version: "1.0"
+  description: >-
+    A single operation whose request body is declared with a content-type this generator doesn't
+    handle (text/plain) - used to assert generation fails loudly (default strict=true) or is
+    skipped with a warning (-v strict=false), instead of silently dropping the body the way an
+    earlier version of this generator used to.
+paths:
+  /notes:
+    post:
+      operationId: createNote
+      tags: [notes]
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "201":
+          description: Created

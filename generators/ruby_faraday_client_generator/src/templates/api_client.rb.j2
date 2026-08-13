@@ -25,6 +25,7 @@ module {{ moduleName }}
 {% if op.hasQueryParams %}        query: query,
 {% endif %}{% if op.hasHeaderParams %}        headers: headers,
 {% endif %}{% if op.body %}        body: body,
+        content_type: :{{ op.body.encoding }},
 {% endif %}{% if op.authLiteral %}        auth: {{ op.authLiteral }},
         auth_config: @auth,
 {% endif %}      )

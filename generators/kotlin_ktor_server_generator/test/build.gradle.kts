@@ -105,6 +105,13 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // Lets GenerationErrorsTest shell out to the same openapi-yagen binary/generator source this
+    // build's own generateServer task uses, without guessing at the JVM test process's working
+    // directory - see that test for why it needs to invoke the CLI directly instead of going
+    // through generateServer (which only ever regenerates the happy-path kitchensink.yaml).
+    systemProperty("openApiYagenBin", openApiYagenBin)
+    systemProperty("generatorSrcDir", "${projectDir}/../src")
+    systemProperty("testResourcesDir", "${projectDir}/resources")
 }
 
 // KMP has no top-level `test` task (only per-target ones: jvmTest, linuxX64Test, ...) - alias it

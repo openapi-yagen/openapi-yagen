@@ -4,6 +4,7 @@ package {{ packageName }}
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.*
+import io.ktor.client.request.forms.*
 import io.ktor.http.*
 
 {{ docComment(tagDescription) }}class {{ tagClass }}(private val client: HttpClient, private val baseUrl: String = "") {
@@ -23,9 +24,15 @@ import io.ktor.http.*
     }
 {% else %}    queryParam({{ toStringLiteral(p.wireName) }}, {{ p.ktName }})
 {% endif %}{% endif %}{% endfor %}{% for p in op.headerParams %}    headerParam({{ toStringLiteral(p.wireName) }}, {{ p.ktName }})
-{% endfor %}{% if op.body %}    contentType(ContentType.Application.Json)
+{% endfor %}{% if op.body %}{% if op.body.encoding == "urlencoded" %}    setBody(FormDataContent(Parameters.build {
+{% for f in op.body.fields %}        body.{{ f.ktName }}?.let { append({{ toStringLiteral(f.wireName) }}, it.toString()) }
+{% endfor %}    }))
+{% else if op.body.encoding == "multipart" %}    setBody(MultiPartFormDataContent(formData {
+{% for f in op.body.fields %}        body.{{ f.ktName }}?.let { append({{ toStringLiteral(f.wireName) }}, it.toString()) }
+{% endfor %}    }))
+{% else %}    contentType(ContentType.Application.Json)
     setBody(body)
-{% endif %}}{% if op.returnsValue %}
+{% endif %}{% endif %}}{% if op.returnsValue %}
 return response.body(){% endif %}{% endfilter %}
     }
 {% endfor %}

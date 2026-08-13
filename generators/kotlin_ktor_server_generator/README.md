@@ -75,6 +75,37 @@ Add these dependencies to the module the generated code lives in: `io.ktor:ktor-
 (only needed if the spec uses `date`/`date-time` formats). Add `io.ktor:ktor-server-status-pages`
 if you use the `StatusPages` mapping shown above (recommended).
 
+### Request body content types
+
+Three request-body content types are supported, picked from whichever the spec declares in
+priority order `application/json` > `multipart/form-data` > `application/x-www-form-urlencoded`:
+
+- **`application/json`** (default): `call.receive<Body>()`, validated the same way as always -
+  the handler method's `body:` parameter is the generated `@Serializable` data class.
+- **`application/x-www-form-urlencoded`**: `call.receiveParameters()`, then one field pulled/
+  converted/validated per property (`Parameters.requireParamAs`/`paramAs` in `Validation.kt` - the
+  same conversion/error-handling machinery query parameters already use) into that **same**
+  generated data class - the handler method's signature is unaffected by which of these two
+  content types the spec declares. The schema must be `type: object` with only scalar/enum
+  properties (a nested object/array field is a generator error - see "Known limitations").
+- **`multipart/form-data`** - the one exception to "the handler always sees a clean, typed,
+  already-validated body": streaming parts/files don't fit a plain data class shape, so the
+  handler method's `body:` parameter is Ktor's own
+  [`io.ktor.http.content.MultiPartData`](https://api.ktor.io/ktor-http/io.ktor.http.content/-multi-part-data/)
+  directly (from `call.receiveMultipart()`), not a schema-derived type:
+  ```kotlin
+  override suspend fun uploadPetPhoto(petId: String, body: MultiPartData) {
+      body.forEachPart { part ->
+          when (part) {
+              is PartData.FormItem -> if (part.name == "caption") { /* ... */ }
+              is PartData.FileItem -> if (part.name == "photo") { part.streamProvider().use { /* ... */ } }
+              else -> {}
+          }
+          part.dispose()
+      }
+  }
+  ```
+
 ## Formatting generated sources
 
 Templates (`templates/*.kt.j2`) emit correctly indented Kotlin directly, using Inja's `indent()`/
@@ -135,7 +166,11 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
 
 ## Known limitations (v1)
 
-- Only `application/json` request/response bodies are handled; other content types are ignored.
+- Request bodies support `application/json`, `application/x-www-form-urlencoded`, and
+  `multipart/form-data` (see "Request body content types" above). Responses are `application/json`
+  only. **Any other content type on a request body or a response is a generator error** (aborts
+  generation under default `strict=true`; skips just that operation with a printed warning under
+  `-v strict=false`) - it is never silently dropped.
 - Path/query/header parameters must resolve to a primitive scalar type (string/integer/
   number/boolean), an enum, or a oneOf/anyOf whose every variant is itself primitive/enum-shaped
   (passed straight through as a plain, unparsed `String` - see "oneOf/anyOf support" above) - an

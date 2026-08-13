@@ -68,6 +68,42 @@ raw response body itself (there's no equivalent of Ktor's installed `ContentNego
 the generated code to lean on instead), and a response body that's already been parsed into a Hash
 by your own middleware would make it try to `JSON.parse` a Hash and fail.
 
+### Request body content types
+
+Three request-body content types are supported, picked from whichever the spec declares in
+priority order `application/json` > `multipart/form-data` > `application/x-www-form-urlencoded`.
+All three build the **same typed `body:` argument** (an instance of the schema's generated model
+class) - only the wire encoding differs:
+
+- **`application/json`** (default): `body.to_h` is `JSON.generate`'d.
+- **`application/x-www-form-urlencoded`**: `body.to_h`'s flat wire Hash is encoded with Ruby's
+  stdlib `URI.encode_www_form` - no extra gem needed. The schema must be `type: object` with only
+  scalar/enum properties (a nested object/array field is a generator error - see "Known
+  limitations").
+- **`multipart/form-data`**: same object-schema restriction, plus a `type: string, format: binary`
+  property is allowed (a file field) - its value passes straight through untouched. `body.to_h`'s
+  Hash is passed as the Faraday request body **unmodified**, with **no** `Content-Type` set - your
+  own connection needs [`faraday-multipart`](https://github.com/lostisland/faraday-multipart)
+  installed to actually encode it:
+  ```ruby
+  # Gemfile: gem "faraday-multipart"
+  connection = Faraday.new(url: "https://api.example.com/v1") do |f|
+    f.request :multipart
+    f.adapter Faraday.default_adapter
+  end
+
+  api.pets.upload_pet_photo(
+    pet_id: "123",
+    body: PetStore::PetPhotoUpload.new(
+      caption: "Rex at the park",
+      photo: Faraday::Multipart::FilePart.new("rex.jpg", "image/jpeg"), # or a File/IO
+    ),
+  )
+  ```
+  `faraday-multipart` is **not** a dependency of the generated code itself (this generator never
+  adds a gem dependency beyond `faraday` - see "Integrating the generated code" above) - only
+  callers who actually invoke a multipart operation need it.
+
 ### Authentication (`components.securitySchemes`)
 
 An operation with a non-empty `security` in the spec pulls its credential from the client's own
@@ -123,7 +159,11 @@ end
 
 ## Known limitations (v1)
 
-- Only `application/json` request/response bodies are handled; other content types are ignored.
+- Request bodies support `application/json`, `application/x-www-form-urlencoded`, and
+  `multipart/form-data` (see "Request body content types" above). Responses are `application/json`
+  only. **Any other content type on a request body or a response is a generator error** (aborts
+  generation under default `strict=true`; skips just that operation with a printed warning under
+  `-v strict=false`) - it is never silently dropped.
 - Path/header parameters must resolve to a primitive scalar or enum (string/number/boolean) - an
   object or array in one of those positions is a generator error. Query parameters have no such
   restriction: any shape (scalar, enum, array, or a plain object for the `deepObject`-style filter

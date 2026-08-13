@@ -100,25 +100,84 @@ function buildAuthLiteral(op) {
   throw Error(`<1825fbd7> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer and apiKey are currently supported`);
 }
 
-// Only `application/json` bodies are handled; anything else is silently ignored (see README's
-// Known Limitations). `required` correctly defaults to OpenAPI 3.0's actual default (`false` when
-// absent).
+const JSON_MEDIA_TYPE = "application/json";
+const MULTIPART_MEDIA_TYPE = "multipart/form-data";
+const URLENCODED_MEDIA_TYPE = "application/x-www-form-urlencoded";
+
+// application/x-www-form-urlencoded and multipart/form-data bodies are, by OpenAPI convention,
+// always `type: object` schemas with one property per form field. A `format: binary` property is
+// already classified `Primitive` by the engine's kindOf() (same as any other string), so it needs
+// no special-casing here - it already passes through model registration and (de)serialization
+// completely untouched, exactly like every other scalar; only the operation's own doc comment (see
+// collectOperationsByTag below) gets a hint that a file-like value belongs there. Anything else (a
+// nested object/array property) is a generator error - same "handle the common case, error on the
+// rest" policy path/header params already follow.
+function requireFlatObjectSchema(bodySchema, mediaType) {
+  if (kindOf(bodySchema) !== "Object") {
+    throw Error(`<2f9b6b1a> A "${mediaType}" body must be an object schema (one property per form field) - got ${kindOf(bodySchema)}`);
+  }
+  for (const [propName, propSchema] of Object.entries(bodySchema.properties || {})) {
+    const kind = kindOf(unwrapSchema(propSchema));
+    if (kind !== "Primitive" && kind !== "Enum") {
+      throw Error(
+        `<9c2d5e7f> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types ` +
+          `(including format: binary strings) or enums are supported as form fields - got ${kind}`
+      );
+    }
+  }
+}
+
+// Picks which of the three supported request-body media types is present, preferring JSON (the
+// common case), then multipart (needs the flat-object check below for its file fields), then
+// urlencoded. Returns null if `content` has entries but none of the three - the caller turns that
+// into a generation error instead of silently treating the operation as bodyless (see this
+// generator's README "Known limitations").
+function pickBodyContent(content) {
+  if (content[JSON_MEDIA_TYPE]) return { mediaType: JSON_MEDIA_TYPE, content: content[JSON_MEDIA_TYPE], encoding: "json" };
+  if (content[MULTIPART_MEDIA_TYPE]) return { mediaType: MULTIPART_MEDIA_TYPE, content: content[MULTIPART_MEDIA_TYPE], encoding: "multipart" };
+  if (content[URLENCODED_MEDIA_TYPE]) return { mediaType: URLENCODED_MEDIA_TYPE, content: content[URLENCODED_MEDIA_TYPE], encoding: "urlencoded" };
+  return null;
+}
+
+// `required` correctly defaults to OpenAPI 3.0's actual default (`false` when absent). A
+// requestBody with `content: {}` (no media types at all - pathological, but not the same thing as
+// "declared with content the generator can't handle") is treated as bodyless, same as no
+// requestBody at all; anything present-but-unhandled is a loud error (see pickBodyContent).
 function buildRequestBody(registry, hintBase, requestBody) {
   if (!requestBody) return null;
-  const jsonContent = (requestBody.content || {})["application/json"];
-  if (!jsonContent) return null;
-  const t = rubyType(registry, jsonContent.schema || {}, hintBase + "Body");
-  return { label: t.label, descriptor: t.descriptor, required: requestBody.required === true };
+  const content = requestBody.content || {};
+  if (Object.keys(content).length === 0) return null;
+  const picked = pickBodyContent(content);
+  if (!picked) {
+    throw Error(
+      `<5b8a1c3d> Unsupported request body content-type(s) [${Object.keys(content).join(", ")}] - only ` +
+        `"${JSON_MEDIA_TYPE}", "${MULTIPART_MEDIA_TYPE}", and "${URLENCODED_MEDIA_TYPE}" are supported`
+    );
+  }
+  const bodySchema = picked.content.schema || {};
+  if (picked.encoding !== "json") requireFlatObjectSchema(bodySchema, picked.mediaType);
+  const t = rubyType(registry, bodySchema, hintBase + "Body");
+  return { label: t.label, descriptor: t.descriptor, required: requestBody.required === true, encoding: picked.encoding };
 }
 
 // Uses the engine's firstSuccessResponse() instead of hand-rolling the same "first declared 2xx,
-// else default" pick every response-handling generator otherwise needs.
+// else default" pick every response-handling generator otherwise needs. Responses stay
+// JSON-only - multipart/urlencoded responses are vanishingly rare in practice and out of scope for
+// now (see README "Known limitations") - so, unlike buildRequestBody, there's only one media type
+// to accept; anything else present is still a loud error, not a silent "void" response.
 function buildResponse(registry, hintBase, responses) {
   const picked = firstSuccessResponse(responses || {});
   if (!picked) return { label: null, descriptor: null };
-  const content = (picked.response.content || {})["application/json"];
-  if (!content) return { label: null, descriptor: null };
-  const t = rubyType(registry, content.schema || {}, hintBase + "Response");
+  const content = picked.response.content || {};
+  if (Object.keys(content).length === 0) return { label: null, descriptor: null };
+  const jsonContent = content[JSON_MEDIA_TYPE];
+  if (!jsonContent) {
+    throw Error(
+      `<7e4f9a2b> Unsupported response content-type(s) [${Object.keys(content).join(", ")}] for the success ` +
+        `response - only "${JSON_MEDIA_TYPE}" is supported`
+    );
+  }
+  const t = rubyType(registry, jsonContent.schema || {}, hintBase + "Response");
   return { label: t.label, descriptor: t.descriptor };
 }
 
@@ -170,13 +229,28 @@ export function collectOperationsByTag(registry) {
           }
         );
 
+        // A multipart body's `format: binary` field(s) pass through untouched (see
+        // requireFlatObjectSchema above) - the only place that can hint what to actually pass is
+        // the operation's own doc comment, since the property itself carries no such marker. Joined
+        // with a single space (not a blank line) - buildDocComment's "#" style gives each of
+        // summary/description exactly one leading "#", it doesn't re-split an already-multi-line
+        // string per embedded newline, so an inserted "\n\n" here would print as unprefixed raw
+        // text instead of a second commented paragraph.
+        let description = op.description || null;
+        if (body && body.encoding === "multipart") {
+          const hint =
+            "For multipart/form-data: a `format: binary` field expects a Faraday::Multipart::FilePart " +
+            '(gem "faraday-multipart"), a File, or an IO.';
+          description = description ? `${description} ${hint}` : hint;
+        }
+
         if (!groups.has(tag)) groups.set(tag, { tagClass, propertyName, description: tagDescription(tag), operations: [] });
         groups.get(tag).operations.push({
           name: opName,
           method: op.method.toLowerCase(),
           docComment: buildDocComment(
             op.summary,
-            op.description,
+            description,
             [...pathParams, ...queryParams, ...headerParams]
               .filter((p) => p.description)
               .map((p) => ({ name: p.rubyName, description: p.description })),

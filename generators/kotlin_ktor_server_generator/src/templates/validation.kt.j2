@@ -1,5 +1,6 @@
 package {{ packageName }}
 
+import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.MissingRequestParameterException
 import io.ktor.server.routing.RoutingCall
@@ -41,6 +42,16 @@ fun <T> RoutingCall.queryParamListAs(name: String, typeName: String, convert: (S
 fun <T> RoutingCall.requireQueryParamListAs(name: String, typeName: String, convert: (String) -> T): List<T> =
     request.queryParameters.getAll(name)?.map { convertOrThrow(it, name, typeName, convert) }
         ?: throw MissingRequestParameterException(name)
+
+// Same shape as queryParamAs/requireQueryParamAs above, but reads from an already-parsed
+// Parameters object instead of RoutingCall.request.queryParameters - what a urlencoded request
+// body's fields need (see api_routes.kt.j2's call.receiveParameters()), since that's a plain
+// Parameters value with no ApplicationCall of its own to be an extension on.
+fun <T> Parameters.paramAs(name: String, typeName: String, convert: (String) -> T): T? =
+    this[name]?.let { convertOrThrow(it, name, typeName, convert) }
+
+fun <T> Parameters.requireParamAs(name: String, typeName: String, convert: (String) -> T): T =
+    convertOrThrow(this[name] ?: throw MissingRequestParameterException(name), name, typeName, convert)
 
 fun <T> RoutingCall.headerParamAs(name: String, typeName: String, convert: (String) -> T): T? =
     request.headers[name]?.let { convertOrThrow(it, name, typeName, convert) }

@@ -140,6 +140,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/NamedPet"
+  /pets/{petId}/photo:
+    post:
+      operationId: uploadPetPhoto
+      tags: [pets]
+      description: Exercises multipart/form-data request bodies (a format:binary file field
+        alongside a plain string field).
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/PetPhotoUpload"
+      responses:
+        "204":
+          description: Photo uploaded
+  /pets/{petId}/subscribe:
+    post:
+      operationId: subscribeToPet
+      tags: [pets]
+      description: Exercises application/x-www-form-urlencoded request bodies.
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/PetSubscription"
+      responses:
+        "204":
+          description: Subscribed
   /widgets:
     get:
       operationId: listWidgets
@@ -253,6 +294,23 @@ components:
           minLength: 2
           maxLength: 20
           pattern: "^[a-z]+$"
+    PetPhotoUpload:
+      type: object
+      required: [photo]
+      properties:
+        caption:
+          type: string
+        photo:
+          type: string
+          format: binary
+    PetSubscription:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+        notify:
+          type: boolean
     Tag:
       type: object
       required: [id, name]

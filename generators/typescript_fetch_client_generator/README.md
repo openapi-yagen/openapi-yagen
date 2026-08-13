@@ -79,6 +79,29 @@ const api = new ApiClient({
 });
 ```
 
+### Request body content types
+
+Three request-body content types are supported, picked from whichever the spec declares in
+priority order `application/json` > `multipart/form-data` > `application/x-www-form-urlencoded`:
+
+- **`application/json`** (default): `options.body` is `JSON.stringify`'d, `Content-Type:
+  application/json`.
+- **`application/x-www-form-urlencoded`**: `options.body` (still a plain, generated-interface-typed
+  object - every property scalar/enum, see "Known limitations") is encoded with `URLSearchParams`,
+  `Content-Type: application/x-www-form-urlencoded`.
+- **`multipart/form-data`**: same scalar/enum-only restriction, plus a `type: string, format:
+  binary` property is allowed (a file field) and maps to `Blob | File` instead of the generic
+  `string` a JSON body's `format: binary` field gets. `options.body` is converted to a native
+  `FormData` and sent with **no** `Content-Type` set by the generated code - the browser/`fetch`
+  sets it itself, boundary included:
+  ```ts
+  await api.pets.uploadPetPhoto(petId, {
+    body: { caption: "Rex at the park", photo: fileInput.files[0] }, // photo: Blob | File
+  });
+  ```
+  No extra dependency needed - `FormData` is as ambient a Web API as `fetch`/`URL` already relied
+  on.
+
 ### Authentication (`components.securitySchemes`)
 
 An operation with a non-empty `security` in the spec gets its credential from `auth`, not
@@ -201,7 +224,11 @@ npx prettier --write "out/**/*.ts"
 
 ## Known limitations (v1)
 
-- Only `application/json` request/response bodies are handled; other content types are ignored.
+- Request bodies support `application/json`, `application/x-www-form-urlencoded`, and
+  `multipart/form-data` (see "Request body content types" above). Responses are `application/json`
+  only. **Any other content type on a request body or a response is a generator error** (aborts
+  generation under default `strict=true`; skips just that operation with a printed warning under
+  `-v strict=false`) - it is never silently dropped.
 - Path/header parameters must resolve to a primitive scalar or enum (string/number/boolean) - an
   object or array in one of those positions is a generator error.
 - Query parameters may be arrays, serialized as repeated keys (`?tag=a&tag=b`, OpenAPI 3's default

@@ -100,20 +100,40 @@ module OpenapiYagenRuntime
   # response's own from_h, see api_client.rb.j2). Raises ApiError for any non-2xx response - the
   # parsed (or raw-text) body is still attached to the error, so callers can inspect it (e.g. a
   # structured error payload) without a second request.
-  def request(connection:, method:, path:, query: nil, headers: nil, body: nil, auth: nil, auth_config: nil)
+  #
+  # `content_type:` picks how `body` (already wire-shaped - a Hash, from the generated model's own
+  # to_wire) gets encoded:
+  #   :json        - JSON.generate, Content-Type: application/json (default).
+  #   :urlencoded  - URI.encode_www_form (stdlib), Content-Type: application/x-www-form-urlencoded.
+  #   :multipart   - passed straight through as the Faraday request body, UNMODIFIED, with no
+  #                  Content-Type set here at all - the caller's own installed
+  #                  Faraday::Multipart::Middleware (gem "faraday-multipart") performs the actual
+  #                  MIME encoding (boundary generation, per-part headers) once the request reaches
+  #                  it. This module never hand-rolls multipart encoding itself - see the
+  #                  generator's README for why (same "caller owns Faraday-specific concerns"
+  #                  reasoning as never creating the Faraday::Connection itself).
+  def request(connection:, method:, path:, query: nil, headers: nil, body: nil, content_type: :json, auth: nil, auth_config: nil)
     resolved_headers = (headers || {}).compact
 
     resolved_query = apply_auth(auth, auth_config, resolved_headers, query)
     query_string = build_query(resolved_query)
     full_path = query_string.empty? ? path : "#{path}?#{query_string}"
 
-    body_string = nil
+    request_body = nil
     unless body.nil?
-      body_string = JSON.generate(body)
-      resolved_headers["Content-Type"] = "application/json"
+      case content_type
+      when :urlencoded
+        request_body = URI.encode_www_form(body)
+        resolved_headers["Content-Type"] = "application/x-www-form-urlencoded"
+      when :multipart
+        request_body = body
+      else
+        request_body = JSON.generate(body)
+        resolved_headers["Content-Type"] = "application/json"
+      end
     end
 
-    response = connection.run_request(method, full_path, body_string, resolved_headers)
+    response = connection.run_request(method, full_path, request_body, resolved_headers)
 
     text = response.body.to_s
     parsed =

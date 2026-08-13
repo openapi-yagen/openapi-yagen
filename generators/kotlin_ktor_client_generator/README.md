@@ -67,6 +67,22 @@ Add these dependencies to the module the generated code lives in:
 `org.jetbrains.kotlinx:kotlinx-datetime` (only needed if the spec uses `date`/`date-time`
 formats).
 
+### Request body content types
+
+Three request-body content types are supported, picked from whichever the spec declares in
+priority order `application/json` > `multipart/form-data` > `application/x-www-form-urlencoded`.
+All three still build the same generated `@Serializable` data class as the `body` parameter - only
+how it's sent over the wire differs:
+
+- **`application/json`** (default): `contentType(ContentType.Application.Json); setBody(body)`.
+- **`application/x-www-form-urlencoded`**: `setBody(FormDataContent(Parameters.build { ... }))`,
+  one `append("wireName", body.ktName.toString())` per property. The schema must be `type: object`
+  with only scalar/enum properties (a nested object/array field is a generator error - see "Known
+  limitations").
+- **`multipart/form-data`**: same restriction, `setBody(MultiPartFormDataContent(formData {
+  ... }))` instead - both builders come from `io.ktor.client.request.forms`, part of
+  `ktor-client-core` itself (no extra Gradle dependency beyond what's already listed above).
+
 ## Formatting generated sources
 
 Templates (`templates/*.kt.j2`) emit correctly indented Kotlin directly, using Inja's `indent()`/
@@ -127,7 +143,14 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
 
 ## Known limitations (v1)
 
-- Only `application/json` request/response bodies are handled; other content types are ignored.
+- Request bodies support `application/json`, `application/x-www-form-urlencoded`, and
+  `multipart/form-data` (see "Request body content types" above). Responses are `application/json`
+  only. **Any other content type on a request body or a response is a generator error** (aborts
+  generation under default `strict=true`; skips just that operation with a printed warning under
+  `-v strict=false`) - it is never silently dropped.
+- A `type: string, format: binary` property inside a `multipart/form-data` body still maps to the
+  generic `String` every `format: binary` schema maps to (see below) - there's no `ByteArray`/
+  streaming-upload type yet, unlike the TypeScript generator's `Blob | File` for the same position.
 - Path/query/header parameters must resolve to a primitive scalar type (string/integer/
   number/boolean), an enum, or a oneOf/anyOf whose every variant is itself primitive/enum-shaped
   (passed straight through as a plain, unparsed `String` - see "oneOf/anyOf support" above) - an

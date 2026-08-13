@@ -3,6 +3,8 @@ package {{ packageName }}
 
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveMultipart
+import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
@@ -28,9 +30,16 @@ import io.ktor.server.routing.put
 {% endfor %}        ))
     } else null
 {% else %}{{ extractAndValidate(p) }}{% endif %}{% endfor %}{% for p in op.headerParams %}{{ extractAndValidate(p) }}{% endfor %}{% for p in op.authParams %}val {{ p.ktName }} = {{ p.extractExpr }}
-{% endfor %}{% if op.body %}val body = call.receive<{{ op.body.type }}>(){% if op.body.hasValidate %}.validate(){% endif %}
+{% endfor %}{% if op.body %}{% if op.body.encoding == "multipart" %}val body = call.receiveMultipart()
 
-{% endif %}{% if op.returnsValue %}val result = handler.{{ op.name }}({{ op.handlerArgs }})
+{% else if op.body.encoding == "urlencoded" %}val bodyParams = call.receiveParameters()
+val body = {{ op.body.type }}(
+{% for f in op.body.fields %}    {{ f.ktName }} = bodyParams.{% if f.nullable %}paramAs{% else %}requireParamAs{% endif %}({{ toStringLiteral(f.wireName) }}, {{ toStringLiteral(f.typeLabel) }}) { {{ f.converter }} },
+{% endfor %}){% if op.body.hasValidate %}.validate(){% endif %}
+
+{% else %}val body = call.receive<{{ op.body.type }}>(){% if op.body.hasValidate %}.validate(){% endif %}
+
+{% endif %}{% endif %}{% if op.returnsValue %}val result = handler.{{ op.name }}({{ op.handlerArgs }})
 call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}), result)
 {% else %}handler.{{ op.name }}({{ op.handlerArgs }})
 call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}))

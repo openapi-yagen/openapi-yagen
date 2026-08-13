@@ -45,6 +45,12 @@ export interface AuthRequirement {
   name?: string;
 }
 
+/** How `RequestOptions.body` gets encoded on the wire. Only ever set to "urlencoded"/"multipart" by
+ * a generated method whose requestBody declared the matching OpenAPI content-type (see the
+ * generator's operations.js); `body` is then always a flat `Record<string, primitive>` - every
+ * property scalar/enum, validated at generation time, never a nested object. */
+export type BodyEncoding = "json" | "urlencoded" | "multipart";
+
 export interface RequestOptions {
   method: string;
   /** Already interpolated by the caller (see each operation's generated path template); must
@@ -67,6 +73,8 @@ export interface RequestOptions {
   headers?: Record<string, string | undefined>;
   /** JSON-serializable request body; entirely omitted from the request when `undefined`. */
   body?: unknown;
+  /** Defaults to "json" when `body` is set and this is omitted. */
+  bodyEncoding?: BodyEncoding;
   signal?: AbortSignal;
   /** Only present when the generator was run with `-v validateResponses=true` - a runtime check
    * of the parsed response body against the operation's declared response type (see `request()`
@@ -109,6 +117,19 @@ export class ResponseValidationError extends Error {
     this.name = "ResponseValidationError";
     this.value = value;
   }
+}
+
+/** Encodes a flat, already-scalar-only object (see `BodyEncoding`'s doc comment) as an
+ * "application/x-www-form-urlencoded" body string. Simpler than buildUrl()'s query-serialization
+ * loop below: a urlencoded/multipart request body's schema is restricted to scalar/enum properties
+ * at generation time (see operations.js's requireFlatObjectSchema), so there's no array/deepObject
+ * case to handle here the way a query parameter's value might need. */
+function encodeFormBody(body: Record<string, unknown>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(body)) {
+    if (value !== undefined) params.append(key, String(value));
+  }
+  return params.toString();
 }
 
 function buildUrl(baseUrl: string, path: string, query: RequestOptions["query"]): string {
@@ -195,10 +216,24 @@ export async function request<T>(config: ApiClientConfig, options: RequestOption
   const query = await applyAuth(config, options, headers);
   const url = buildUrl(config.baseUrl, options.path, query);
 
-  let body: string | undefined;
+  let body: BodyInit | undefined;
   if (options.body !== undefined) {
-    body = JSON.stringify(options.body);
-    headers["Content-Type"] = "application/json";
+    const encoding = options.bodyEncoding ?? "json";
+    if (encoding === "urlencoded") {
+      body = encodeFormBody(options.body as Record<string, unknown>);
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+    } else if (encoding === "multipart") {
+      const formData = new FormData();
+      for (const [key, value] of Object.entries(options.body as Record<string, unknown>)) {
+        if (value !== undefined) formData.append(key, value as string | Blob);
+      }
+      body = formData;
+      // No Content-Type set here - fetch sets it itself (with the multipart boundary) once it
+      // sees a FormData body; setting one ourselves would omit the boundary and break the request.
+    } else {
+      body = JSON.stringify(options.body);
+      headers["Content-Type"] = "application/json";
+    }
   }
 
   const response = await doFetch(url, { method: options.method, headers, body, signal: options.signal });

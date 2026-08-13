@@ -40,7 +40,7 @@ test("createPet sends the body as JSON with a Content-Type header", async () => 
   await new PetsClient({ baseUrl: "https://example.test", fetch }).createPet({ body: { name: "Rex" } });
   assert.equal(calls[0]!.method, "POST");
   assert.equal(calls[0]!.headers["content-type"], "application/json");
-  assert.deepEqual(JSON.parse(calls[0]!.body!), { name: "Rex" });
+  assert.deepEqual(JSON.parse(calls[0]!.body as string), { name: "Rex" });
 });
 
 test("ratePet sends a required header", async () => {

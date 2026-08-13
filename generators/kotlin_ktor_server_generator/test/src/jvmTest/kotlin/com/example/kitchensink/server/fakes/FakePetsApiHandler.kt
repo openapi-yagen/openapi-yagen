@@ -4,7 +4,10 @@ import com.example.kitchensink.server.NewPet
 import com.example.kitchensink.server.Pet
 import com.example.kitchensink.server.Pets
 import com.example.kitchensink.server.PetsApiHandler
+import com.example.kitchensink.server.PetSubscription
 import com.example.kitchensink.server.Rating
+import io.ktor.http.content.MultiPartData
+import io.ktor.http.content.forEachPart
 
 // Hand-written fake implementation of the generated PetsApiHandler interface - an in-memory
 // store, just enough business logic for the tests in ../PetsApiRoutesTest.kt to exercise every
@@ -39,6 +42,30 @@ class FakePetsApiHandler : PetsApiHandler {
     override suspend fun ratePet(petId: String, xRequestId: String, apiKeyAuth: String, body: Rating) {
         // Only cares that a known pet exists and that validated params/header/apiKey/body reached
         // here intact - the rating itself isn't persisted anywhere in this fake.
+        pets[petId] ?: throw NotFoundException("pet $petId not found")
+    }
+
+    // Just consumes the multipart parts to prove the generated route/handler wiring actually
+    // delivers a receiveMultipart()-backed MultiPartData through, same "not persisted" spirit as
+    // ratePet above.
+    var lastUploadedCaption: String? = null
+        private set
+    var lastUploadedPhotoSeen: Boolean = false
+        private set
+
+    override suspend fun uploadPetPhoto(petId: String, body: MultiPartData) {
+        pets[petId] ?: throw NotFoundException("pet $petId not found")
+        body.forEachPart { part ->
+            when (part) {
+                is io.ktor.http.content.PartData.FormItem -> if (part.name == "caption") lastUploadedCaption = part.value
+                is io.ktor.http.content.PartData.FileItem -> if (part.name == "photo") lastUploadedPhotoSeen = true
+                else -> {}
+            }
+            part.dispose()
+        }
+    }
+
+    override suspend fun subscribeToPet(petId: String, body: PetSubscription) {
         pets[petId] ?: throw NotFoundException("pet $petId not found")
     }
 }

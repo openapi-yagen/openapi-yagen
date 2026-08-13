@@ -13,7 +13,9 @@ export interface CapturedRequest {
   url: string;
   method: string;
   headers: Record<string, string>;
-  body: string | undefined;
+  /** A string for JSON/urlencoded bodies; a FormData for a multipart body - see runtime.ts's
+   * BodyEncoding. */
+  body: string | FormData | undefined;
 }
 
 export function createFetchStub(handler: (req: CapturedRequest) => StubbedResponse) {
@@ -28,7 +30,7 @@ export function createFetchStub(handler: (req: CapturedRequest) => StubbedRespon
       url: String(input),
       method: init?.method ?? "GET",
       headers,
-      body: init?.body as string | undefined,
+      body: init?.body as string | FormData | undefined,
     };
     calls.push(captured);
 

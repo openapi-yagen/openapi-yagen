@@ -181,26 +181,92 @@ function buildPathExpr(pathStr) {
   );
 }
 
+const JSON_MEDIA_TYPE = "application/json";
+const MULTIPART_MEDIA_TYPE = "multipart/form-data";
+const URLENCODED_MEDIA_TYPE = "application/x-www-form-urlencoded";
+
+// application/x-www-form-urlencoded and multipart/form-data bodies are, by OpenAPI convention,
+// always `type: object` schemas with one property per form field. Anything else (a nested
+// object/array property) is a generator error - same "handle the common case, error on the rest"
+// policy path/header params already follow. A `type: string, format: binary` property is already
+// classified `Primitive` by the engine's kindOf() (same as any other string), so it passes this
+// check and ends up typed the same generic `String` primitiveKtType maps every `format: binary`
+// schema to - unlike the TypeScript generator's multipart binary fields (mapped to `Blob | File`),
+// this generator doesn't special-case it to a Kotlin `ByteArray`/streaming type (see README "Known
+// limitations" - this is a real, currently-undithered gap, not a design choice).
+function requireFlatObjectSchema(bodySchema, mediaType) {
+  if (kindOf(bodySchema) !== "Object") {
+    throw Error(`<c7e2a915> A "${mediaType}" body must be an object schema (one property per form field) - got ${kindOf(bodySchema)}`);
+  }
+  for (const [propName, propSchema] of Object.entries(bodySchema.properties || {})) {
+    const kind = kindOf(unwrapSchema(propSchema));
+    if (kind !== "Primitive" && kind !== "Enum") {
+      throw Error(
+        `<f31b0d6a> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types ` +
+          `(including format: binary strings) or enums are supported as form fields - got ${kind}`
+      );
+    }
+  }
+}
+
+// Picks which of the three supported request-body media types is present, preferring JSON (the
+// common case), then multipart, then urlencoded. Returns null if `content` has entries but none
+// of the three - the caller turns that into a generation error instead of silently treating the
+// operation as bodyless (see this generator's README "Known limitations").
+function pickBodyContent(content) {
+  if (content[JSON_MEDIA_TYPE]) return { mediaType: JSON_MEDIA_TYPE, content: content[JSON_MEDIA_TYPE], encoding: "json" };
+  if (content[MULTIPART_MEDIA_TYPE]) return { mediaType: MULTIPART_MEDIA_TYPE, content: content[MULTIPART_MEDIA_TYPE], encoding: "multipart" };
+  if (content[URLENCODED_MEDIA_TYPE]) return { mediaType: URLENCODED_MEDIA_TYPE, content: content[URLENCODED_MEDIA_TYPE], encoding: "urlencoded" };
+  return null;
+}
+
 // `required` correctly defaults to OpenAPI 3.0's actual default (`false` when absent) - the
-// engine's requestBody.required has no "true unless explicitly false" special case.
+// engine's requestBody.required has no "true unless explicitly false" special case. A requestBody
+// with `content: {}` (no media types at all) is treated as bodyless, same as no requestBody at
+// all; anything present-but-unhandled is a loud error (see pickBodyContent).
 function buildRequestBody(registry, hintBase, requestBody) {
   if (!requestBody) return null;
-  const jsonContent = (requestBody.content || {})["application/json"];
-  if (!jsonContent) return null;
-  const t = ktType(registry, jsonContent.schema || {}, hintBase + "Body");
-  return { type: t.type, required: requestBody.required === true };
+  const content = requestBody.content || {};
+  if (Object.keys(content).length === 0) return null;
+  const picked = pickBodyContent(content);
+  if (!picked) {
+    throw Error(
+      `<8e94c2b7> Unsupported request body content-type(s) [${Object.keys(content).join(", ")}] - only ` +
+        `"${JSON_MEDIA_TYPE}", "${MULTIPART_MEDIA_TYPE}", and "${URLENCODED_MEDIA_TYPE}" are supported`
+    );
+  }
+  const bodySchema = picked.content.schema || {};
+  if (picked.encoding !== "json") requireFlatObjectSchema(bodySchema, picked.mediaType);
+  const t = ktType(registry, bodySchema, hintBase + "Body");
+  const result = { type: t.type, required: requestBody.required === true, encoding: picked.encoding };
+  // urlencoded/multipart need each field's own name to build one append(...) call per property
+  // (see api_client.kt.j2) - Kotlin has no runtime reflection over a data class's properties to
+  // lean on instead, unlike the Ruby generator's equivalent (a plain Hash walked generically at
+  // request time).
+  if (picked.encoding !== "json") result.fields = (registry.models.get(t.type) || {}).properties || [];
+  return result;
 }
 
 // Uses the engine's firstSuccessResponse() (see docs/javascript-api.md) instead of hand-rolling
 // the same "first declared 2xx, else default" pick every response-handling generator otherwise
-// needs.
+// needs. Responses stay JSON-only - multipart/urlencoded responses are vanishingly rare in
+// practice and out of scope for now (see README "Known limitations") - so, unlike
+// buildRequestBody, there's only one media type to accept; anything else present is still a loud
+// error, not a silent "Unit" response.
 function buildResponse(registry, hintBase, responses) {
   const picked = firstSuccessResponse(responses || {});
   if (!picked) return { type: "Unit", statusCode: 200 };
   const statusCode = /^\d+$/.test(picked.statusCode) ? parseInt(picked.statusCode, 10) : 200;
-  const content = (picked.response.content || {})["application/json"];
-  if (!content) return { type: "Unit", statusCode };
-  const t = ktType(registry, content.schema || {}, hintBase + "Response");
+  const content = picked.response.content || {};
+  if (Object.keys(content).length === 0) return { type: "Unit", statusCode };
+  const jsonContent = content[JSON_MEDIA_TYPE];
+  if (!jsonContent) {
+    throw Error(
+      `<2d5f8a4c> Unsupported response content-type(s) [${Object.keys(content).join(", ")}] for the success ` +
+        `response - only "${JSON_MEDIA_TYPE}" is supported`
+    );
+  }
+  const t = ktType(registry, jsonContent.schema || {}, hintBase + "Response");
   return { type: t.type, statusCode };
 }
 

@@ -94,6 +94,41 @@ class ClientTest < Minitest::Test
     stubs.verify_stubbed_calls
   end
 
+  def test_upload_pet_photo_sends_multipart_body_untouched_for_the_callers_own_middleware
+    conn, stubs = stubbed_connection do |stub|
+      stub.post("/pets/1/photo") do |env|
+        # No Content-Type set by us, and the body stays a plain Hash (not a JSON string) - it's the
+        # caller's own installed Faraday::Multipart::Middleware that would encode it for a real
+        # request; this test has none installed, so we can assert on the raw pre-encoding shape.
+        refute env.request_headers.key?("Content-Type")
+        assert_equal({ "caption" => "cute", "photo" => "raw-bytes" }, env.body)
+        [204, {}, ""]
+      end
+    end
+    api = Kitchensink::PetsClient.new(connection: conn)
+
+    result = api.upload_pet_photo(pet_id: "1", body: Kitchensink::PetPhotoUpload.new(caption: "cute", photo: "raw-bytes"))
+
+    assert_nil result
+    stubs.verify_stubbed_calls
+  end
+
+  def test_subscribe_to_pet_sends_urlencoded_body
+    conn, stubs = stubbed_connection do |stub|
+      stub.post("/pets/1/subscribe") do |env|
+        assert_equal "application/x-www-form-urlencoded", env.request_headers["Content-Type"]
+        assert_equal({ "email" => "me@example.com", "notify" => "true" }, URI.decode_www_form(env.body).to_h)
+        [204, {}, ""]
+      end
+    end
+    api = Kitchensink::PetsClient.new(connection: conn)
+
+    result = api.subscribe_to_pet(pet_id: "1", body: Kitchensink::PetSubscription.new(email: "me@example.com", notify: true))
+
+    assert_nil result
+    stubs.verify_stubbed_calls
+  end
+
   def test_get_shape_dispatches_discriminated_union_from_an_http_response
     conn, stubs = stubbed_connection do |stub|
       stub.get("/widgets/shapes/s1") { [200, { "Content-Type" => "application/json" }, '{"shapeType":"circle","radius":2}'] }
