@@ -121,6 +121,24 @@ debugging a generator, or when changing what globals/functions are exposed to `m
   their model templates for the reference implementation - when adding a new generator or
   reworking an existing one's templates, verify all of the above still holds, not just that the
   code compiles/runs.
+- **A generator for a dynamically-typed target language must generate its own runtime checks** -
+  don't rely on "it'll fail somewhere eventually." TypeScript/Kotlin generators get a wrong-shaped
+  value (wrong class, wrong property type) rejected for free by the target's own compiler; a
+  dynamically-typed target (Ruby today; Python/PHP/untyped JS if this repo ever grows one of those)
+  has no such backstop - a caller can hand a generated method literally anything, and without the
+  generator's own checks it goes straight to the wire unvalidated. The reference implementation is
+  `ruby_faraday_client_generator`: a type/shape check at the point a caller-constructed value
+  crosses into "about to be serialized" (`to_wire`: `is_a?` for a model class, `ALL_VALUES.include?`
+  for an enum, an explicit raise on an unmatched union variant instead of a silent passthrough),
+  plus generated constraint validation (`minLength`/`pattern`/`minimum`/`maximum`/enum membership/
+  ... via the engine's `constraintsOf()`) through a generated `validate!` method per model - see
+  `src/lib/serialization.js`'s `buildValidateStatements` and `src/templates/model_class.rb.j2`.
+  Make this an **opt-out** generator variable (on by default), not unconditional, so a well-tested
+  integration can skip the overhead in production once it's earned that - see that generator's
+  `validate` variable. When adding a new generator for another dynamically-typed language, apply
+  the same pattern; a statically-typed target's compiler already covers the "wrong shape" half of
+  this, but still gets nothing for free on OpenAPI-level constraints like `minLength`/`pattern` -
+  worth the same consideration there too.
 
 ## Building
 

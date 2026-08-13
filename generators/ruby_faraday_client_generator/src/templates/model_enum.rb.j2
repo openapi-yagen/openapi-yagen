@@ -18,8 +18,17 @@ module {{ moduleName }}
 
     # @param value [String, Integer, Float, nil]
     # @return [String, Integer, Float, nil] `value`, unchanged - already wire-shaped
+    # @raise [ArgumentError] if `value` isn't nil and isn't one of ALL_VALUES{% if validate %} - a
+    #   generator for a dynamically-typed target language must generate its own runtime checks
+    #   (see AGENTS.md), so an invalid value is caught here before it's ever sent, not just when
+    #   deserializing a response{% endif %}
     def self.to_wire(value)
+{% if validate %}      return nil if value.nil?
+      unless ALL_VALUES.include?(value)
+        raise ArgumentError, "invalid #{name} value: #{value.inspect} (expected one of #{ALL_VALUES.inspect})"
+      end
       value
-    end
+{% else %}      value
+{% endif %}    end
   end
 end

@@ -244,18 +244,21 @@ export function collectOperationsByTag(registry) {
           description = description ? `${description} ${hint}` : hint;
         }
 
+        // A `body:` keyword argument gives no hint of its own about what to pass - unlike a
+        // statically-typed generator (Kotlin/TS), Ruby's method signature can't say `body: NewPet`
+        // itself, so the doc comment is the only place a caller finds out without going to read
+        // the model file directly. Always included (not gated behind `description` like the other
+        // params below), since the class name itself - not free-text prose - is the point here.
+        const docParams = [...pathParams, ...queryParams, ...headerParams]
+          .filter((p) => p.description)
+          .map((p) => ({ name: p.rubyName, description: p.description }));
+        if (body) docParams.push({ name: "body", description: `[${body.label}]` });
+
         if (!groups.has(tag)) groups.set(tag, { tagClass, propertyName, description: tagDescription(tag), operations: [] });
         groups.get(tag).operations.push({
           name: opName,
           method: op.method.toLowerCase(),
-          docComment: buildDocComment(
-            op.summary,
-            description,
-            [...pathParams, ...queryParams, ...headerParams]
-              .filter((p) => p.description)
-              .map((p) => ({ name: p.rubyName, description: p.description })),
-            "#"
-          ),
+          docComment: buildDocComment(op.summary, description, docParams, "#"),
           kwargs,
           pathParams,
           pathExpr,

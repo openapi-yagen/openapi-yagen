@@ -1,8 +1,11 @@
 module {{ moduleName }}
 {% if model.description %}{{ model.description | indent("  # ", true) }}
 {% endif %}  class {{ model.name }}
-{% if model.properties %}    attr_accessor {% for p in model.properties %}:{{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %}
+{% for p in model.properties %}{% if p.description %}{{ p.description | indent("    # ", true) }}
+{% endif %}    # @return [{{ p.label }}]
+    attr_accessor :{{ p.rubyName }}
 
+{% endfor %}{% if model.initComment %}    {{ model.initComment | indent(4) }}
 {% endif %}    def initialize({% for p in model.properties %}{{ p.rubyName }}:{% if not p.required %} nil{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
 {% for p in model.properties %}      @{{ p.rubyName }} = {{ p.rubyName }}
 {% endfor %}    end
@@ -17,11 +20,28 @@ module {{ moduleName }}
 {% for p in model.properties %}        {{ p.rubyName }}: {{ p.fromHExpr }},
 {% endfor %}      )
     end
-
+{% if validate %}
+    # Raises ArgumentError if any property violates the schema's own constraints (minLength/
+    # maxLength/pattern/minimum/maximum/.../enum membership/nested models' own validate!) - called
+    # automatically by to_wire before a request body is sent (see AGENTS.md's "a generator for a
+    # dynamically-typed target language must generate its own runtime checks" convention: Ruby has
+    # no compiler to catch any of this the way the TypeScript/Kotlin generators' static types do).
+    # Also callable directly to check a value earlier. Returns self so it can be chained.
+    # @return [{{ model.name }}]
+    def validate!
+{% for p in model.properties %}{% for stmt in p.validateStatements %}      {{ stmt }}
+{% endfor %}{% endfor %}      self
+    end
+{% endif %}
     # @param value [{{ model.name }}, nil]
     # @return [Hash, nil] wire-shaped Hash (string keys), ready for JSON.generate
     def self.to_wire(value)
-      value&.to_h
+      return nil if value.nil?
+{% if validate %}      unless value.is_a?(self)
+        raise TypeError, "expected #{self}, got #{value.class}"
+      end
+      value.validate!
+{% endif %}      value.to_h
     end
 
     # @return [Hash] wire-shaped Hash (string keys) - properties that are nil are omitted rather

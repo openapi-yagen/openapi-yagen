@@ -66,6 +66,80 @@ module OpenapiYagenRuntime
     pairs.map { |k, v| "#{URI.encode_www_form_component(k)}=#{URI.encode_www_form_component(v.to_s)}" }.join("&")
   end
 
+  # Constraint-check helpers used by each generated model's validate! (see model_class.rb.j2 and
+  # lib/serialization.js's buildValidateStatements) - part of this generator's answer to
+  # AGENTS.md's "a generator for a dynamically-typed target language must generate its own runtime
+  # checks" convention: Ruby has no compiler to reject an out-of-spec value the way the
+  # TypeScript/Kotlin generators' static types do. Each is a no-op when `value` is nil (an absent
+  # optional field has nothing to check) and raises ArgumentError, naming the field, on violation -
+  # mirrors kotlin_ktor_server_generator's Validation.kt (requireMin/requireMax/requireMinLength/
+  # requireMaxLength/requirePattern) closely, just validating outgoing client data here instead of
+  # incoming server data. Only generated/called at all when the `validate` generator variable is
+  # "true" (the default) - see model_class.rb.j2.
+
+  # Basic type check, generated for every scalar property regardless of whether the schema
+  # declares any constraintsOf() keywords - without this, a property with no minLength/minimum/...
+  # at all would get an empty (looks-broken) validate!, since every other check here is opt-in per
+  # constraint keyword. `klass` is String/Integer/Numeric - see buildValidateStatements.
+  def require_type(value, klass, field)
+    raise TypeError, "\"#{field}\" has the wrong type: expected #{klass}, got #{value.class}" if value && !value.is_a?(klass)
+  end
+
+  # Ruby has no single Boolean class to hand require_type - true/false are TrueClass/FalseClass.
+  def require_boolean(value, field)
+    raise TypeError, "\"#{field}\" must be true or false, got #{value.class}" unless value.nil? || value == true || value == false
+  end
+
+  def require_min(value, min, field)
+    raise ArgumentError, "\"#{field}\" must be >= #{min}" if value && value < min
+  end
+
+  def require_max(value, max, field)
+    raise ArgumentError, "\"#{field}\" must be <= #{max}" if value && value > max
+  end
+
+  def require_exclusive_min(value, min, field)
+    raise ArgumentError, "\"#{field}\" must be > #{min}" if value && value <= min
+  end
+
+  def require_exclusive_max(value, max, field)
+    raise ArgumentError, "\"#{field}\" must be < #{max}" if value && value >= max
+  end
+
+  # `%` on a Float can be imprecise (0.1 % 0.1 isn't always exactly 0) - acceptable for the same
+  # reason multipleOf itself is a fairly coarse OpenAPI constraint; exact for the common Integer case.
+  def require_multiple_of(value, multiple, field)
+    raise ArgumentError, "\"#{field}\" must be a multiple of #{multiple}" if value && !(value % multiple).zero?
+  end
+
+  def require_min_length(value, min, field)
+    raise ArgumentError, "\"#{field}\" must have length >= #{min}" if value && value.length < min
+  end
+
+  def require_max_length(value, max, field)
+    raise ArgumentError, "\"#{field}\" must have length <= #{max}" if value && value.length > max
+  end
+
+  def require_pattern(value, pattern, field)
+    raise ArgumentError, "\"#{field}\" does not match pattern #{pattern}" if value && !Regexp.new(pattern).match?(value)
+  end
+
+  def require_min_items(value, min, field)
+    raise ArgumentError, "\"#{field}\" must have at least #{min} item(s)" if value && value.length < min
+  end
+
+  def require_max_items(value, max, field)
+    raise ArgumentError, "\"#{field}\" must have at most #{max} item(s)" if value && value.length > max
+  end
+
+  def require_unique_items(value, field)
+    raise ArgumentError, "\"#{field}\" must not contain duplicate items" if value && value.uniq.length != value.length
+  end
+
+  def require_enum(value, all_values, field)
+    raise ArgumentError, "\"#{field}\" must be one of #{all_values.inspect}, got #{value.inspect}" if value && !all_values.include?(value)
+  end
+
   # Resolves `auth_requirement` (if the operation needs one - see each generated method's
   # `auth:` argument) against `auth_config` (the `auth:` Hash passed to the client's own
   # constructor - see api_client.rb.j2), applying the credential either as an Authorization header

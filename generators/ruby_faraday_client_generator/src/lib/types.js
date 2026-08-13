@@ -13,7 +13,7 @@
 // registerUnionDispatch below and templates/model_union.rb.j2.
 
 import { className, fieldName, enumConstantName } from "./naming.js";
-import { buildFromHExpr, buildToWireExpr } from "./serialization.js";
+import { buildFromHExpr, buildToWireExpr, buildValidateStatements } from "./serialization.js";
 import { withResilience } from "./strict.js";
 
 function newRegistry(reservedNames) {
@@ -42,19 +42,45 @@ function registerClass(registry, name, schema) {
   for (const [propName, propSchema] of Object.entries(schema.properties || {})) {
     const f = fieldName(propName);
     const t = rubyType(registry, propSchema, name + className(propName));
+    const isRequired = required.has(propName);
+    const isNullable = propSchema.nullable === true;
+    // Ruby's own mandatory-keyword-argument mechanism (see the generated `initialize` below) only
+    // enforces that a required property is *passed* to `new(...)` - not that its value isn't nil
+    // (`Pet.new(id: nil, name: "Rex")` is valid Ruby). A required-and-not-nullable property needs
+    // its own explicit presence check here to actually mean "required" - skipped when the schema
+    // itself says `nullable: true`, since then an explicit null is legitimate, not a bug.
+    const validateStatements = buildValidateStatements(t.descriptor, propSchema, `@${f.rubyName}`, f.rubyName);
+    if (isRequired && !isNullable) {
+      validateStatements.unshift(`raise ArgumentError, "\\"${f.rubyName}\\" is required" if @${f.rubyName}.nil?`);
+    }
     props.push({
       rubyName: f.rubyName,
       wireLiteral: f.wireLiteral,
       descriptor: t.descriptor,
       label: t.label,
-      required: required.has(propName),
-      nullable: propSchema.nullable === true,
+      required: isRequired,
+      nullable: isNullable,
       description: propSchema.description || null,
       fromHExpr: buildFromHExpr(t.descriptor, `h[${f.wireLiteral}]`),
       toWireExpr: buildToWireExpr(t.descriptor, `@${f.rubyName}`),
+      // See lib/serialization.js's buildValidateStatements - only computed here, emission into
+      // the generated validate! is gated by the `validate` generator variable in the template.
+      validateStatements,
     });
   }
-  addModel(registry, name, { name, kind: "class", description: schema.description || null, properties: props });
+  // AGENTS.md: "every generator must thread OpenAPI description into generated doc comments" -
+  // covers each property (see model_class.rb.j2's attr_accessor loop, using each property's own
+  // label/description directly) and, here, the constructor - reuses the same buildDocComment the
+  // rest of this generator already relies on for operation methods (see lib/operations.js),
+  // rather than hand-formatting `# @param` lines. `[Type]` mirrors the `@param body [ClassName]`
+  // convention operations.js's own docComment already uses for the same "Ruby has no static type
+  // to show this for free" reason.
+  const initParams = props.map((p) => ({
+    name: p.rubyName,
+    description: p.description ? `[${p.label}] ${p.description}` : `[${p.label}]`,
+  }));
+  const initComment = props.length > 0 ? buildDocComment(null, null, initParams, "#") : null;
+  addModel(registry, name, { name, kind: "class", description: schema.description || null, properties: props, initComment });
 }
 
 function registerEnum(registry, name, schema) {

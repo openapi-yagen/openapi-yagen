@@ -3,6 +3,12 @@ import { collectOperationsByTag } from "./lib/operations.js";
 
 const moduleName = vars.moduleName;
 const moduleSnake = toSnakeCase(moduleName);
+// See AGENTS.md's "a generator for a dynamically-typed target language must generate its own
+// runtime checks" convention - Ruby has no compiler to reject a wrong-shaped body the way the
+// TypeScript/Kotlin generators' static types do, so this generator's substitute (a type check
+// plus generated constraint validation, see lib/serialization.js's buildValidateStatements and
+// templates/model_class.rb.j2) is opt-out rather than a fixed behavior.
+const validate = vars.validate !== "false";
 
 const registry = buildModelRegistry(schema);
 // May register additional inline models discovered only in operation bodies/responses - must run
@@ -22,7 +28,7 @@ for (const name of registry.order) {
   const tmpl = MODEL_TEMPLATES[model.kind];
   if (!tmpl) throw Error(`<2a6e9c17> Unknown model kind: ${model.kind}`);
   const fileName = toSnakeCase(name);
-  renderTemplate(tmpl, { moduleName, model }, `${moduleSnake}/models/${fileName}.rb`);
+  renderTemplate(tmpl, { moduleName, model, validate }, `${moduleSnake}/models/${fileName}.rb`);
 }
 
 const tagGroups = [];

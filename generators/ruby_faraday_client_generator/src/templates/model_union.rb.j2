@@ -50,8 +50,9 @@ module {{ moduleName }}
       case value
 {% for v in model.variants %}{% if v.classPattern %}      when {{ v.classPattern }} then {{ v.toWireExpr }}
 {% endif %}{% endfor %}      else
-        value
-      end
+{% if validate %}        raise TypeError, "value does not match any variant of {{ model.name }}: #{value.class}"
+{% else %}        value
+{% endif %}      end
     end
   end
 {% endif %}end

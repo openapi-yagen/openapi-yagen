@@ -29,6 +29,7 @@ openapi-yagen g -o out -g ruby_faraday_client_generator openapi.yaml -v moduleNa
 |--------------|----------|------------------------------------------------------------------------|
 | `moduleName` | yes      | Ruby module namespace for the generated client and model classes (e.g. `PetStore`). Also determines the file layout below (`lib/<snake_case moduleName>/...`), following ordinary Ruby gem conventions. |
 | `strict`     | no (default `true`) | `true`: an unsupported schema/operation aborts generation with an error. `false`: skip it with a printed warning and generate everything else - useful for large real-world specs (see "Known limitations" below). |
+| `validate`   | no (default `true`) | `true`: every model gets a `validate!` method enforcing the schema's constraints, called automatically before a request body is sent (see "Validation" below). `false`: zero validation overhead - reverts to a bare `to_h`/`to_wire` with no type or constraint checking at all. |
 
 ## Output layout
 
@@ -103,6 +104,47 @@ class) - only the wire encoding differs:
   `faraday-multipart` is **not** a dependency of the generated code itself (this generator never
   adds a gem dependency beyond `faraday` - see "Integrating the generated code" above) - only
   callers who actually invoke a multipart operation need it.
+
+### Validation
+
+Unlike the TypeScript/Kotlin generators, Ruby has no compiler to reject a wrong-shaped or
+out-of-spec `body:` before it reaches the wire - passing a plain `Hash`, or a correctly-typed
+instance with a value that violates the schema (`minLength`, `pattern`, `minimum`/`maximum`, an
+enum value that isn't one of the declared ones, ...), would otherwise be serialized and sent
+without anyone noticing. With the default `-v validate=true`, every generated model class gets a
+`validate!` method (and every enum/union module's own `to_wire` gets the equivalent check), called
+automatically the moment a body is about to be sent. `validate!` checks every property's own basic
+type (`String`/`Integer`/`Numeric`/`true`-or-`false` - generated even when the schema declares no
+`minLength`/`minimum`/... keywords at all, so a property with no constraints still gets *something*
+checked instead of an empty, look-broken `validate!`) and, for a required property that isn't also
+`nullable: true`, that it isn't `nil` (Ruby's own mandatory-keyword-argument mechanism only
+enforces that `new(...)` was *passed* a value, not that the value itself isn't `nil`) - on top of
+the OpenAPI constraint keywords themselves:
+
+```ruby
+api.pets.create_pet(body: { name: "Rex" })
+# TypeError: expected PetStore::NewPet, got Hash
+
+api.pets.rate_pet(pet_id: "1", x_request_id: "req-1", body: PetStore::Rating.new(score: "not-an-integer", label: "ok"))
+# TypeError: "score" has the wrong type: expected Integer, got String
+
+api.pets.create_pet(body: PetStore::NewPet.new(name: ""))
+# ArgumentError: "name" must have length >= 1
+```
+
+`validate!` is also callable directly, any time before you'd otherwise send it:
+
+```ruby
+pet = PetStore::NewPet.new(name: "Rex", tag: "dog")
+pet.validate! # raises ArgumentError if anything's wrong; returns self otherwise
+```
+
+This costs something on every request (a type check plus a walk over each constrained property,
+recursing into nested models/enums/arrays) - set `-v validate=false` once you trust the values your
+own code constructs (e.g. for a production build of an already-tested integration) to fall back to
+the bare `to_h`/`to_wire` this generator used before this feature existed, with zero validation
+overhead. See also AGENTS.md's "a generator for a dynamically-typed target language must generate
+its own runtime checks" convention, which this feature is the reference implementation of.
 
 ### Authentication (`components.securitySchemes`)
 
@@ -182,6 +224,12 @@ end
   together (AND), and multiple alternative requirements (OR) are a generator error.
 - `moduleName` is a single flat Ruby module name (e.g. `PetStore`) - a nested namespace (`Foo::Bar`)
   isn't supported.
+- `validate!` (see "Validation" above) doesn't deep-validate a `oneOf`/`anyOf`-typed property - an
+  unmatched/wrong value there still surfaces, just one step later, from that union module's own
+  strengthened `to_wire` when the body is actually serialized, not from `validate!` itself.
+- Validation only runs on the path a value takes to become a request body (`to_wire`, or
+  `validate!` called directly) - nothing calls it automatically just because you set a property via
+  `attr_accessor` (e.g. `pet.name = ""` doesn't raise until you `validate!`/send it).
 - Generated files are not run through a formatter - pipe the output through
   [rubocop](https://rubocop.org)'s `--autocorrect` or [rufo](https://github.com/ruby-formatter/rufo)
   yourself via `-p`/`--post-process` if you want one:

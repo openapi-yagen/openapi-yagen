@@ -31,3 +31,13 @@ variables:
       everything else - useful for large real-world specs where a handful of unsupported
       constructs shouldn't block the rest of the generated code.
     defaultValue: "true"
+  - name: validate
+    description: >-
+      When "true" (default), every generated model gets a validate! method enforcing the schema's
+      constraints (minLength/maxLength/pattern/minimum/maximum/enum membership/...), and to_wire
+      calls it automatically before a request body is sent - Ruby has no compiler to reject a
+      wrong-shaped value the way the TypeScript/Kotlin generators' static types do, so this is the
+      generated substitute. Set to "false" for zero validation overhead (e.g. once a codebase is
+      well-tested and production doesn't need the checks) - reverts to a bare value&.to_h with no
+      type or constraint checking at all.
+    defaultValue: "true"
