@@ -1,0 +1,17 @@
+---
+title: Try it in the browser
+sidebar_label: Playground
+slug: /docs/playground
+description: Run openapi-yagen entirely in your browser - pick a generator, paste a spec, generate and browse the output, no install or server required.
+---
+
+import GeneratorPlayground from '@site/src/components/GeneratorPlayground';
+
+# Playground
+
+<GeneratorPlayground />
+
+This runs the same generator engine as the `openapi-yagen` CLI (see the
+[overview](/docs/overview)), compiled to WebAssembly and executed entirely in your browser -
+nothing you enter here is sent anywhere. Use a built-in generator or upload your own as a `.zip`;
+everything else behaves the same as the CLI, since it's the same engine underneath.

@@ -6,7 +6,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Get started',
       collapsed: false,
-      items: ['README', 'docs/tutorial'],
+      items: ['README', 'docs/tutorial', 'docs/playground'],
     },
     {
       type: 'category',

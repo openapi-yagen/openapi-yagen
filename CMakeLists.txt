@@ -45,6 +45,14 @@ include_directories(${CMAKE_SOURCE_DIR})
 set(B_PRODUCTION_MODE ON CACHE BOOL "Disable battery::embed hot-reload/dev features" FORCE)
 set(B_EMBED_SILENCE_DEVMODE_WARNING ON CACHE BOOL "" FORCE)
 
-add_subdirectory(cli)
 add_subdirectory(lib)
-add_subdirectory(test)
+
+# The Emscripten build only produces the browser playground's wasm module (see wasm/CMakeLists.txt)
+# - it skips cli/ and test/, which depend on CLI11/Catch2 (not installed for the wasm Conan profile,
+# and not meaningful in a browser context: no argv, no terminal to run a test binary in).
+if(EMSCRIPTEN)
+    add_subdirectory(wasm)
+else()
+    add_subdirectory(cli)
+    add_subdirectory(test)
+endif()

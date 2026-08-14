@@ -1,0 +1,322 @@
+.playground {
+  border: 1px solid var(--yagen-border);
+  border-radius: 12px;
+  background: var(--yagen-surface);
+  box-shadow: var(--yagen-shadow-soft);
+  padding: 1.5rem;
+  margin: 2rem 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1.1rem;
+}
+
+.field label {
+  font-weight: 600;
+  color: var(--yagen-heading);
+  font-size: 0.92rem;
+}
+
+.hint {
+  color: var(--yagen-subtle);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 220px;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.85rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--yagen-border-strong);
+  background: var(--yagen-canvas);
+  color: var(--yagen-code-text);
+  resize: vertical;
+}
+
+.textInput,
+.select {
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--yagen-border-strong);
+  background: var(--yagen-canvas);
+  color: var(--yagen-heading);
+  font-size: 0.92rem;
+}
+
+.sourceRow {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 1.1rem;
+}
+
+.radioLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.varsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.1rem;
+}
+
+.actionsRow {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 1.25rem 0;
+}
+
+.primaryButton {
+  background: var(--yagen-primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1.4rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.primaryButton:not(:disabled):hover {
+  background: var(--yagen-primary-dark);
+}
+
+.secondaryButton {
+  background: transparent;
+  color: var(--yagen-muted);
+  border: 1px solid var(--yagen-border-strong);
+  border-radius: 8px;
+  padding: 0.6rem 1.1rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.secondaryButton:hover {
+  border-color: var(--yagen-primary);
+  color: var(--yagen-primary);
+}
+
+.spinner {
+  color: var(--yagen-subtle);
+  font-size: 0.9rem;
+}
+
+.errorBox {
+  border: 1px solid #d1453b;
+  background: rgb(209 69 59 / 8%);
+  color: #d1453b;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.viewer {
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--yagen-border);
+  padding-top: 1.25rem;
+}
+
+.viewerHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.viewerHeader span {
+  color: var(--yagen-muted);
+  font-size: 0.9rem;
+}
+
+.viewerBody {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.tree {
+  border: 1px solid var(--yagen-border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  max-height: 480px;
+  overflow: auto;
+  background: var(--yagen-canvas);
+}
+
+.tree ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.tree > ul {
+  padding-left: 0;
+}
+
+.treeFile {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--yagen-muted);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.82rem;
+}
+
+.treeFile:hover {
+  background: var(--yagen-soft);
+}
+
+.treeFileSelected {
+  background: var(--yagen-soft-accent);
+  color: var(--yagen-heading);
+  font-weight: 600;
+}
+
+.treeDir {
+  padding: 0.2rem 0.4rem;
+  color: var(--yagen-subtle);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.fileContent {
+  min-width: 0;
+  max-height: 480px;
+  overflow: auto;
+}
+
+.tabsPanel {
+  padding-top: 1.25rem;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.infoPopover {
+  display: inline-block;
+  position: relative;
+}
+
+.infoButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  border: 1px solid var(--yagen-border-strong);
+  color: var(--yagen-subtle);
+  background: var(--yagen-canvas);
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.infoButton::-webkit-details-marker {
+  display: none;
+}
+
+.infoButton:hover {
+  border-color: var(--yagen-primary);
+  color: var(--yagen-primary);
+}
+
+.infoContent {
+  position: absolute;
+  z-index: 20;
+  top: 1.5rem;
+  left: 0;
+  width: 260px;
+  max-width: 60vw;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--yagen-border-strong);
+  background: var(--yagen-surface);
+  box-shadow: var(--yagen-shadow);
+  color: var(--yagen-muted);
+  font-size: 0.82rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.logPanel {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--yagen-border);
+  padding-top: 1rem;
+}
+
+.logSummary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--yagen-heading);
+  font-size: 0.9rem;
+  user-select: none;
+}
+
+.logControls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  flex-wrap: wrap;
+}
+
+.logLevelLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--yagen-muted);
+}
+
+.logBody {
+  max-height: 320px;
+  overflow: auto;
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--yagen-border);
+  background: var(--yagen-canvas);
+  color: var(--yagen-code-text);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  margin: 0;
+}

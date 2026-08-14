@@ -30,6 +30,7 @@ const config: Config = {
           include: [
             'README.md',
             'docs/*.md',
+            'docs/*.mdx',
             'generators/README.md',
             'generators/*/README.md',
           ],
@@ -86,6 +87,7 @@ const config: Config = {
       items: [
         {to: '/docs/overview', label: 'Docs', position: 'left'},
         {to: '/generators', label: 'Generators', position: 'left'},
+        {to: '/docs/playground', label: 'Playground', position: 'left'},
         {
           href: 'https://github.com/openapi-yagen/openapi-yagen/releases/latest',
           label: 'Releases',
@@ -109,6 +111,7 @@ const config: Config = {
             {label: 'Overview', to: '/docs/overview'},
             {label: 'Tutorial', to: '/docs/tutorial'},
             {label: 'JavaScript API', to: '/docs/javascript-api'},
+            {label: 'Playground', to: '/docs/playground'},
           ],
         },
         {
@@ -141,7 +144,7 @@ const config: Config = {
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.vsDark,
-      additionalLanguages: ['bash', 'json', 'yaml', 'kotlin', 'cpp'],
+      additionalLanguages: ['bash', 'json', 'yaml', 'kotlin', 'cpp', 'ruby'],
     },
   } satisfies ThemeConfig,
 };

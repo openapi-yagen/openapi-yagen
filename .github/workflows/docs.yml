@@ -6,8 +6,13 @@ on:
     paths:
       - 'website/**'
       - 'docs/**'
-      - 'generators/*/README.md'
-      - 'generators/README.md'
+      - 'generators/**'
+      - 'lib/**'
+      - 'wasm/**'
+      - 'CMakeLists.txt'
+      - 'conanfile.txt'
+      - 'Dockerfile.wasm'
+      - 'build-wasm.sh'
       - 'README.md'
       - 'openapi-yagen.png'
       - '.github/workflows/docs.yml'
@@ -16,8 +21,13 @@ on:
     paths:
       - 'website/**'
       - 'docs/**'
-      - 'generators/*/README.md'
-      - 'generators/README.md'
+      - 'generators/**'
+      - 'lib/**'
+      - 'wasm/**'
+      - 'CMakeLists.txt'
+      - 'conanfile.txt'
+      - 'Dockerfile.wasm'
+      - 'build-wasm.sh'
       - 'README.md'
       - 'openapi-yagen.png'
       - '.github/workflows/docs.yml'
@@ -38,6 +48,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build wasm playground module
+        env:
+          DOCKER_BUILDX_ARGS: --cache-from type=gha --cache-to type=gha,mode=max
+        run: ./build-wasm.sh
 
       - name: Set up Node.js
         uses: actions/setup-node@v6

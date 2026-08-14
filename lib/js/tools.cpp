@@ -139,7 +139,7 @@ Node jsValueToNode(JSContext* ctx, const JSValue& v)
     } else if (JS_IsException(v)) {
         rethrowException(ctx, v, "<c9c2c575> JS exception");
     } else {
-        throw runtime_error(format("<d05dbcae> Unsupported JS value: {}", v.tag));
+        throw runtime_error(format("<d05dbcae> Unsupported JS value: {}", JS_VALUE_GET_TAG(v)));
     }
 }
 

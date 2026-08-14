@@ -1,0 +1,14 @@
+[requires]
+termcolor/2.1.0
+yaml-cpp/0.8.0
+quickjs/2023-12-09
+kuba-zip/0.3.2
+nlohmann_json/3.11.3
+battery-embed/1.2.19
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[options]
+*:shared=False

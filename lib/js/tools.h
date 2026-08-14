@@ -52,18 +52,20 @@ JSValue ptrToJSValue(T* ptr)
 {
     // TODO: Try use JS_SetOpaque
 
-    JSValue v;
-    v.u.ptr = (void*)ptr;
-    v.tag = JS_TAG_PTR;
-    return v;
+    // JS_MKPTR/JS_VALUE_GET_PTR/JS_VALUE_GET_TAG (not direct .tag/.u.ptr field access) are the
+    // portable way to stash a raw pointer in a JSValue: quickjs.h picks JSValue's actual
+    // representation per target (a {JSValueUnion u; int64_t tag;} struct on 64-bit-pointer
+    // platforms, a NaN-boxed uint64_t on 32-bit-pointer ones, e.g. wasm32 or i686) - direct field
+    // access only compiles against the former.
+    return JS_MKPTR(JS_TAG_PTR, (void*)ptr);
 }
 
 template <typename T>
 T* jsValueToPtr(const JSValue& v)
 {
-    if (v.tag != JS_TAG_PTR)
+    if (JS_VALUE_GET_TAG(v) != JS_TAG_PTR)
         throw std::runtime_error("<1d2786bb>");
-    return (T*)v.u.ptr;
+    return (T*)JS_VALUE_GET_PTR(v);
 }
 
 std::string jsValueToString(JSContext* ctx, const JSValue& v);

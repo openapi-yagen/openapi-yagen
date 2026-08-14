@@ -183,6 +183,9 @@ function Hero(): ReactNode {
             <Link className={styles.primaryButton} to="/docs/overview">
               Read the documentation
             </Link>
+            <Link className={styles.secondaryButton} to="/docs/playground">
+              Try it in the browser
+            </Link>
             <Link className={styles.secondaryButton} to="/generators">
               Available generators
             </Link>
