@@ -26,7 +26,9 @@ module {{ moduleName }}
 {% endif %}{% if op.hasHeaderParams %}        headers: headers,
 {% endif %}{% if op.body %}        body: body,
         content_type: :{{ op.body.encoding }},
-{% endif %}{% if op.authLiteral %}        auth: {{ op.authLiteral }},
+{% if op.body.mediaType %}        media_type: {{ toStringLiteral(op.body.mediaType) }},
+{% endif %}{% endif %}{% if op.hasResponse %}{% if op.response.encoding != "json" %}        response_encoding: :{{ op.response.encoding }},
+{% endif %}{% endif %}{% if op.authLiteral %}        auth: {{ op.authLiteral }},
         auth_config: @auth,
 {% endif %}      )
 {% if op.hasResponse %}      {{ op.responseFromHExpr }}

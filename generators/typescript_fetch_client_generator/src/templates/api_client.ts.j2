@@ -30,9 +30,11 @@ path: `{{ op.pathExpr }}`,
 {% endfor %}},
 {% endif %}{% if op.hasBody %}body: options.body,
 {% if op.body.encoding != "json" %}bodyEncoding: "{{ op.body.encoding }}",
+{% endif %}{% if op.body.mediaType %}bodyContentType: "{{ op.body.mediaType }}",
 {% endif %}{% endif %}signal: options.signal,
 {% if op.authLiteral %}auth: {{ op.authLiteral }},
 {% endif %}{% if op.response.hasValidator %}validate: {{ op.response.validatorExpr }},
+{% endif %}{% if op.response.encoding != "json" %}responseEncoding: "{{ op.response.encoding }}",
 {% endif %}{% endfilter %}    });
   }
 {% endfor %}

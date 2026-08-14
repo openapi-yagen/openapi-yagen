@@ -1,11 +1,14 @@
 {%- include "templates/_macros.kt.j2" -%}
 package {{ packageName }}
 
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
 import io.ktor.server.request.receiveMultipart
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
@@ -40,8 +43,10 @@ val body = {{ op.body.type }}(
 {% else %}val body = call.receive<{{ op.body.type }}>(){% if op.body.hasValidate %}.validate(){% endif %}
 
 {% endif %}{% endif %}{% if op.returnsValue %}val result = handler.{{ op.name }}({{ op.handlerArgs }})
-call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}), result)
-{% else %}handler.{{ op.name }}({{ op.handlerArgs }})
+{% if op.response.encoding == "text" %}call.respondText(result, ContentType.parse({{ toStringLiteral(op.response.mediaType) }}), HttpStatusCode.fromValue({{ op.response.statusCode }}))
+{% else if op.response.encoding == "bytes" %}call.respondBytes(result, ContentType.parse({{ toStringLiteral(op.response.mediaType) }}), HttpStatusCode.fromValue({{ op.response.statusCode }}))
+{% else %}call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}), result)
+{% endif %}{% else %}handler.{{ op.name }}({{ op.handlerArgs }})
 call.respond(HttpStatusCode.fromValue({{ op.response.statusCode }}))
 {% endif %}{% endfilter %}        }
 {% endfor %}

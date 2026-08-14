@@ -71,10 +71,10 @@ by your own middleware would make it try to `JSON.parse` a Hash and fail.
 
 ### Request body content types
 
-Three request-body content types are supported, picked from whichever the spec declares in
-priority order `application/json` > `multipart/form-data` > `application/x-www-form-urlencoded`.
-All three build the **same typed `body:` argument** (an instance of the schema's generated model
-class) - only the wire encoding differs:
+Request-body content types are picked from whichever the spec declares in priority order
+`application/json` > `multipart/form-data` > `application/x-www-form-urlencoded` > (a single
+remaining media type, sent as a plain `String`). The first three build the **same typed `body:`
+argument** (an instance of the schema's generated model class) - only the wire encoding differs:
 
 - **`application/json`** (default): `body.to_h` is `JSON.generate`'d.
 - **`application/x-www-form-urlencoded`**: `body.to_h`'s flat wire Hash is encoded with Ruby's
@@ -104,6 +104,19 @@ class) - only the wire encoding differs:
   `faraday-multipart` is **not** a dependency of the generated code itself (this generator never
   adds a gem dependency beyond `faraday` - see "Integrating the generated code" above) - only
   callers who actually invoke a multipart operation need it.
+- **any single `text/*` media type** (`text/plain`, `text/csv`, `text/html`, ...) or **any single
+  other remaining media type** (`application/octet-stream`, `application/zip`, `application/pdf`,
+  `image/png`, ...): `body:` is a plain `String` (Ruby has no separate byte-array type for an HTTP
+  body - pass a binary-encoded String, e.g. via `File.binread`, for a non-text media type), sent
+  as-is with `Content-Type` set to the exact declared media type (e.g. `text/csv`, not a generic
+  `text/plain`). A response declaring the same kind of media type comes back as a plain `String`
+  too, not JSON-parsed. The declared schema (`type: string, format: binary` or otherwise) has no
+  bearing here - the wire content-type alone decides this, same as it does at runtime for a real
+  client/server.
+
+  A requestBody/response declaring two or more media types outside the fixed ones above is
+  ambiguous (which one would the generated method actually send/expect?) and is a generator error,
+  same as any other unsupported content-type - see "Known limitations".
 
 ### Validation
 
@@ -201,11 +214,12 @@ end
 
 ## Known limitations (v1)
 
-- Request bodies support `application/json`, `application/x-www-form-urlencoded`, and
-  `multipart/form-data` (see "Request body content types" above). Responses are `application/json`
-  only. **Any other content type on a request body or a response is a generator error** (aborts
-  generation under default `strict=true`; skips just that operation with a printed warning under
-  `-v strict=false`) - it is never silently dropped.
+- Request and response bodies support `application/json`, a single `text/*` media type, and a
+  single other media type (both as a plain `String`); request bodies additionally support
+  `application/x-www-form-urlencoded` and `multipart/form-data` (see "Request body content types"
+  above). **A requestBody/response declaring two or more media types outside those fixed ones is a
+  generator error** (aborts generation under default `strict=true`; skips just that operation with
+  a printed warning under `-v strict=false`) - it is never silently dropped.
 - Path/header parameters must resolve to a primitive scalar or enum (string/number/boolean) - an
   object or array in one of those positions is a generator error. Query parameters have no such
   restriction: any shape (scalar, enum, array, or a plain object for the `deepObject`-style filter

@@ -77,8 +77,9 @@ if you use the `StatusPages` mapping shown above (recommended).
 
 ### Request body content types
 
-Three request-body content types are supported, picked from whichever the spec declares in
-priority order `application/json` > `multipart/form-data` > `application/x-www-form-urlencoded`:
+Request-body content types are picked from whichever the spec declares in priority order
+`application/json` > `multipart/form-data` > `application/x-www-form-urlencoded` > (a single
+remaining media type, received as a `String` or raw `ByteArray`):
 
 - **`application/json`** (default): `call.receive<Body>()`, validated the same way as always -
   the handler method's `body:` parameter is the generated `@Serializable` data class.
@@ -105,6 +106,28 @@ priority order `application/json` > `multipart/form-data` > `application/x-www-f
       }
   }
   ```
+- **any single `text/*` media type** (`text/plain`, `text/csv`, `text/html`, ...): `call.receive<
+  String>()`, the handler method's `body:` parameter is a plain `String` - Ktor receives a `String`
+  body as-is, no `ContentNegotiation` plugin needed.
+- **any single other remaining media type** (`application/octet-stream`, `application/zip`,
+  `application/pdf`, `image/png`, ...): `call.receive<ByteArray>()`, the handler method's `body:`
+  parameter is a raw `ByteArray` - Ktor receives a `ByteArray` body as-is too. The declared schema
+  (`type: string, format: binary` or otherwise) has no bearing here - the wire content-type alone
+  decides `String` vs. `ByteArray`, same as it does at runtime for a real client/server.
+
+  A requestBody declaring two or more media types outside the three fixed ones above is ambiguous
+  (which one would the generated handler actually expect?) and is a generator error, same as any
+  other unsupported content-type - see "Known limitations".
+
+### Response content types
+
+A success response's content type follows the same policy: `application/json` (default) is sent
+via the ordinary `call.respond(status, result)`; a single `text/*` media type is sent via
+`call.respondText(result, ContentType.parse("..."), status)`, and a single other media type via
+`call.respondBytes(result, ContentType.parse("..."), status)` - both set the exact declared media
+type as the response's `Content-Type` header (e.g. `text/csv`, not a generic `text/plain`), and the
+handler method's return type is `String`/`ByteArray` to match. More than one remaining media type on
+a response is a generator error too.
 
 ## Formatting generated sources
 
@@ -166,11 +189,13 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
 
 ## Known limitations (v1)
 
-- Request bodies support `application/json`, `application/x-www-form-urlencoded`, and
-  `multipart/form-data` (see "Request body content types" above). Responses are `application/json`
-  only. **Any other content type on a request body or a response is a generator error** (aborts
-  generation under default `strict=true`; skips just that operation with a printed warning under
-  `-v strict=false`) - it is never silently dropped.
+- Request and response bodies support `application/json`, a single `text/*` media type (as a
+  `String`), and a single other media type (as a raw `ByteArray`); request bodies additionally
+  support `application/x-www-form-urlencoded` and `multipart/form-data` (see "Request body content
+  types" and "Response content types" above). **A requestBody/response declaring two or more media
+  types outside those fixed ones is a generator error** (aborts generation under default
+  `strict=true`; skips just that operation with a printed warning under `-v strict=false`) - it is
+  never silently dropped.
 - Path/query/header parameters must resolve to a primitive scalar type (string/integer/
   number/boolean), an enum, or a oneOf/anyOf whose every variant is itself primitive/enum-shaped
   (passed straight through as a plain, unparsed `String` - see "oneOf/anyOf support" above) - an

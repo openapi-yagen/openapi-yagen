@@ -81,8 +81,9 @@ const api = new ApiClient({
 
 ### Request body content types
 
-Three request-body content types are supported, picked from whichever the spec declares in
-priority order `application/json` > `multipart/form-data` > `application/x-www-form-urlencoded`:
+Request-body content types are picked from whichever the spec declares in priority order
+`application/json` > `multipart/form-data` > `application/x-www-form-urlencoded` > (a single
+remaining media type, sent as text or raw bytes):
 
 - **`application/json`** (default): `options.body` is `JSON.stringify`'d, `Content-Type:
   application/json`.
@@ -101,6 +102,18 @@ priority order `application/json` > `multipart/form-data` > `application/x-www-f
   ```
   No extra dependency needed - `FormData` is as ambient a Web API as `fetch`/`URL` already relied
   on.
+- **any single `text/*` media type** (`text/plain`, `text/csv`, `text/html`, ...): `options.body` is
+  a plain `string`, sent as-is with `Content-Type` set to the exact declared media type (e.g.
+  `text/csv`, not a generic `text/plain`).
+- **any single other remaining media type** (`application/octet-stream`, `application/zip`,
+  `application/pdf`, `image/png`, ...): `options.body` is a raw `Uint8Array`, sent as-is with
+  `Content-Type` set to the exact declared media type. The declared schema (`type: string, format:
+  binary` or otherwise) has no bearing here - the wire content-type alone decides `string` vs.
+  `Uint8Array`, same as it does at runtime for a real client/server.
+
+  A requestBody declaring two or more media types outside the three fixed ones above is ambiguous
+  (which one would the generated method actually send?) and is a generator error, same as any other
+  unsupported content-type - see "Known limitations".
 
 ### Authentication (`components.securitySchemes`)
 
@@ -224,11 +237,13 @@ npx prettier --write "out/**/*.ts"
 
 ## Known limitations (v1)
 
-- Request bodies support `application/json`, `application/x-www-form-urlencoded`, and
-  `multipart/form-data` (see "Request body content types" above). Responses are `application/json`
-  only. **Any other content type on a request body or a response is a generator error** (aborts
-  generation under default `strict=true`; skips just that operation with a printed warning under
-  `-v strict=false`) - it is never silently dropped.
+- Request and response bodies support `application/json`, a single `text/*` media type (returned/sent
+  as a plain `string`), and a single other media type (returned/sent as a raw `Uint8Array`); request
+  bodies additionally support `application/x-www-form-urlencoded` and `multipart/form-data` (see
+  "Request body content types" above). **A requestBody/response declaring two or more media types
+  outside those fixed ones is a generator error** (aborts generation under default `strict=true`;
+  skips just that operation with a printed warning under `-v strict=false`) - it is never silently
+  dropped.
 - Path/header parameters must resolve to a primitive scalar or enum (string/number/boolean) - an
   object or array in one of those positions is a generator error.
 - Query parameters may be arrays, serialized as repeated keys (`?tag=a&tag=b`, OpenAPI 3's default

@@ -180,6 +180,56 @@ paths:
       responses:
         "204":
           description: Subscribed
+  /pets/{petId}/notes:
+    post:
+      operationId: setPetNotes
+      tags: [pets]
+      description: Exercises a text-content-type request AND response body (a plain String, not JSON-encoded).
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: Notes stored; echoes them back
+          content:
+            text/plain:
+              schema:
+                type: string
+  /pets/{petId}/avatar:
+    put:
+      operationId: uploadPetAvatar
+      tags: [pets]
+      description: Exercises a raw-bytes (non-text, non-JSON) request AND response body.
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Avatar stored; echoes it back
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
   /widgets:
     get:
       operationId: listWidgets

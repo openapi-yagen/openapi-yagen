@@ -3,10 +3,13 @@ info:
   title: Unsupported content type fixture (kotlin_ktor_server_generator test fixture)
   version: "1.0"
   description: >-
-    A single operation whose request body is declared with a content-type this generator doesn't
-    handle (text/plain) - used to assert generation fails loudly (default strict=true) or is
-    skipped with a warning (-v strict=false), instead of silently dropping the body the way an
-    earlier version of this generator used to.
+    A single operation whose request body declares two media types outside the ones this generator
+    special-cases (application/json/multipart/urlencoded) - ambiguous (which one would the
+    generated handler actually expect?), so it's still a generator error even though either one
+    alone (text/plain as a String, application/pdf as raw bytes) would be supported on its own.
+    Used to assert generation fails loudly (default strict=true) or is skipped with a warning (-v
+    strict=false), instead of silently dropping the body the way an earlier version of this
+    generator used to.
 paths:
   /notes:
     post:
@@ -18,6 +21,10 @@ paths:
           text/plain:
             schema:
               type: string
+          application/pdf:
+            schema:
+              type: string
+              format: binary
       responses:
         "201":
           description: Created

@@ -104,6 +104,12 @@ const JSON_MEDIA_TYPE = "application/json";
 const MULTIPART_MEDIA_TYPE = "multipart/form-data";
 const URLENCODED_MEDIA_TYPE = "application/x-www-form-urlencoded";
 
+// Any "text/*" media type (text/plain, text/html, text/csv, text/markdown, ...) - a whole,
+// language-level-open subtype registry, so this is a prefix check rather than a fixed set.
+function isTextMediaType(mediaType) {
+  return mediaType.startsWith("text/");
+}
+
 // application/x-www-form-urlencoded and multipart/form-data bodies are, by OpenAPI convention,
 // always `type: object` schemas with one property per form field. A `format: binary` property is
 // already classified `Primitive` by the engine's kindOf() (same as any other string), so it needs
@@ -127,15 +133,25 @@ function requireFlatObjectSchema(bodySchema, mediaType) {
   }
 }
 
-// Picks which of the three supported request-body media types is present, preferring JSON (the
-// common case), then multipart (needs the flat-object check below for its file fields), then
-// urlencoded. Returns null if `content` has entries but none of the three - the caller turns that
-// into a generation error instead of silently treating the operation as bodyless (see this
-// generator's README "Known limitations").
+// Picks which request-body media type is present, preferring JSON (the common case), then
+// multipart (needs the flat-object check below for its file fields), then urlencoded. Failing
+// those, a single remaining media type is still accepted as a raw body: "text/*" and anything else
+// (application/octet-stream, application/zip, image/*, ...) are both just a plain Ruby `String` on
+// the wire (Ruby has no separate byte-array type for an HTTP body - the difference is only which
+// Content-Type header OpenapiYagenRuntime.request sends, see buildRequestBody below) - the wire
+// content-type, not the declared schema, decides. Returns null only when `content` has entries but
+// none of the above applies - more than one non-JSON/form media type is ambiguous (which one would
+// the generated method actually send?) and the caller turns that into a generation error instead of
+// guessing (see this generator's README "Known limitations").
 function pickBodyContent(content) {
   if (content[JSON_MEDIA_TYPE]) return { mediaType: JSON_MEDIA_TYPE, content: content[JSON_MEDIA_TYPE], encoding: "json" };
   if (content[MULTIPART_MEDIA_TYPE]) return { mediaType: MULTIPART_MEDIA_TYPE, content: content[MULTIPART_MEDIA_TYPE], encoding: "multipart" };
   if (content[URLENCODED_MEDIA_TYPE]) return { mediaType: URLENCODED_MEDIA_TYPE, content: content[URLENCODED_MEDIA_TYPE], encoding: "urlencoded" };
+  const remaining = Object.keys(content);
+  if (remaining.length === 1) {
+    const mediaType = remaining[0];
+    return { mediaType, content: content[mediaType], encoding: isTextMediaType(mediaType) ? "text" : "bytes" };
+  }
   return null;
 }
 
@@ -151,34 +167,56 @@ function buildRequestBody(registry, hintBase, requestBody) {
   if (!picked) {
     throw Error(
       `<5b8a1c3d> Unsupported request body content-type(s) [${Object.keys(content).join(", ")}] - only ` +
-        `"${JSON_MEDIA_TYPE}", "${MULTIPART_MEDIA_TYPE}", and "${URLENCODED_MEDIA_TYPE}" are supported`
+        `"${JSON_MEDIA_TYPE}", "${MULTIPART_MEDIA_TYPE}", "${URLENCODED_MEDIA_TYPE}", a single "text/*" media ` +
+        `type, or a single other media type (sent as raw bytes) are supported`
     );
+  }
+  // "text"/"bytes": the wire content-type alone decides how it's sent (see OpenapiYagenRuntime.
+  // request's content_type: handling) regardless of the declared schema - matches actual HTTP
+  // semantics (the Content-Type header is what a real client/server keys its parsing on). A plain
+  // "primitive" descriptor makes bodyWireExpr/responseFromHExpr identity passthroughs (see
+  // buildToWireExpr/buildFromHExpr) - `body`/`parsed` are already a plain Ruby String either way.
+  if (picked.encoding === "text" || picked.encoding === "bytes") {
+    return {
+      label: "String",
+      descriptor: { kind: "primitive" },
+      required: requestBody.required === true,
+      encoding: picked.encoding,
+      mediaType: picked.mediaType,
+    };
   }
   const bodySchema = picked.content.schema || {};
   if (picked.encoding !== "json") requireFlatObjectSchema(bodySchema, picked.mediaType);
   const t = rubyType(registry, bodySchema, hintBase + "Body");
-  return { label: t.label, descriptor: t.descriptor, required: requestBody.required === true, encoding: picked.encoding };
+  return { label: t.label, descriptor: t.descriptor, required: requestBody.required === true, encoding: picked.encoding, mediaType: null };
 }
 
 // Uses the engine's firstSuccessResponse() instead of hand-rolling the same "first declared 2xx,
-// else default" pick every response-handling generator otherwise needs. Responses stay
-// JSON-only - multipart/urlencoded responses are vanishingly rare in practice and out of scope for
-// now (see README "Known limitations") - so, unlike buildRequestBody, there's only one media type
-// to accept; anything else present is still a loud error, not a silent "void" response.
+// else default" pick every response-handling generator otherwise needs. `application/json` gets a
+// real descriptor-driven type; a single remaining "text/*" or other media type both just become a
+// plain Ruby `String` (Ruby has no separate byte-array type - see buildRequestBody above), read via
+// OpenapiYagenRuntime.request's response_encoding: without attempting a JSON.parse. More than one
+// remaining media type is still a loud error, not a guess (see README "Known limitations").
 function buildResponse(registry, hintBase, responses) {
   const picked = firstSuccessResponse(responses || {});
-  if (!picked) return { label: null, descriptor: null };
+  if (!picked) return { label: null, descriptor: null, encoding: "json", mediaType: null };
   const content = picked.response.content || {};
-  if (Object.keys(content).length === 0) return { label: null, descriptor: null };
+  if (Object.keys(content).length === 0) return { label: null, descriptor: null, encoding: "json", mediaType: null };
   const jsonContent = content[JSON_MEDIA_TYPE];
-  if (!jsonContent) {
-    throw Error(
-      `<7e4f9a2b> Unsupported response content-type(s) [${Object.keys(content).join(", ")}] for the success ` +
-        `response - only "${JSON_MEDIA_TYPE}" is supported`
-    );
+  if (jsonContent) {
+    const t = rubyType(registry, jsonContent.schema || {}, hintBase + "Response");
+    return { label: t.label, descriptor: t.descriptor, encoding: "json", mediaType: null };
   }
-  const t = rubyType(registry, jsonContent.schema || {}, hintBase + "Response");
-  return { label: t.label, descriptor: t.descriptor };
+  const remaining = Object.keys(content);
+  if (remaining.length === 1) {
+    const mediaType = remaining[0];
+    return { label: "String", descriptor: { kind: "primitive" }, encoding: isTextMediaType(mediaType) ? "text" : "bytes", mediaType };
+  }
+  throw Error(
+    `<7e4f9a2b> Unsupported response content-type(s) [${remaining.join(", ")}] for the success response - only ` +
+      `"${JSON_MEDIA_TYPE}", a single "text/*" media type, or a single other media type (as raw bytes) are ` +
+      `supported`
+  );
 }
 
 // Looks up a tag's own document-level description (schema.tags: [{name, description}]) for the

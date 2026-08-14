@@ -216,6 +216,12 @@ const JSON_MEDIA_TYPE = "application/json";
 const MULTIPART_MEDIA_TYPE = "multipart/form-data";
 const URLENCODED_MEDIA_TYPE = "application/x-www-form-urlencoded";
 
+// Any "text/*" media type (text/plain, text/html, text/csv, text/markdown, ...) - a whole,
+// language-level-open subtype registry, so this is a prefix check rather than a fixed set.
+function isTextMediaType(mediaType) {
+  return mediaType.startsWith("text/");
+}
+
 // application/x-www-form-urlencoded and multipart/form-data bodies are, by OpenAPI convention,
 // always `type: object` schemas with one property per form field. A `format: binary` property is
 // already classified `Primitive` by the engine's kindOf() (same as any other string) - it needs no
@@ -239,15 +245,24 @@ function requireFlatObjectSchema(bodySchema, mediaType) {
   }
 }
 
-// Picks which of the three supported request-body media types is present, preferring JSON (the
-// common case), then multipart (needs buildMultipartBodyType's file-field handling), then
-// urlencoded. Returns null if `content` has entries but none of the three - the caller turns that
-// into a generation error instead of silently treating the operation as bodyless (see this
-// generator's README "Known limitations").
+// Picks which request-body media type is present, preferring JSON (the common case), then
+// multipart (needs buildMultipartBodyType's file-field handling), then urlencoded. Failing those,
+// a single remaining media type is still accepted as a raw body: "text/*" becomes a plain TS
+// `string`, anything else (application/octet-stream, application/zip, image/*, ...) becomes a raw
+// `Uint8Array` - the wire content-type, not the declared schema, decides which (see buildRequestBody
+// below). Returns null only when `content` has entries but none of the above applies - more than
+// one non-JSON/form media type is ambiguous (which one would the generated method actually send?)
+// and the caller turns that into a generation error instead of guessing (see this generator's
+// README "Known limitations").
 function pickBodyContent(content) {
   if (content[JSON_MEDIA_TYPE]) return { mediaType: JSON_MEDIA_TYPE, content: content[JSON_MEDIA_TYPE], encoding: "json" };
   if (content[MULTIPART_MEDIA_TYPE]) return { mediaType: MULTIPART_MEDIA_TYPE, content: content[MULTIPART_MEDIA_TYPE], encoding: "multipart" };
   if (content[URLENCODED_MEDIA_TYPE]) return { mediaType: URLENCODED_MEDIA_TYPE, content: content[URLENCODED_MEDIA_TYPE], encoding: "urlencoded" };
+  const remaining = Object.keys(content);
+  if (remaining.length === 1) {
+    const mediaType = remaining[0];
+    return { mediaType, content: content[mediaType], encoding: isTextMediaType(mediaType) ? "text" : "bytes" };
+  }
   return null;
 }
 
@@ -282,39 +297,63 @@ function buildRequestBody(registry, hintBase, requestBody) {
   if (!picked) {
     throw Error(
       `<9d2a5c17> Unsupported request body content-type(s) [${Object.keys(content).join(", ")}] - only ` +
-        `"${JSON_MEDIA_TYPE}", "${MULTIPART_MEDIA_TYPE}", and "${URLENCODED_MEDIA_TYPE}" are supported`
+        `"${JSON_MEDIA_TYPE}", "${MULTIPART_MEDIA_TYPE}", "${URLENCODED_MEDIA_TYPE}", a single "text/*" media ` +
+        `type (sent as a plain string), or a single other media type (sent as raw bytes) are supported`
     );
   }
   const bodySchema = picked.content.schema || {};
   if (picked.encoding === "multipart") {
     requireFlatObjectSchema(bodySchema, picked.mediaType);
-    return { tsType: buildMultipartBodyType(registry, hintBase, bodySchema), required: requestBody.required === true, encoding: "multipart" };
+    return {
+      tsType: buildMultipartBodyType(registry, hintBase, bodySchema),
+      required: requestBody.required === true,
+      encoding: "multipart",
+      mediaType: null,
+    };
   }
   if (picked.encoding === "urlencoded") requireFlatObjectSchema(bodySchema, picked.mediaType);
+  // "text"/"bytes": the wire content-type alone decides the TS type (string/Uint8Array) regardless
+  // of the declared schema - matches actual HTTP semantics (the Content-Type header is what a real
+  // client/server keys its parsing on), and mirrors multipart/urlencoded's own "handle the common
+  // case, don't require a specific schema shape" policy above.
+  if (picked.encoding === "text") {
+    return { tsType: "string", required: requestBody.required === true, encoding: "text", mediaType: picked.mediaType };
+  }
+  if (picked.encoding === "bytes") {
+    return { tsType: "Uint8Array", required: requestBody.required === true, encoding: "bytes", mediaType: picked.mediaType };
+  }
   const t = tsType(registry, bodySchema, hintBase + "Body");
-  return { tsType: t.type, required: requestBody.required === true, encoding: picked.encoding };
+  return { tsType: t.type, required: requestBody.required === true, encoding: picked.encoding, mediaType: null };
 }
 
 // Uses the engine's firstSuccessResponse() (see docs/javascript-api.md) instead of hand-rolling
 // the same "first declared 2xx, else default" pick every response-handling generator otherwise
-// needs. Responses stay JSON-only - multipart/urlencoded responses are vanishingly rare in
-// practice and out of scope for now (see README "Known limitations") - so, unlike
-// buildRequestBody, there's only one media type to accept; anything else present is still a loud
-// error, not a silent "void" response.
+// needs. `application/json` gets a real generated type (and, under -v validateResponses=true, a
+// structural validator); a single remaining "text/*" media type maps to a plain `string`, and a
+// single remaining other media type maps to a raw `Uint8Array` - same content-type-driven policy as
+// buildRequestBody, and same reasoning for why more than one remaining media type is still a loud
+// error instead of a guess (see README "Known limitations"). Neither "text" nor "bytes" gets a
+// validator (there's no JSON structure to check against).
 function buildResponse(registry, hintBase, responses) {
   const picked = firstSuccessResponse(responses || {});
-  if (!picked) return { tsType: "void", statusCode: null, descriptor: null };
+  if (!picked) return { tsType: "void", statusCode: null, descriptor: null, encoding: "json" };
   const content = picked.response.content || {};
-  if (Object.keys(content).length === 0) return { tsType: "void", statusCode: picked.statusCode, descriptor: null };
+  if (Object.keys(content).length === 0) return { tsType: "void", statusCode: picked.statusCode, descriptor: null, encoding: "json" };
   const jsonContent = content[JSON_MEDIA_TYPE];
-  if (!jsonContent) {
-    throw Error(
-      `<b4e8f036> Unsupported response content-type(s) [${Object.keys(content).join(", ")}] for the success ` +
-        `response - only "${JSON_MEDIA_TYPE}" is supported`
-    );
+  if (jsonContent) {
+    const t = tsType(registry, jsonContent.schema || {}, hintBase + "Response");
+    return { tsType: t.type, statusCode: picked.statusCode, descriptor: t.descriptor, encoding: "json" };
   }
-  const t = tsType(registry, jsonContent.schema || {}, hintBase + "Response");
-  return { tsType: t.type, statusCode: picked.statusCode, descriptor: t.descriptor };
+  const remaining = Object.keys(content);
+  if (remaining.length === 1) {
+    const encoding = isTextMediaType(remaining[0]) ? "text" : "bytes";
+    return { tsType: encoding === "text" ? "string" : "Uint8Array", statusCode: picked.statusCode, descriptor: null, encoding };
+  }
+  throw Error(
+    `<b4e8f036> Unsupported response content-type(s) [${remaining.join(", ")}] for the success response - only ` +
+      `"${JSON_MEDIA_TYPE}", a single "text/*" media type, or a single other media type (returned as raw bytes) ` +
+      `are supported`
+  );
 }
 
 // When `validateResponses` is enabled, builds the expression passed as request()'s `validate`

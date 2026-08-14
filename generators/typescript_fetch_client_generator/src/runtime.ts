@@ -45,11 +45,21 @@ export interface AuthRequirement {
   name?: string;
 }
 
-/** How `RequestOptions.body` gets encoded on the wire. Only ever set to "urlencoded"/"multipart" by
- * a generated method whose requestBody declared the matching OpenAPI content-type (see the
- * generator's operations.js); `body` is then always a flat `Record<string, primitive>` - every
- * property scalar/enum, validated at generation time, never a nested object. */
-export type BodyEncoding = "json" | "urlencoded" | "multipart";
+/** How `RequestOptions.body` gets encoded on the wire. Only ever set by a generated method whose
+ * requestBody declared the matching OpenAPI content-type (see the generator's operations.js):
+ * "urlencoded"/"multipart" - `body` is a flat `Record<string, primitive>` (every property
+ * scalar/enum, validated at generation time, never a nested object); "text" - `body` is a plain
+ * `string`; "bytes" - `body` is a `Uint8Array`. */
+export type BodyEncoding = "json" | "urlencoded" | "multipart" | "text" | "bytes";
+
+/** How a 2xx response body gets parsed. Set by a generated method whenever the operation's success
+ * response declared a content-type other than `application/json` (see the generator's
+ * operations.js's buildResponse): "text" - the raw response text, no JSON.parse attempt; "bytes" -
+ * a `Uint8Array` read from the response body. Defaults to "json" (parse as JSON, falling back to
+ * raw text if that fails) when omitted - see `request()` below. Only ever applied to a 2xx
+ * response; a non-2xx response is always read the "json" way regardless, since error bodies are
+ * virtually always JSON/text even for an otherwise binary-bodied operation. */
+export type ResponseEncoding = "json" | "text" | "bytes";
 
 export interface RequestOptions {
   method: string;
@@ -75,6 +85,13 @@ export interface RequestOptions {
   body?: unknown;
   /** Defaults to "json" when `body` is set and this is omitted. */
   bodyEncoding?: BodyEncoding;
+  /** The `Content-Type` header value to send for `bodyEncoding: "text"`/`"bytes"` - the operation's
+   * exact declared media type (e.g. "text/csv", "application/octet-stream"). Ignored for the other
+   * encodings, which always use a fixed Content-Type (or, for multipart, none at all - see
+   * `request()` below). */
+  bodyContentType?: string;
+  /** Defaults to "json" when omitted - see `ResponseEncoding`. */
+  responseEncoding?: ResponseEncoding;
   signal?: AbortSignal;
   /** Only present when the generator was run with `-v validateResponses=true` - a runtime check
    * of the parsed response body against the operation's declared response type (see `request()`
@@ -159,9 +176,18 @@ async function resolveHeaders(provider: HeaderProvider | undefined): Promise<Rec
   return typeof provider === "function" ? await provider() : provider;
 }
 
-async function parseBody(response: Response): Promise<unknown> {
+/** `encoding` only ever governs a 2xx response - a non-2xx response always gets the permissive
+ * JSON-or-fall-back-to-text treatment, regardless of what the operation's success response
+ * declared, since an error body (however the operation's happy path is shaped) is virtually always
+ * JSON or text, never a raw byte stream. */
+async function parseBody(response: Response, encoding: ResponseEncoding): Promise<unknown> {
+  if (response.ok && encoding === "bytes") {
+    const buf = await response.arrayBuffer();
+    return buf.byteLength === 0 ? undefined : new Uint8Array(buf);
+  }
   const text = await response.text();
   if (text.length === 0) return undefined;
+  if (response.ok && encoding === "text") return text;
   try {
     return JSON.parse(text);
   } catch {
@@ -230,6 +256,16 @@ export async function request<T>(config: ApiClientConfig, options: RequestOption
       body = formData;
       // No Content-Type set here - fetch sets it itself (with the multipart boundary) once it
       // sees a FormData body; setting one ourselves would omit the boundary and break the request.
+    } else if (encoding === "text") {
+      body = options.body as string;
+      headers["Content-Type"] = options.bodyContentType ?? "text/plain";
+    } else if (encoding === "bytes") {
+      // `Uint8Array<ArrayBufferLike>` (this TS/DOM lib version's default type parameter) isn't
+      // structurally assignable to `BodyInit` on its own - only via `ArrayBufferView`'s wider
+      // shape, which needs an explicit cast here since `body`'s declared type is `BodyInit`
+      // itself, not the (correctly BodyInit-inclusive) union `fetch`'s own parameter type uses.
+      body = options.body as BodyInit;
+      headers["Content-Type"] = options.bodyContentType ?? "application/octet-stream";
     } else {
       body = JSON.stringify(options.body);
       headers["Content-Type"] = "application/json";
@@ -237,7 +273,7 @@ export async function request<T>(config: ApiClientConfig, options: RequestOption
   }
 
   const response = await doFetch(url, { method: options.method, headers, body, signal: options.signal });
-  const parsed = await parseBody(response);
+  const parsed = await parseBody(response, options.responseEncoding ?? "json");
   if (!response.ok) throw new ApiError(response.status, response.statusText, parsed);
   if (options.validate && !options.validate(parsed)) {
     throw new ResponseValidationError(

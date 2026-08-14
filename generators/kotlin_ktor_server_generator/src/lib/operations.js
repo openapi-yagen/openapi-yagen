@@ -269,6 +269,12 @@ const JSON_MEDIA_TYPE = "application/json";
 const MULTIPART_MEDIA_TYPE = "multipart/form-data";
 const URLENCODED_MEDIA_TYPE = "application/x-www-form-urlencoded";
 
+// Any "text/*" media type (text/plain, text/html, text/csv, text/markdown, ...) - a whole,
+// language-level-open subtype registry, so this is a prefix check rather than a fixed set.
+function isTextMediaType(mediaType) {
+  return mediaType.startsWith("text/");
+}
+
 // application/x-www-form-urlencoded bodies are, by OpenAPI convention, always `type: object`
 // schemas with one property per form field - same restriction path/header params already apply
 // via buildParam's own converter lookup below. Anything else (a nested object/array property) is
@@ -289,16 +295,26 @@ function requireFlatObjectSchema(bodySchema, mediaType) {
   }
 }
 
-// Picks which of the three supported request-body media types is present, preferring JSON (the
-// common case), then multipart (received as raw MultiPartData - see buildRequestBody's own
-// comment on why that one doesn't go through the model registry), then urlencoded. Returns null if
-// `content` has entries but none of the three - the caller turns that into a generation error
-// instead of silently treating the operation as bodyless (see this generator's README "Known
+// Picks which request-body media type is present, preferring JSON (the common case), then
+// multipart (received as raw MultiPartData - see buildRequestBody's own comment on why that one
+// doesn't go through the model registry), then urlencoded. Failing those, a single remaining media
+// type is still accepted as a raw body: "text/*" is received as a plain Kotlin `String`, anything
+// else (application/octet-stream, application/zip, image/*, ...) is received as a raw `ByteArray` -
+// the wire content-type, not the declared schema, decides which (both are natively `call.receive<T>
+// ()`-able with no extra plugin, same as a JSON body needs ContentNegotiation for). Returns null
+// only when `content` has entries but none of the above applies - more than one non-JSON/form media
+// type is ambiguous (which one would the generated handler actually expect?) and the caller turns
+// that into a generation error instead of guessing (see this generator's README "Known
 // limitations").
 function pickBodyContent(content) {
   if (content[JSON_MEDIA_TYPE]) return { mediaType: JSON_MEDIA_TYPE, content: content[JSON_MEDIA_TYPE], encoding: "json" };
   if (content[MULTIPART_MEDIA_TYPE]) return { mediaType: MULTIPART_MEDIA_TYPE, content: content[MULTIPART_MEDIA_TYPE], encoding: "multipart" };
   if (content[URLENCODED_MEDIA_TYPE]) return { mediaType: URLENCODED_MEDIA_TYPE, content: content[URLENCODED_MEDIA_TYPE], encoding: "urlencoded" };
+  const remaining = Object.keys(content);
+  if (remaining.length === 1) {
+    const mediaType = remaining[0];
+    return { mediaType, content: content[mediaType], encoding: isTextMediaType(mediaType) ? "text" : "bytes" };
+  }
   return null;
 }
 
@@ -330,7 +346,8 @@ function buildRequestBody(registry, hintBase, requestBody) {
   if (!picked) {
     throw Error(
       `<d29b6f18> Unsupported request body content-type(s) [${Object.keys(content).join(", ")}] - only ` +
-        `"${JSON_MEDIA_TYPE}", "${MULTIPART_MEDIA_TYPE}", and "${URLENCODED_MEDIA_TYPE}" are supported`
+        `"${JSON_MEDIA_TYPE}", "${MULTIPART_MEDIA_TYPE}", "${URLENCODED_MEDIA_TYPE}", a single "text/*" media ` +
+        `type (received as a String), or a single other media type (received as raw bytes) are supported`
     );
   }
 
@@ -342,6 +359,19 @@ function buildRequestBody(registry, hintBase, requestBody) {
     // README). Fully-qualified so no import bookkeeping is needed in api_handler.kt.j2, same
     // convention as kotlinx.datetime.Instant/JsonElement elsewhere in this generator.
     return { type: "io.ktor.http.content.MultiPartData", required: true, encoding: "multipart", hasValidate: false };
+  }
+
+  // "text"/"bytes": the wire content-type alone decides the Kotlin type (String/ByteArray)
+  // regardless of the declared schema - matches actual HTTP semantics (the Content-Type header is
+  // what a real client/server keys its parsing on). Both fall through to api_routes.kt.j2's generic
+  // `call.receive<T>()` branch (same as JSON) - Ktor's server receive pipeline handles String/
+  // ByteArray natively, no ContentNegotiation plugin needed; `hasValidate: false` since String/
+  // ByteArray have no generated `.validate()` extension (only model data classes do).
+  if (picked.encoding === "text") {
+    return { type: "String", required: requestBody.required === true, encoding: "text", hasValidate: false, mediaType: picked.mediaType };
+  }
+  if (picked.encoding === "bytes") {
+    return { type: "ByteArray", required: requestBody.required === true, encoding: "bytes", hasValidate: false, mediaType: picked.mediaType };
   }
 
   const bodySchema = picked.content.schema || {};
@@ -362,25 +392,35 @@ function buildRequestBody(registry, hintBase, requestBody) {
 
 // Uses the engine's firstSuccessResponse() (see docs/javascript-api.md) instead of hand-rolling
 // the same "first declared 2xx, else default" pick every response-handling generator otherwise
-// needs. Responses stay JSON-only - multipart/urlencoded responses are vanishingly rare in
-// practice and out of scope for now (see README "Known limitations") - so, unlike
-// buildRequestBody, there's only one media type to accept; anything else present is still a loud
-// error, not a silent "Unit" response.
+// needs. `application/json` gets a real generated data class type, sent via the generic
+// `call.respond(status, result)`; a single remaining "text/*" media type maps to a plain Kotlin
+// `String` (sent via `call.respondText`), and a single remaining other media type maps to a raw
+// `ByteArray` (sent via `call.respondBytes`) - both set the exact declared media type as the
+// response's Content-Type (see api_routes.kt.j2), same content-type-driven policy as
+// buildRequestBody. More than one remaining media type is still a loud error, not a guess (see
+// README "Known limitations").
 function buildResponse(registry, hintBase, responses) {
   const picked = firstSuccessResponse(responses || {});
-  if (!picked) return { type: "Unit", statusCode: 200 };
+  if (!picked) return { type: "Unit", statusCode: 200, encoding: "json", mediaType: null };
   const statusCode = /^\d+$/.test(picked.statusCode) ? parseInt(picked.statusCode, 10) : 200;
   const content = picked.response.content || {};
-  if (Object.keys(content).length === 0) return { type: "Unit", statusCode };
+  if (Object.keys(content).length === 0) return { type: "Unit", statusCode, encoding: "json", mediaType: null };
   const jsonContent = content[JSON_MEDIA_TYPE];
-  if (!jsonContent) {
-    throw Error(
-      `<e19a4b6d> Unsupported response content-type(s) [${Object.keys(content).join(", ")}] for the success ` +
-        `response - only "${JSON_MEDIA_TYPE}" is supported`
-    );
+  if (jsonContent) {
+    const t = ktType(registry, jsonContent.schema || {}, hintBase + "Response");
+    return { type: t.type, statusCode, encoding: "json", mediaType: null };
   }
-  const t = ktType(registry, jsonContent.schema || {}, hintBase + "Response");
-  return { type: t.type, statusCode };
+  const remaining = Object.keys(content);
+  if (remaining.length === 1) {
+    const mediaType = remaining[0];
+    const encoding = isTextMediaType(mediaType) ? "text" : "bytes";
+    return { type: encoding === "text" ? "String" : "ByteArray", statusCode, encoding, mediaType };
+  }
+  throw Error(
+    `<e19a4b6d> Unsupported response content-type(s) [${remaining.join(", ")}] for the success response - only ` +
+      `"${JSON_MEDIA_TYPE}", a single "text/*" media type, or a single other media type (as raw bytes) are ` +
+      `supported`
+  );
 }
 
 // Looks up a tag's own document-level description (schema.tags: [{name, description}] - distinct

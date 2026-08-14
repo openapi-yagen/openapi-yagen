@@ -129,6 +129,40 @@ class ClientTest < Minitest::Test
     stubs.verify_stubbed_calls
   end
 
+  def test_set_pet_notes_sends_and_parses_a_text_plain_body_as_a_plain_string
+    conn, stubs = stubbed_connection do |stub|
+      stub.post("/pets/1/notes") do |env|
+        assert_equal "text/plain", env.request_headers["Content-Type"]
+        assert_equal "likes belly rubs", env.body
+        [200, { "Content-Type" => "text/plain" }, "echo: likes belly rubs"]
+      end
+    end
+    api = Kitchensink::PetsClient.new(connection: conn)
+
+    result = api.set_pet_notes(pet_id: "1", body: "likes belly rubs")
+
+    assert_equal "echo: likes belly rubs", result
+    stubs.verify_stubbed_calls
+  end
+
+  def test_upload_pet_avatar_sends_and_parses_an_application_octet_stream_body_as_raw_bytes
+    bytes = [0x89, 0x50, 0x4e, 0x47].pack("C*")
+    conn, stubs = stubbed_connection do |stub|
+      stub.put("/pets/1/avatar") do |env|
+        assert_equal "application/octet-stream", env.request_headers["Content-Type"]
+        assert_equal bytes, env.body
+        [200, { "Content-Type" => "application/octet-stream" }, bytes]
+      end
+    end
+    api = Kitchensink::PetsClient.new(connection: conn)
+
+    result = api.upload_pet_avatar(pet_id: "1", body: bytes)
+
+    assert_equal bytes, result
+    assert_equal Encoding::ASCII_8BIT, result.encoding
+    stubs.verify_stubbed_calls
+  end
+
   def test_get_shape_dispatches_discriminated_union_from_an_http_response
     conn, stubs = stubbed_connection do |stub|
       stub.get("/widgets/shapes/s1") { [200, { "Content-Type" => "application/json" }, '{"shapeType":"circle","radius":2}'] }

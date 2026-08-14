@@ -34,3 +34,26 @@ test("uploadPetPhoto sends the body as a native FormData with no Content-Type se
   assert.equal(uploadedPhoto.type, "image/jpeg");
   assert.equal(uploadedPhoto.size, photo.size);
 });
+
+test("setPetNotes sends and parses a text/plain body as a plain string", async () => {
+  const { fetch, calls } = createFetchStub((req) => ({ status: 200, body: `echo: ${req.body as string}` }));
+  const result = await new PetsClient({ baseUrl: "https://example.test", fetch }).setPetNotes("1", {
+    body: "likes belly rubs",
+  });
+  assert.equal(calls[0]!.headers["content-type"], "text/plain");
+  assert.equal(calls[0]!.body, "likes belly rubs");
+  assert.equal(result, "echo: likes belly rubs");
+});
+
+test("uploadPetAvatar sends and parses an application/octet-stream body as raw bytes", async () => {
+  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const { fetch, calls } = createFetchStub(() => ({ status: 200, body: bytes }));
+  const result = await new PetsClient({ baseUrl: "https://example.test", fetch }).uploadPetAvatar("1", {
+    body: bytes,
+  });
+  assert.equal(calls[0]!.headers["content-type"], "application/octet-stream");
+  assert.ok(calls[0]!.body instanceof Uint8Array);
+  assert.deepEqual(calls[0]!.body, bytes);
+  assert.ok(result instanceof Uint8Array);
+  assert.deepEqual(result, bytes);
+});

@@ -68,4 +68,14 @@ class FakePetsApiHandler : PetsApiHandler {
     override suspend fun subscribeToPet(petId: String, body: PetSubscription) {
         pets[petId] ?: throw NotFoundException("pet $petId not found")
     }
+
+    override suspend fun setPetNotes(petId: String, body: String): String {
+        pets[petId] ?: throw NotFoundException("pet $petId not found")
+        return "echo: $body"
+    }
+
+    override suspend fun uploadPetAvatar(petId: String, body: ByteArray): ByteArray {
+        pets[petId] ?: throw NotFoundException("pet $petId not found")
+        return body
+    }
 }

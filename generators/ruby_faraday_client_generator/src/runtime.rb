@@ -176,7 +176,8 @@ module OpenapiYagenRuntime
   # structured error payload) without a second request.
   #
   # `content_type:` picks how `body` (already wire-shaped - a Hash, from the generated model's own
-  # to_wire) gets encoded:
+  # to_wire, or already a plain String for :text/:bytes - see the generator's operations.js) gets
+  # encoded:
   #   :json        - JSON.generate, Content-Type: application/json (default).
   #   :urlencoded  - URI.encode_www_form (stdlib), Content-Type: application/x-www-form-urlencoded.
   #   :multipart   - passed straight through as the Faraday request body, UNMODIFIED, with no
@@ -186,7 +187,23 @@ module OpenapiYagenRuntime
   #                  it. This module never hand-rolls multipart encoding itself - see the
   #                  generator's README for why (same "caller owns Faraday-specific concerns"
   #                  reasoning as never creating the Faraday::Connection itself).
-  def request(connection:, method:, path:, query: nil, headers: nil, body: nil, content_type: :json, auth: nil, auth_config: nil)
+  #   :text/:bytes - passed straight through as the Faraday request body, UNMODIFIED (already a
+  #                  plain Ruby String either way - Ruby has no separate byte-array type for an HTTP
+  #                  body), Content-Type set to `media_type:` (the operation's exact declared media
+  #                  type, e.g. "text/csv" or "application/octet-stream" - required whenever
+  #                  content_type: is :text/:bytes).
+  #
+  # `response_encoding:` picks how a 2xx response body is turned into the return value - a non-2xx
+  # response always gets the permissive JSON-or-fall-back-to-text treatment below regardless, since
+  # an error body (however the operation's happy path is shaped) is virtually always JSON or text,
+  # never a raw byte stream:
+  #   :json (default) - JSON.parse, falling back to the raw response text if that fails.
+  #   :text           - the raw response text, no JSON.parse attempt.
+  #   :bytes          - the raw response text, forced to ASCII-8BIT (binary) encoding so it isn't
+  #                      silently mangled as if it were text in whatever encoding the response
+  #                      happened to declare (or Ruby's default, absent that).
+  def request(connection:, method:, path:, query: nil, headers: nil, body: nil, content_type: :json,
+              media_type: nil, response_encoding: :json, auth: nil, auth_config: nil)
     resolved_headers = (headers || {}).compact
 
     resolved_query = apply_auth(auth, auth_config, resolved_headers, query)
@@ -201,6 +218,9 @@ module OpenapiYagenRuntime
         resolved_headers["Content-Type"] = "application/x-www-form-urlencoded"
       when :multipart
         request_body = body
+      when :text, :bytes
+        request_body = body
+        resolved_headers["Content-Type"] = media_type
       else
         request_body = JSON.generate(body)
         resolved_headers["Content-Type"] = "application/json"
@@ -208,11 +228,16 @@ module OpenapiYagenRuntime
     end
 
     response = connection.run_request(method, full_path, request_body, resolved_headers)
+    ok = response.status >= 200 && response.status < 300
 
     text = response.body.to_s
     parsed =
       if text.empty?
         nil
+      elsif ok && response_encoding == :bytes
+        text.dup.force_encoding(Encoding::ASCII_8BIT)
+      elsif ok && response_encoding == :text
+        text
       else
         begin
           JSON.parse(text)
@@ -221,7 +246,7 @@ module OpenapiYagenRuntime
         end
       end
 
-    raise ApiError.new(response.status, parsed) unless response.status >= 200 && response.status < 300
+    raise ApiError.new(response.status, parsed) unless ok
     parsed
   end
 end

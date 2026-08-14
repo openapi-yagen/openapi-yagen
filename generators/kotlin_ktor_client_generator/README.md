@@ -69,10 +69,11 @@ formats).
 
 ### Request body content types
 
-Three request-body content types are supported, picked from whichever the spec declares in
-priority order `application/json` > `multipart/form-data` > `application/x-www-form-urlencoded`.
-All three still build the same generated `@Serializable` data class as the `body` parameter - only
-how it's sent over the wire differs:
+Request-body content types are picked from whichever the spec declares in priority order
+`application/json` > `multipart/form-data` > `application/x-www-form-urlencoded` > (a single
+remaining media type, sent as a `String` or raw `ByteArray`). The first three build the same
+generated `@Serializable` data class as the `body` parameter - only how it's sent over the wire
+differs:
 
 - **`application/json`** (default): `contentType(ContentType.Application.Json); setBody(body)`.
 - **`application/x-www-form-urlencoded`**: `setBody(FormDataContent(Parameters.build { ... }))`,
@@ -82,6 +83,19 @@ how it's sent over the wire differs:
 - **`multipart/form-data`**: same restriction, `setBody(MultiPartFormDataContent(formData {
   ... }))` instead - both builders come from `io.ktor.client.request.forms`, part of
   `ktor-client-core` itself (no extra Gradle dependency beyond what's already listed above).
+- **any single `text/*` media type** (`text/plain`, `text/csv`, `text/html`, ...): `body: String`,
+  sent with `contentType(ContentType.parse("text/csv"))` (the exact declared media type, not a
+  generic `text/plain`) and a plain `setBody(body)` - Ktor sends a `String` body as-is, no
+  `ContentNegotiation` plugin needed.
+- **any single other remaining media type** (`application/octet-stream`, `application/zip`,
+  `application/pdf`, `image/png`, ...): `body: ByteArray`, sent the same way - Ktor sends a
+  `ByteArray` body as-is too. The declared schema (`type: string, format: binary` or otherwise) has
+  no bearing here - the wire content-type alone decides `String` vs. `ByteArray`, same as it does at
+  runtime for a real client/server.
+
+  A requestBody declaring two or more media types outside the three fixed ones above is ambiguous
+  (which one would the generated method actually send?) and is a generator error, same as any other
+  unsupported content-type - see "Known limitations".
 
 ## Formatting generated sources
 
@@ -143,11 +157,12 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
 
 ## Known limitations (v1)
 
-- Request bodies support `application/json`, `application/x-www-form-urlencoded`, and
-  `multipart/form-data` (see "Request body content types" above). Responses are `application/json`
-  only. **Any other content type on a request body or a response is a generator error** (aborts
-  generation under default `strict=true`; skips just that operation with a printed warning under
-  `-v strict=false`) - it is never silently dropped.
+- Request and response bodies support `application/json`, a single `text/*` media type (as a
+  `String`), and a single other media type (as a raw `ByteArray`); request bodies additionally
+  support `application/x-www-form-urlencoded` and `multipart/form-data` (see "Request body content
+  types" above). **A requestBody/response declaring two or more media types outside those fixed
+  ones is a generator error** (aborts generation under default `strict=true`; skips just that
+  operation with a printed warning under `-v strict=false`) - it is never silently dropped.
 - A `type: string, format: binary` property inside a `multipart/form-data` body still maps to the
   generic `String` every `format: binary` schema maps to (see below) - there's no `ByteArray`/
   streaming-upload type yet, unlike the TypeScript generator's `Blob | File` for the same position.

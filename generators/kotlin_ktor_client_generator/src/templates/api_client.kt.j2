@@ -30,6 +30,8 @@ import io.ktor.http.*
 {% else if op.body.encoding == "multipart" %}    setBody(MultiPartFormDataContent(formData {
 {% for f in op.body.fields %}        body.{{ f.ktName }}?.let { append({{ toStringLiteral(f.wireName) }}, it.toString()) }
 {% endfor %}    }))
+{% else if op.body.encoding == "text" or op.body.encoding == "bytes" %}    contentType(ContentType.parse({{ toStringLiteral(op.body.mediaType) }}))
+    setBody(body)
 {% else %}    contentType(ContentType.Application.Json)
     setBody(body)
 {% endif %}{% endif %}}{% if op.returnsValue %}
