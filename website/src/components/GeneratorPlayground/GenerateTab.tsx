@@ -228,7 +228,11 @@ export default function GenerateTab({request, cancel}: Props): ReactNode {
                 className={styles.textInput}
                 value={varsValues[v.name] ?? ''}
                 required={v.required}
-                onChange={(e) => setVarsValues((prev) => ({...prev, [v.name]: e.target.value}))}
+                onChange={(e) => {
+                  e.target.setCustomValidity('');
+                  setVarsValues((prev) => ({...prev, [v.name]: e.target.value}));
+                }}
+                onInvalid={(e) => e.currentTarget.setCustomValidity('Please fill out this field.')}
               />
             </div>
           ))}
