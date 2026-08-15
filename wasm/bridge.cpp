@@ -188,7 +188,7 @@ GeneratorInfoResult toGeneratorInfoResult(const GeneratorMetadata& m)
 // subprocess/formatter tooling available in a browser sandbox; see MemoryFileWriter's lack of a
 // FilePostProcessor hook).
 GenerateResult runGenerate(const string& specText, const vector<FS::FileReaderBackendPtr>& backends,
-    const vector<string>& vars)
+    const vector<string>& vars, const vector<string>& tags)
 {
     GenerateResult result;
     clearLogs();
@@ -210,6 +210,7 @@ GenerateResult runGenerate(const string& specText, const vector<FS::FileReaderBa
             .metadataPath = "generator.yml",
             .clearOutDir = false,
             .vars = vars,
+            .tags = tags,
         });
         g.generate(SPEC_PATH);
 
@@ -284,16 +285,18 @@ GeneratorInfoResult getZipGeneratorInfo(const val& zipBytes)
     }
 }
 
-GenerateResult generateFromBuiltin(const string& specText, const string& name, const vector<string>& vars)
+GenerateResult generateFromBuiltin(const string& specText, const string& name, const vector<string>& vars,
+    const vector<string>& tags)
 {
-    return runGenerate(specText, builtinBackends(name), vars);
+    return runGenerate(specText, builtinBackends(name), vars, tags);
 }
 
-GenerateResult generateFromZip(const string& specText, const val& zipBytes, const vector<string>& vars)
+GenerateResult generateFromZip(const string& specText, const val& zipBytes, const vector<string>& vars,
+    const vector<string>& tags)
 {
     clearLogs();
     try {
-        return runGenerate(specText, zipBackendsFromBytes(zipBytes), vars);
+        return runGenerate(specText, zipBackendsFromBytes(zipBytes), vars, tags);
     } catch (const exception& e) {
         GenerateResult result;
         result.error = e.what();

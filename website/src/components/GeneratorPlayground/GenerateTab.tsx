@@ -59,6 +59,7 @@ export default function GenerateTab({request, cancel}: Props): ReactNode {
   const [zip, setZip] = useState<{name: string; bytes: Uint8Array} | null>(null);
   const [info, setInfo] = useState<GeneratorInfo | null>(null);
   const [varsValues, setVarsValues] = useState<Record<string, string>>({});
+  const [tagsText, setTagsText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GenerateResult | null>(null);
@@ -127,7 +128,11 @@ export default function GenerateTab({request, cancel}: Props): ReactNode {
     setLogs([]);
     try {
       const vars = Object.entries(varsValues).map(([name, value]) => `${name}=${value}`);
-      const res = await request<GenerateResult>({type: 'generate', spec: specText, source, vars, logLevel});
+      const tags = tagsText
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0);
+      const res = await request<GenerateResult>({type: 'generate', spec: specText, source, vars, tags, logLevel});
       setLogs(res.logs);
       if (res.ok) setResult(res);
       else setError(res.error);
@@ -211,6 +216,20 @@ export default function GenerateTab({request, cancel}: Props): ReactNode {
           {zip && <p className={styles.hint}>{zip.name}</p>}
         </div>
       )}
+
+      <div className={styles.field}>
+        <div className={styles.labelRow}>
+          <label htmlFor="playground-tags">Tags (optional)</label>
+          <InfoPopover text="Only generate operations tagged with one of these OpenAPI tags (comma-separated), plus the models they still reference. Leave empty to generate everything." />
+        </div>
+        <input
+          id="playground-tags"
+          className={styles.textInput}
+          value={tagsText}
+          placeholder="pets, orders"
+          onChange={(e) => setTagsText(e.target.value)}
+        />
+      </div>
 
       {info && info.variables.length > 0 && (
         <div className={styles.varsGrid}>

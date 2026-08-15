@@ -153,6 +153,12 @@ const generators = [
     to: '/generators/kotlin-ktor-server',
   },
   {
+    language: 'Ruby',
+    title: 'Faraday client',
+    text: 'API client built on Faraday, adapter-agnostic and taking a caller-supplied connection.',
+    to: '/generators/ruby-faraday-client',
+  },
+  {
     language: 'C++',
     title: 'Models example',
     text: 'A small example generator for C++ model structs.',

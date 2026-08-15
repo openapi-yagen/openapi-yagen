@@ -65,8 +65,8 @@ interface YagenModule {
   listBuiltinGenerators(): EmbindVector<RawBuiltinGeneratorSummary>;
   getBuiltinGeneratorInfo(name: string): RawGeneratorInfoResult;
   getZipGeneratorInfo(bytes: Uint8Array): RawGeneratorInfoResult;
-  generateFromBuiltin(spec: string, name: string, vars: EmbindVector<string>): RawGenerateResult;
-  generateFromZip(spec: string, bytes: Uint8Array, vars: EmbindVector<string>): RawGenerateResult;
+  generateFromBuiltin(spec: string, name: string, vars: EmbindVector<string>, tags: EmbindVector<string>): RawGenerateResult;
+  generateFromZip(spec: string, bytes: Uint8Array, vars: EmbindVector<string>, tags: EmbindVector<string>): RawGenerateResult;
   convertSpec(spec: string, fromVersion: string, toVersion: string, format: string): RawConvertResult;
   setLogLevel(level: string): boolean;
   StringVector: new () => EmbindVector<string>;
@@ -100,8 +100,8 @@ function toStringVector(Module: YagenModule, values: readonly string[]): EmbindV
   return vec;
 }
 
-function withVarsVector<T>(Module: YagenModule, vars: readonly string[], fn: (vec: EmbindVector<string>) => T): T {
-  const vec = toStringVector(Module, vars);
+function withStringVector<T>(Module: YagenModule, values: readonly string[], fn: (vec: EmbindVector<string>) => T): T {
+  const vec = toStringVector(Module, values);
   try {
     return fn(vec);
   } finally {
@@ -113,11 +113,19 @@ function getGeneratorInfo(Module: YagenModule, source: GeneratorSource): RawGene
   return source.kind === 'builtin' ? Module.getBuiltinGeneratorInfo(source.name) : Module.getZipGeneratorInfo(source.bytes);
 }
 
-function generate(Module: YagenModule, spec: string, source: GeneratorSource, vars: readonly string[]): RawGenerateResult {
-  return withVarsVector(Module, vars, (varsVec) =>
-    source.kind === 'builtin'
-      ? Module.generateFromBuiltin(spec, source.name, varsVec)
-      : Module.generateFromZip(spec, source.bytes, varsVec),
+function generate(
+  Module: YagenModule,
+  spec: string,
+  source: GeneratorSource,
+  vars: readonly string[],
+  tags: readonly string[],
+): RawGenerateResult {
+  return withStringVector(Module, vars, (varsVec) =>
+    withStringVector(Module, tags, (tagsVec) =>
+      source.kind === 'builtin'
+        ? Module.generateFromBuiltin(spec, source.name, varsVec, tagsVec)
+        : Module.generateFromZip(spec, source.bytes, varsVec, tagsVec),
+    ),
   );
 }
 
@@ -145,7 +153,7 @@ async function handleRequest(req: WorkerRequest): Promise<unknown> {
 
     case 'generate': {
       Module.setLogLevel(req.logLevel);
-      const raw = generate(Module, req.spec, req.source, req.vars);
+      const raw = generate(Module, req.spec, req.source, req.vars, req.tags);
       const files = vecToArray(raw.files, (f) => ({...f}));
       const logs = vecToArray(raw.logs, (l) => ({...l}));
       return {ok: raw.ok, error: raw.error, files, logs};

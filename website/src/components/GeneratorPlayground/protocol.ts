@@ -60,7 +60,7 @@ export type WorkerRequest =
   | {id: number; type: 'init'; wasmJsUrl: string}
   | {id: number; type: 'listBuiltinGenerators'}
   | {id: number; type: 'getGeneratorInfo'; source: GeneratorSource}
-  | {id: number; type: 'generate'; spec: string; source: GeneratorSource; vars: string[]; logLevel: LogLevel}
+  | {id: number; type: 'generate'; spec: string; source: GeneratorSource; vars: string[]; tags: string[]; logLevel: LogLevel}
   | {
       id: number;
       type: 'convert';

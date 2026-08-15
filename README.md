@@ -83,6 +83,7 @@ Options:
   -p,--post-process TEXT ...  Post process file with specified tool for extension
   -c,--clear                  Clear output directory before generating
   -v,--var TEXT ...           Set variable. Syntax is: -v (var_name)=(var_value)
+  -t,--tags TEXT ...          Only generate operations/models tagged with one of these tags (default: generate everything)
 ```
 
 #### Post-processing generated files
@@ -97,6 +98,30 @@ Options:
 `-p` value with no prefix (just a bare command) runs on *every* generated file, regardless of
 extension. Pass `-p` more than once to chain multiple tools (e.g. one for `.kt` files, a different
 one for everything else).
+
+#### Filtering by tags
+
+`-t/--tags <tag>...` restricts generation to a subset of the spec's OpenAPI tags. With no `-t`
+flag (the default), everything in the spec is generated, unchanged from before this option existed.
+
+```bash
+openapi-yagen generate openapi.yaml -g builtin:kotlin_ktor_client -o out -t pets -t orders
+```
+
+An operation is kept if it declares **any** of the given tags (an operation with several tags
+needs only one to match); an untagged operation is dropped as soon as `-t` is used at all. This is
+an engine-level filter, applied before the spec ever reaches the generator's JavaScript: a
+generator doesn't need to know tag filtering exists to support it. Filtering happens in three
+steps:
+
+1. **Operations** - only matching operations survive, in `paths` and `webhooks` alike; a path left
+   with none of its operations remaining is dropped entirely.
+2. **Models** - `components.schemas` (and `parameters`/`requestBodies`/`responses`/`headers`) are
+   pruned down to whatever's still reachable from a surviving operation's parameters, request body,
+   or responses (following `$ref`s, `properties`, `items`, `allOf`/`oneOf`/`anyOf`, and so on) - a
+   model only ever used by a filtered-out operation is dropped along with it; one used by both a
+   surviving and a filtered-out operation is kept.
+3. **The document's own `tags:` list** is trimmed to the tags actually passed to `-t`.
 
 ### Convert subcommand
 
