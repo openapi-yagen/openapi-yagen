@@ -5,6 +5,8 @@ set(SOURCES
   document.h
   document_field_order.cpp
   document_field_order.h
+  filter.cpp
+  filter.h
   info.h
   ref.h
   resolve.cpp

@@ -18,5 +18,6 @@ private:
     std::string generatorPath;
     std::vector<std::string> postProcessTools;
     std::vector<std::string> vars;
+    std::vector<std::string> tags;
     bool clearOutDir;
 };

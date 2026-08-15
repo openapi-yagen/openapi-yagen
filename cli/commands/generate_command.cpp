@@ -38,6 +38,9 @@ void GenerateCommand::reg(CLI::App& app)
         ->take_all();
     cmd->add_flag("-c, --clear", clearOutDir, "Clear output directory before generating");
     cmd->add_option("-v, --var", vars, "Set variable. Syntax is: -v (var_name)=(var_value)")->take_all();
+    cmd->add_option("-t, --tags", tags,
+                    "Only generate operations/models tagged with one of these tags (default: generate everything)")
+        ->take_all();
 }
 
 void GenerateCommand::process()
@@ -81,6 +84,7 @@ void GenerateCommand::process()
         .metadataPath = "generator.yml",
         .clearOutDir = clearOutDir,
         .vars = vars,
+        .tags = tags,
     });
 
     if (specPath.empty())

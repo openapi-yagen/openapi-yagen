@@ -23,6 +23,7 @@
 #include "../js/executor.h"
 #include "../js/tools.h"
 #include "../logger/logger.h"
+#include "../openapi/filter.h"
 #include "../openapi/resolve.h"
 #include "../openapi/v3/reader.h"
 #include "../openapi/version_convert.h"
@@ -923,6 +924,10 @@ void OpenApiGenerator::generate(const string& specPath)
     auto doc = OpenApi::V3::Read(NodeWalker(schemaNode), versioned.version);
     logger.debug("<e3f4a5b6> Resolving in-document $refs");
     OpenApi::resolveAllRefs(doc);
+    if (!opts.tags.empty()) {
+        logger.debug("<a1b2c3d4> Filtering document by tags: {}", opts.tags | joinToString(","));
+        OpenApi::filterByTags(doc, schemaNode, opts.tags);
+    }
     auto operations = OpenApi::collectOperations(doc);
 
     auto generatorPtr = this;

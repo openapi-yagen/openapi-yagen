@@ -19,6 +19,7 @@ public:
         std::string metadataPath;
         bool clearOutDir = false;
         std::vector<std::string> vars;
+        std::vector<std::string> tags;
     };
 
     OpenApiGenerator(Opts&& opts);

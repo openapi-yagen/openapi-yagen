@@ -81,6 +81,7 @@ TEST_CASE("Generate", "[generator]")
         .defaultMainSciptPath = "main.js",
         .metadataPath = "generator.yml",
         .vars = { "OPT1=true" },
+        .tags = {},
     });
 
     gen.generate(getResourcePath("petstore.yaml"));
@@ -116,6 +117,7 @@ TEST_CASE("copyFile copies a static file verbatim without templating", "[generat
         .defaultMainSciptPath = "main.js",
         .metadataPath = "generator.yml",
         .vars = { },
+        .tags = {},
     });
 
     gen.generate(getResourcePath("petstore.yaml"));
@@ -161,6 +163,7 @@ TEST_CASE("Generate exposes kindOf/constraintsOf/nameOf/collectOperations", "[ge
         .defaultMainSciptPath = "main.js",
         .metadataPath = "generator.yml",
         .vars = { },
+        .tags = {},
     });
 
     gen.generate(getResourcePath("petstore.yaml"));
@@ -230,6 +233,7 @@ renderTemplate("test_template", {
         .defaultMainSciptPath = "main.js",
         .metadataPath = "generator.yml",
         .vars = { },
+        .tags = {},
     });
 
     gen.generate(getResourcePath("allof_discriminator.yaml"));
@@ -322,6 +326,7 @@ renderTemplate("test_template", {
         .defaultMainSciptPath = "main.js",
         .metadataPath = "generator.yml",
         .vars = { },
+        .tags = {},
     });
 
     gen.generate(getResourcePath("petstore.yaml"));
@@ -379,6 +384,7 @@ buildDocComment("x", null, [], "/* */");
         .defaultMainSciptPath = "main.js",
         .metadataPath = "generator.yml",
         .vars = { },
+        .tags = {},
     });
 
     REQUIRE_THROWS_WITH(gen.generate(getResourcePath("petstore.yaml")),
@@ -445,6 +451,7 @@ renderTemplate("test_template", {
         .defaultMainSciptPath = "main.js",
         .metadataPath = "generator.yml",
         .vars = { },
+        .tags = {},
     });
 
     gen.generate(getResourcePath("petstore.yaml"));
@@ -484,6 +491,7 @@ TEST_CASE("resolveUnionDispatch rejects unresolvable/ambiguous oneOf shapes", "[
             .defaultMainSciptPath = "main.js",
             .metadataPath = "generator.yml",
             .vars = { },
+            .tags = {},
         });
     };
     // Every scenario captures resolveUnionDispatch's thrown error message via try/catch rather
@@ -549,6 +557,7 @@ TEST_CASE("Generate validates the spec structurally while parsing (no external J
             .metadataPath = "generator.yml",
             .clearOutDir = false,
             .vars = { },
+            .tags = {},
         });
     };
 
@@ -593,6 +602,7 @@ TEST_CASE("Generate converts a spec to the generator's declared openApiVersion",
         .metadataPath = "generator.yml",
         .clearOutDir = false,
         .vars = { },
+        .tags = {},
     });
 
     // petstore_31.yaml declares "openapi: 3.1.0" and Pet.tag as `type: [string, "null"]` - the
@@ -627,6 +637,7 @@ TEST_CASE("Generate rejects a generator declaring openApiVersion 2.0 as its targ
         .metadataPath = "generator.yml",
         .clearOutDir = false,
         .vars = { },
+        .tags = {},
     });
 
     // 2.0 can be a spec *input* (converted up), but the JS-bridge's raw+overlay pattern assumes an
@@ -659,6 +670,7 @@ TEST_CASE("Generate runs end-to-end against a built-in (embedded) generator", "[
         .defaultMainSciptPath = "main.js",
         .metadataPath = "generator.yml",
         .vars = { "packageName=com.example.petstore" },
+        .tags = {},
     });
 
     gen.generate(getResourcePath("petstore.yaml"));
