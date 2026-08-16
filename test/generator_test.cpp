@@ -391,6 +391,36 @@ buildDocComment("x", null, [], "/* */");
                         Catch::Matchers::ContainsSubstring("unrecognized style"));
 }
 
+TEST_CASE("A plain JS-native throw in main.js surfaces its real message, not just a generic wrapper", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js", R"JS(
+throw Error("boom");
+)JS" },
+        { "generator.yml", readResource("generator.yml") },
+    };
+
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { make_shared<MockedFileReaderBackend>(files) },
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { },
+        .tags = {},
+    });
+
+    REQUIRE_THROWS_WITH(gen.generate(getResourcePath("petstore.yaml")), Catch::Matchers::ContainsSubstring("boom"));
+}
+
 TEST_CASE("Generate exposes resolveUnionDispatch", "[generator]")
 {
     auto fileWriter = make_shared<MockedFileWriter>();

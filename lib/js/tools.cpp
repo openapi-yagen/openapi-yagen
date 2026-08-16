@@ -1,8 +1,7 @@
 #include "tools.h"
 
+#include <format>
 #include <ranges>
-
-#include <quickjs/quickjs-libc.h>
 
 #include "../common/finalize.h"
 #include "../common/std_tools.h"
@@ -13,14 +12,42 @@ using namespace std;
 namespace JS {
 namespace {
 LogFacade::Logger logger("JS::Tools");
+
+// Best-effort JSValue -> string (its toString(), i.e. "Name: message" for an Error), without
+// throwing - used to build a diagnostic message out of an exception value we're already in the
+// process of reporting, where a further failure here shouldn't mask the original error.
+string tryToCString(JSContext* ctx, const JSValue& v)
+{
+    auto s = JS_ToCString(ctx, v);
+    if (!s)
+        return {};
+    string res(s);
+    JS_FreeCString(ctx, s);
+    return res;
+}
 }
 
 [[noreturn]]
 void rethrowException(JSContext* ctx, const JSValue& val, const std::string_view& msg)
 {
-    // TODO: attach stacktrace to message
-    js_std_dump_error(ctx);
-    throw runtime_error(string(msg));
+    // JS_GetException clears the context's pending exception, so this is the only chance to
+    // recover the real error text - same information quickjs-libc's own js_std_dump_error would
+    // fprintf straight to stderr (and discard), kept here instead so it reaches whatever actually
+    // catches this exception (the CLI's top-level error log, or the wasm bridge's `result.error`
+    // shown in the playground - see the plan this was added from).
+    auto exceptionVal = JS_GetException(ctx);
+    finalize { JS_FreeValue(ctx, exceptionVal); };
+    auto detail = tryToCString(ctx, exceptionVal);
+    if (JS_IsError(ctx, exceptionVal)) {
+        auto stackVal = JS_GetPropertyStr(ctx, exceptionVal, "stack");
+        finalize { JS_FreeValue(ctx, stackVal); };
+        if (!JS_IsUndefined(stackVal)) {
+            auto stack = tryToCString(ctx, stackVal);
+            if (!stack.empty())
+                detail += "\n" + stack;
+        }
+    }
+    throw runtime_error(detail.empty() ? string(msg) : format("{}. Error: {}", msg, detail));
 }
 
 void checkForException(JSContext* ctx, const JSValue& val, const std::string_view& msg)
@@ -188,9 +215,11 @@ void setObjFunction(JSContext* ctx, JSValue obj, const std::string& name, JSCFun
 JSValue jsFunc(JSContext* ctx, JSValue this_val, int argc, JSValue* argv, int magic, JSValue* data)
 {
     const auto& unpackedThis = *jsValueToPtr<const FuncType>(*data);
-    auto args
-        = views::counted(argv, argc) | views::transform([ctx](auto a) { return jsValueToNode(ctx, a); }) | toVector();
-    return nodeToJSValue(ctx, unpackedThis(args));
+    return runAndCatchExceptions(ctx, [&] {
+        auto args = views::counted(argv, argc) | views::transform([ctx](auto a) { return jsValueToNode(ctx, a); })
+            | toVector();
+        return nodeToJSValue(ctx, unpackedThis(args));
+    });
 }
 
 void setObjFunction(JSContext* ctx, JSValue obj, const std::string& name, const FuncType& func)
