@@ -1,7 +1,8 @@
-import { buildModelRegistry, finalizeValidationCalls } from "./lib/types.js";
+import { buildModelRegistry, finalizeValidationCalls, configureDateTimeType } from "./lib/types.js";
 import { collectOperationsByTag } from "./lib/operations.js";
 
 const packageName = vars.packageName;
+configureDateTimeType(vars.dateTimeType);
 
 const registry = buildModelRegistry(schema);
 // May register additional inline models discovered only in operation params/bodies/responses -

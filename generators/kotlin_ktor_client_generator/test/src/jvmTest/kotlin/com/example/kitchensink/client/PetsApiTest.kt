@@ -9,6 +9,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.Instant
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -28,7 +29,7 @@ class PetsApiTest {
         val client = buildTestClient { request ->
             captured = request
             respond(
-                content = """{"id":1,"name":"Rex","tag":"dog"}""",
+                content = """{"id":1,"name":"Rex","tag":"dog","createdAt":"2024-01-15T10:30:00Z"}""",
                 status = HttpStatusCode.OK,
                 headers = headersOf(HttpHeaders.ContentType, "application/json"),
             )
@@ -40,6 +41,7 @@ class PetsApiTest {
         assertEquals("/pets/1", captured!!.url.encodedPath)
         assertEquals(HttpMethod.Get, captured!!.method)
         assertEquals("Rex", pet.name)
+        assertEquals(Instant.parse("2024-01-15T10:30:00Z"), pet.createdAt)
     }
 
     @Test

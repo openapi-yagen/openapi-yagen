@@ -8,13 +8,21 @@ import com.example.kitchensink.server.PetSubscription
 import com.example.kitchensink.server.Rating
 import io.ktor.http.content.MultiPartData
 import io.ktor.http.content.forEachPart
+import kotlinx.datetime.Instant
 
 // Hand-written fake implementation of the generated PetsApiHandler interface - an in-memory
 // store, just enough business logic for the tests in ../PetsApiRoutesTest.kt to exercise every
 // generated route's positive and negative behavior.
 class FakePetsApiHandler : PetsApiHandler {
     private val pets = linkedMapOf(
-        "1" to Pet(id = 1, name = "Rex", tag = "dog", notes = null, status = null),
+        "1" to Pet(
+            id = 1,
+            name = "Rex",
+            tag = "dog",
+            notes = null,
+            status = null,
+            createdAt = Instant.parse("2024-01-15T10:30:00Z"),
+        ),
     )
     private var nextId = 2
 

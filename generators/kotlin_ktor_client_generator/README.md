@@ -67,6 +67,13 @@ Add these dependencies to the module the generated code lives in:
 `org.jetbrains.kotlinx:kotlinx-datetime` (only needed if the spec uses `date`/`date-time`
 formats).
 
+`format: date-time` properties/parameters generate `kotlinx.datetime.Instant` by default, which
+needs `kotlinx-datetime < 0.7.0` - that release moved `Instant` to be an alias for
+`kotlin.time.Instant` (Kotlin's own stdlib `Instant`, stable since Kotlin 2.1). If your project is
+on `kotlinx-datetime >= 0.7.0`, generate with `-v dateTimeType=kotlin.time.Instant` instead; pass
+`-v dateTimeType=String` to skip the `kotlinx-datetime` dependency for `date-time` fields entirely
+(`format: date` always generates `kotlinx.datetime.LocalDate`, unaffected by this setting).
+
 ### Request body content types
 
 Request-body content types are picked from whichever the spec declares in priority order

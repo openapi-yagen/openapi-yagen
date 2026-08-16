@@ -308,6 +308,10 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/PetStatus"
+        createdAt:
+          type: string
+          format: date-time
+          description: When the pet was added to the store.
     NewPet:
       type: object
       required: [name]

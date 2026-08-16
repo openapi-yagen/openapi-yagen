@@ -11,6 +11,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import kotlinx.datetime.Instant
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -138,6 +139,7 @@ class PetsApiRoutesTest {
         assertEquals(HttpStatusCode.OK, response.status)
         val pet = Json.decodeFromString<Pet>(response.bodyAsText())
         assertEquals(1, pet.id)
+        assertEquals(Instant.parse("2024-01-15T10:30:00Z"), pet.createdAt)
     }
 
     // Not-found is not a generator feature (see support/TestApp.kt) - this proves the pattern an

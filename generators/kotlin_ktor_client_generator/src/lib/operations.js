@@ -27,6 +27,7 @@ const SUPPORTED_SCALAR_PARAM_TYPES = new Set([
   "Boolean",
   "kotlinx.datetime.LocalDate",
   "kotlinx.datetime.Instant",
+  "kotlin.time.Instant",
 ]);
 
 // A oneOf/anyOf in parameter position can't reuse the JSON-shape-dispatching "union" model (see

@@ -71,6 +71,7 @@ function registerObject(registry, name, schema, variantOpts) {
       wireName: propName,
       needsSerialName,
       type: t.type,
+      serializerAnnotation: t.serializerAnnotation || null,
       nullable,
       description: propSchema.description || null,
     });
@@ -186,14 +187,44 @@ function registerUnion(registry, name, schema, variantOpts) {
   });
 }
 
+// The Kotlin type generated for `format: date-time`, configurable via the `dateTimeType` generator
+// variable (see main.js's configureDateTimeType call) since kotlinx-datetime has already changed
+// what its own `Instant` is once (0.7.0 moved it to be kotlin.time.Instant) and callers pinned to
+// either side of that need a way to get compiling code without a spec change. `date` isn't
+// affected - kotlinx-datetime's LocalDate hasn't moved - so it stays hardcoded below.
+const DATE_TIME_TYPES = {
+  "kotlinx.datetime.Instant": { type: "kotlinx.datetime.Instant", serializerAnnotation: null },
+  "kotlin.time.Instant": {
+    type: "kotlin.time.Instant",
+    // kotlin.time.Instant is a stdlib class with no kotlinx.serialization support of its own -
+    // kotlinx.datetime.Instant gets that for free because kotlinx-datetime marks that *typealias*
+    // itself @Serializable(with = ...), which doesn't carry over to referencing kotlin.time.Instant
+    // directly.
+    serializerAnnotation: "@Serializable(with = kotlinx.datetime.serializers.InstantIso8601Serializer::class)",
+  },
+  String: { type: "String", serializerAnnotation: null },
+};
+let dateTimeType = DATE_TIME_TYPES["kotlinx.datetime.Instant"];
+
+export function configureDateTimeType(value) {
+  const resolved = DATE_TIME_TYPES[value];
+  if (!resolved) {
+    throw Error(`<f3a1c9d2> Unsupported dateTimeType "${value}"; expected one of ${Object.keys(DATE_TIME_TYPES).join(", ")}`);
+  }
+  dateTimeType = resolved;
+}
+
 // Maps a schema's `type`/`format` to a Kotlin primitive, or null if it isn't a plain scalar
 // (object/array/etc). Shared by ktType (property/param positions) and registerTopLevel (named
 // top-level schemas that are themselves just a scalar, e.g. `AnnouncementMessage: {type: string}`).
+// Every branch but date-time returns a plain string; date-time returns the configured
+// {type, serializerAnnotation} object instead - see the two call sites below for how each shape is
+// handled.
 function primitiveKtType(s) {
   const type = s.type;
   if (type === "string") {
     if (s.format === "date") return "kotlinx.datetime.LocalDate";
-    if (s.format === "date-time") return "kotlinx.datetime.Instant";
+    if (s.format === "date-time") return dateTimeType;
     return "String";
   }
   if (type === "integer") return s.format === "int64" ? "Long" : "Int";
@@ -261,7 +292,7 @@ export function ktType(registry, schema, hintName) {
     return { type: "kotlinx.serialization.json.JsonObject" };
   }
   const prim = primitiveKtType(s);
-  if (prim) return { type: prim };
+  if (prim) return typeof prim === "string" ? { type: prim } : { type: prim.type, serializerAnnotation: prim.serializerAnnotation };
   return { type: "kotlinx.serialization.json.JsonElement" };
 }
 
@@ -319,7 +350,8 @@ function registerTopLevel(registry, name, schema, variantOpts) {
   }
   const prim = primitiveKtType(s);
   if (prim) {
-    addModel(registry, name, { name, kind: "typealias", targetType: prim, description: s.description || null });
+    const targetType = typeof prim === "string" ? prim : prim.type;
+    addModel(registry, name, { name, kind: "typealias", targetType, description: s.description || null });
     return;
   }
   registerObject(registry, name, s, variantOpts);

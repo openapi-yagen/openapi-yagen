@@ -30,3 +30,10 @@ variables:
       everything else - useful for large real-world specs where a handful of unsupported
       constructs shouldn't block the rest of the generated code.
     defaultValue: "true"
+  - name: dateTimeType
+    description: >-
+      Kotlin type generated for `type: string, format: date-time` properties/parameters. One of:
+      "kotlinx.datetime.Instant" (default - needs kotlinx-datetime < 0.7.0), "kotlin.time.Instant"
+      (needs kotlinx-datetime >= 0.7.0 and Kotlin >= 2.1), or "String" (no parsing, no
+      kotlinx-datetime dependency for date-time fields).
+    defaultValue: "kotlinx.datetime.Instant"

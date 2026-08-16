@@ -25,6 +25,7 @@ const PARAM_CONVERTERS = {
   // mapping), so it's compatible as-is with convertOrThrow's catch clause (see validation.kt.j2).
   "kotlinx.datetime.LocalDate": "kotlinx.datetime.LocalDate.parse(it)",
   "kotlinx.datetime.Instant": "kotlinx.datetime.Instant.parse(it)",
+  "kotlin.time.Instant": "kotlin.time.Instant.parse(it)",
 };
 
 // A oneOf/anyOf in parameter position can't reuse the JSON-shape-dispatching "union" model (see
