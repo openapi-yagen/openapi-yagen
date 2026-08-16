@@ -37,3 +37,13 @@ variables:
       (needs kotlinx-datetime >= 0.7.0 and Kotlin >= 2.1), or "String" (no parsing, no
       kotlinx-datetime dependency for date-time fields).
     defaultValue: "kotlinx.datetime.Instant"
+  - name: generate
+    description: >-
+      What to generate. "all" (default): models plus the routes/handlers. "models": only
+      models/<Name>.kt - nothing else. "api": everything except models/<Name>.kt (routes,
+      handlers, Validation.kt, and the model validate() extensions in ModelValidation.kt). Use
+      "models"/"api" together across a client+server pair sharing one spec/packageName in a
+      Kotlin Multiplatform project - e.g. one "models" run feeds a `shared` module, and both the
+      client and server generators run with "api" against it. See README's "Sharing models"
+      section.
+    defaultValue: "all"

@@ -1,0 +1,14 @@
+package {{ packageName }}
+
+// validate() extensions for every generated object model - kept out of models/*.kt (unlike
+// model_data_class.kt.j2's other content, this file has no client-generator counterpart, since it
+// calls into Validation.kt's requireMax/requireMin/etc, which import server-only Ktor packages)
+// so the model files themselves stay byte-identical between kotlin_ktor_client_generator and
+// kotlin_ktor_server_generator and can be shared between them - see README's "Sharing models"
+// section. Called automatically for request bodies by the generated routes (api_routes.kt.j2).
+{% for model in models %}
+fun {{ model.name }}.validate(): {{ model.name }} {
+{% filter indent(4, true) %}{% for p in model.properties %}{% for call in p.validationCalls %}{{ call }}
+{% endfor %}{% endfor %}return this{% endfilter %}
+}
+{% endfor %}

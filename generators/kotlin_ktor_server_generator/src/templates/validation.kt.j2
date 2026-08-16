@@ -7,7 +7,7 @@ import io.ktor.server.routing.RoutingCall
 
 // Shared request-parsing/validation helpers - generated once and called from every route instead
 // of duplicating parameter parsing and constraint checks per operation (see api_routes.kt.j2 and
-// the validate() extension generated for constrained models).
+// the validate() extensions generated into ModelValidation.kt).
 
 fun RoutingCall.requirePathParam(name: String): String =
     pathParameters[name] ?: throw MissingRequestParameterException(name)

@@ -11,10 +11,3 @@ import kotlinx.serialization.Serializable
 {% endif %}{% if p.serializerAnnotation %}{{ p.serializerAnnotation }}
 {% endif %}val {{ p.ktName }}: {{ p.type }}{% if p.nullable %}? = null{% endif %},
 {% endfor %}{% endfilter %}{% endif %}){% if model.implements %} : {{ model.implements }}{% endif %}
-
-// Validates constrained fields via the shared Validation.kt helpers (no-op if this model has
-// no constrained properties) - called automatically for request bodies by the generated routes.
-fun {{ model.name }}.validate(): {{ model.name }} {
-{% filter indent(4, true) %}{% for p in model.properties %}{% for call in p.validationCalls %}{{ call }}
-{% endfor %}{% endfor %}return this{% endfilter %}
-}

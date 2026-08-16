@@ -27,6 +27,7 @@ openapi-yagen g -o out -g kotlin_ktor_client_generator openapi.yaml \
 |---------------|----------|----------------------------------------------------------|
 | `packageName` | yes      | Kotlin package for the generated classes (e.g. `com.example.petstore`) |
 | `strict`      | no (default `true`) | `true`: an unsupported schema/operation aborts generation with an error. `false`: skip it with a printed warning and generate everything else - useful for large real-world specs (see "Known limitations" below). |
+| `generate`    | no (default `all`) | `all`: models plus the API classes/bundle. `models`: only `models/<Name>.kt`. `api`: everything except `models/<Name>.kt` - see "Sharing models" below. |
 
 ## Output layout
 
@@ -41,6 +42,37 @@ Written flat, not nested under a `packageName`-derived directory - unlike Java, 
 doesn't require a file's physical location to mirror its `package` declaration, and wherever `-o`
 points already lives inside whatever package-derived source tree you're integrating into, so
 another nested layer here would just be redundant.
+
+## Sharing models with the server generator
+
+`models/*.kt` is byte-for-byte the same output whether it comes from this generator or from
+[`kotlin_ktor_server_generator`](../kotlin_ktor_server_generator) - both use the same flat,
+import-free package (`packageName`, no `.models` sub-package) and the same template for every
+model kind. The server's request-validation `.validate()` extensions live in its own
+`ModelValidation.kt`, not in `models/*.kt`, specifically so this generator's model output stays
+free of any server-only (`io.ktor.server.*`) dependency - safe to compile into every platform this
+client already targets (JVM, Android, iOS/Native, JS, Wasm).
+
+In a Kotlin Multiplatform monorepo, generate the models **once** into a `shared` module both the
+client and server modules depend on, and skip regenerating them on either side with `-v
+generate=api`:
+
+```bash
+# shared module - models only
+openapi-yagen g -o shared -g kotlin_ktor_client_generator openapi.yaml \
+    -v packageName=com.example.petstore -v generate=models
+
+# client module - API classes/bundle/QueryUtils.kt, no models/
+openapi-yagen g -o client -g kotlin_ktor_client_generator openapi.yaml \
+    -v packageName=com.example.petstore -v generate=api
+
+# server module - routes/handlers/Validation.kt/ModelValidation.kt, no models/
+openapi-yagen g -o server -g kotlin_ktor_server_generator openapi.yaml \
+    -v packageName=com.example.petstore -v generate=api
+```
+
+All three must share the same `packageName` (and `dateTimeType`, if non-default) so the types
+`client`/`server` reference resolve to the `shared` module's classes.
 
 ## Integrating the generated code
 
