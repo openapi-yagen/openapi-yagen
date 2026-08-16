@@ -52,7 +52,7 @@ another nested layer here would just be redundant.
 ## Sharing models with the client generator
 
 `models/*.kt` is byte-for-byte the same output whether it comes from this generator or from
-[`kotlin_ktor_client_generator`](../kotlin_ktor_client_generator) - both use the same flat,
+[`kotlin_ktor_client_generator`](../kotlin_ktor_client_generator/README.md) - both use the same flat,
 import-free package (`packageName`, no `.models` sub-package) and the same template for every
 model kind. `ModelValidation.kt`'s `.validate()` extensions (needed by the generated routes) are
 kept in their own file specifically so `models/*.kt` stays portable: unlike `Validation.kt`, the

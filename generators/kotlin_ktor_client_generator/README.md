@@ -46,7 +46,7 @@ another nested layer here would just be redundant.
 ## Sharing models with the server generator
 
 `models/*.kt` is byte-for-byte the same output whether it comes from this generator or from
-[`kotlin_ktor_server_generator`](../kotlin_ktor_server_generator) - both use the same flat,
+[`kotlin_ktor_server_generator`](../kotlin_ktor_server_generator/README.md) - both use the same flat,
 import-free package (`packageName`, no `.models` sub-package) and the same template for every
 model kind. The server's request-validation `.validate()` extensions live in its own
 `ModelValidation.kt`, not in `models/*.kt`, specifically so this generator's model output stays
