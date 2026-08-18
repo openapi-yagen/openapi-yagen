@@ -175,10 +175,10 @@ class PetsApiRoutesTest {
     // components.securitySchemes.bearerAuth in kitchensink.yaml) - proves the generated handler
     // actually requires the token, not just accepts it when present.
     @Test
-    fun `deletePet without an Authorization header returns 400`() = testApplication {
+    fun `deletePet without an Authorization header returns 401`() = testApplication {
         installKitchenSinkApp()
         val response = client.delete("/pets/1")
-        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
     }
 
     @Test
@@ -194,14 +194,14 @@ class PetsApiRoutesTest {
     // Wired from the spec's `security: [{apiKeyAuth: []}]` on this operation (see
     // components.securitySchemes.apiKeyAuth, an apiKey scheme in the X-Api-Key header).
     @Test
-    fun `ratePet without the X-Api-Key header returns 400`() = testApplication {
+    fun `ratePet without the X-Api-Key header returns 401`() = testApplication {
         installKitchenSinkApp()
         val response = client.post("/pets/1/ratings") {
             contentType(ContentType.Application.Json)
             header("X-Request-Id", "req-1")
             setBody("""{"score":3,"label":"ok"}""")
         }
-        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
     }
 
     @Test

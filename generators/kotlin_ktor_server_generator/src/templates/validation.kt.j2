@@ -59,10 +59,16 @@ fun <T> RoutingCall.headerParamAs(name: String, typeName: String, convert: (Stri
 fun <T> RoutingCall.requireHeaderParamAs(name: String, typeName: String, convert: (String) -> T): T =
     convertOrThrow(request.headers[name] ?: throw MissingRequestParameterException(name), name, typeName, convert)
 
+// Thrown when a securityScheme's credentials (bearer token / apiKey) are absent from the request.
+// Deliberately NOT a MissingRequestParameterException/BadRequestException: those mean "your
+// request is malformed," while missing auth means "you haven't authenticated" - a StatusPages
+// mapping (see this generator's README) should answer this with 401, not 400.
+class MissingAuthenticationException(message: String) : Exception(message)
+
 // Extracts a bearer token from the Authorization header for an `http`/`bearer` securityScheme,
 // stripping the "Bearer " prefix if present (some clients send just the raw token).
 fun RoutingCall.requireBearerToken(headerName: String): String {
-    val raw = request.headers[headerName] ?: throw MissingRequestParameterException(headerName)
+    val raw = request.headers[headerName] ?: throw MissingAuthenticationException("Missing required \"$headerName\" header")
     val prefix = "Bearer "
     return if (raw.startsWith(prefix, ignoreCase = true)) raw.substring(prefix.length) else raw
 }
@@ -74,7 +80,7 @@ fun RoutingCall.requireApiKey(location: String, name: String): String =
         "query" -> request.queryParameters[name]
         "cookie" -> request.cookies[name]
         else -> throw IllegalStateException("Unsupported apiKey location: $location")
-    } ?: throw MissingRequestParameterException(name)
+    } ?: throw MissingAuthenticationException("Missing required apiKey \"$name\" (in: $location)")
 
 fun requireMax(value: Number?, max: Double, field: String) {
     if (value != null && value.toDouble() > max) throw BadRequestException("Field \"$field\" must be <= $max")

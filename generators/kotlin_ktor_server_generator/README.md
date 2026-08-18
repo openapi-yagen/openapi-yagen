@@ -99,9 +99,12 @@ fun Application.module() {
     install(ContentNegotiation) { json() }
     // Map validation failures (BadRequestException/MissingRequestParameterException, both
     // thrown by Validation.kt - including a non-numeric value for an integer/number parameter,
-    // which Validation.kt itself wraps as a BadRequestException) to HTTP 400:
+    // which Validation.kt itself wraps as a BadRequestException) to HTTP 400, and missing
+    // securityScheme credentials (MissingAuthenticationException, also thrown by Validation.kt's
+    // requireBearerToken/requireApiKey) to HTTP 401:
     install(StatusPages) {
         exception<BadRequestException> { call, e -> call.respondText(e.message ?: "Bad request", status = HttpStatusCode.BadRequest) }
+        exception<MissingAuthenticationException> { call, e -> call.respondText(e.message ?: "Unauthorized", status = HttpStatusCode.Unauthorized) }
     }
     routing {
         PetsApiRoutes(this, PetsService())
