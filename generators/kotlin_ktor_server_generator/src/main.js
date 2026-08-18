@@ -58,10 +58,6 @@ function referencedModelNames(group) {
 if (generate !== "models") {
   for (const [, group] of groups) {
     const referencedModels = referencedModelNames(group);
-    // .validate() (api_routes.kt.j2's op.body.hasValidate) is a top-level extension function in
-    // ModelValidation.kt (root package) - importing it by name (not per-model) is enough, Kotlin
-    // resolves the right overload by the call's receiver type.
-    const needsValidate = group.operations.some((op) => op.body && op.body.hasValidate);
     const data = {
       packageName,
       modelsPackage,
@@ -70,7 +66,6 @@ if (generate !== "models") {
       tagDescription: group.description,
       operations: group.operations,
       referencedModels,
-      needsValidate,
     };
     renderTemplate("templates/api_handler.kt.j2", data, `apis/${group.tagClass}Handler.kt`);
     renderTemplate("templates/api_routes.kt.j2", data, `apis/${group.tagClass}Routes.kt`);

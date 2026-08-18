@@ -1,7 +1,7 @@
 package {{ packageName }}
 
-{% for model in models %}import {{ modelsPackage }}.{{ model.name }}
-{% endfor %}
+{% if models %}import {{ modelsPackage }}.*
+{% endif %}
 // validate() extensions for every generated object model - kept out of models/*.kt (unlike
 // model_data_class.kt.j2's other content, this file has no client-generator counterpart, since it
 // calls into Validation.kt's requireMax/requireMin/etc, which import server-only Ktor packages)

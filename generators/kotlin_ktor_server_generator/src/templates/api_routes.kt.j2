@@ -1,25 +1,8 @@
 {%- include "templates/_macros.kt.j2" -%}
 package {{ apisPackage }}
 
-{% for m in referencedModels %}import {{ modelsPackage }}.{{ m }}
-{% endfor %}{% if needsValidate %}import {{ packageName }}.validate
-{% endif %}import {{ packageName }}.headerParamAs
-import {{ packageName }}.paramAs
-import {{ packageName }}.pathParamAs
-import {{ packageName }}.queryParamAs
-import {{ packageName }}.queryParamListAs
-import {{ packageName }}.requireApiKey
-import {{ packageName }}.requireBearerToken
-import {{ packageName }}.requireHeaderParamAs
-import {{ packageName }}.requireMax
-import {{ packageName }}.requireMaxLength
-import {{ packageName }}.requireMin
-import {{ packageName }}.requireMinLength
-import {{ packageName }}.requireParamAs
-import {{ packageName }}.requirePathParam
-import {{ packageName }}.requirePattern
-import {{ packageName }}.requireQueryParamAs
-import {{ packageName }}.requireQueryParamListAs
+{% if referencedModels %}import {{ modelsPackage }}.*
+{% endif %}import {{ packageName }}.*
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive

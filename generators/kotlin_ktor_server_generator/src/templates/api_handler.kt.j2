@@ -1,8 +1,8 @@
 {%- include "templates/_macros.kt.j2" -%}
 package {{ apisPackage }}
 
-{% for m in referencedModels %}import {{ modelsPackage }}.{{ m }}
-{% endfor %}{% if referencedModels %}
+{% if referencedModels %}import {{ modelsPackage }}.*
+
 {% endif %}{{ docComment(tagDescription) }}interface {{ tagClass }}Handler {
 {% for op in operations -%}
 {% if op.docComment %}    {{ op.docComment | indent(4) }}
