@@ -1,7 +1,9 @@
 {%- include "templates/_macros.kt.j2" -%}
-package {{ packageName }}
+package {{ apisPackage }}
 
-{{ docComment(tagDescription) }}interface {{ tagClass }}Handler {
+{% for m in referencedModels %}import {{ modelsPackage }}.{{ m }}
+{% endfor %}{% if referencedModels %}
+{% endif %}{{ docComment(tagDescription) }}interface {{ tagClass }}Handler {
 {% for op in operations -%}
 {% if op.docComment %}    {{ op.docComment | indent(4) }}
 {% endif %}    suspend fun {{ op.name }}({{ op.signatureParams }}){% if op.returnsValue %}: {{ op.response.type }}{% endif %}

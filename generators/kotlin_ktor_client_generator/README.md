@@ -41,17 +41,19 @@ QueryUtils.kt         small internal HttpRequestBuilder extensions, rendered onc
 Written flat, not nested under a `packageName`-derived directory - unlike Java, Kotlin's compiler
 doesn't require a file's physical location to mirror its `package` declaration, and wherever `-o`
 points already lives inside whatever package-derived source tree you're integrating into, so
-another nested layer here would just be redundant.
+another nested layer here would just be redundant. `packageName` is a *base* package: `models/`
+is generated into `packageName.models`, `apis/` into `packageName.apis`; `ApiClient.kt` and
+`QueryUtils.kt` stay at `packageName` itself.
 
 ## Sharing models with the server generator
 
 `models/*.kt` is byte-for-byte the same output whether it comes from this generator or from
-[`kotlin_ktor_server_generator`](../kotlin_ktor_server_generator/README.md) - both use the same flat,
-import-free package (`packageName`, no `.models` sub-package) and the same template for every
-model kind. The server's request-validation `.validate()` extensions live in its own
-`ModelValidation.kt`, not in `models/*.kt`, specifically so this generator's model output stays
-free of any server-only (`io.ktor.server.*`) dependency - safe to compile into every platform this
-client already targets (JVM, Android, iOS/Native, JS, Wasm).
+[`kotlin_ktor_server_generator`](../kotlin_ktor_server_generator/README.md) - both generate into
+the same `packageName.models` sub-package and use the same template for every model kind. The
+server's request-validation `.validate()` extensions live in its own `ModelValidation.kt` (at the
+base `packageName`, not `.models`), specifically so this generator's model output stays free of
+any server-only (`io.ktor.server.*`) dependency - safe to compile into every platform this client
+already targets (JVM, Android, iOS/Native, JS, Wasm).
 
 In a Kotlin Multiplatform monorepo, generate the models **once** into a `shared` module both the
 client and server modules depend on, and skip regenerating them on either side with `-v
@@ -77,7 +79,8 @@ All three must share the same `packageName` (and `dateTimeType`, if non-default)
 ## Integrating the generated code
 
 The caller owns the `HttpClient` and must install `ContentNegotiation` with a JSON serializer
-matching the generated `@Serializable` models:
+matching the generated `@Serializable` models. Import statements omitted below for brevity -
+`ApiClient` lives at `packageName` itself, `PetsApi`/`WidgetsApi` in `packageName.apis`:
 
 ```kotlin
 val client = HttpClient(CIO) { // or any other engine

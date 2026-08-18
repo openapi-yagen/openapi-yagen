@@ -1,12 +1,12 @@
 package com.example.kitchensink.server.fakes
 
-import com.example.kitchensink.server.Circle
-import com.example.kitchensink.server.Shape
-import com.example.kitchensink.server.Square
-import com.example.kitchensink.server.Widget
-import com.example.kitchensink.server.Widgets
-import com.example.kitchensink.server.WidgetsApiHandler
-import com.example.kitchensink.server.WidgetsApiListWidgetsStatus
+import com.example.kitchensink.server.apis.WidgetsApiHandler
+import com.example.kitchensink.server.models.Circle
+import com.example.kitchensink.server.models.Shape
+import com.example.kitchensink.server.models.Square
+import com.example.kitchensink.server.models.Widget
+import com.example.kitchensink.server.models.Widgets
+import com.example.kitchensink.server.models.WidgetsApiListWidgetsStatus
 
 // Hand-written fake implementation of the generated WidgetsApiHandler interface.
 class FakeWidgetsApiHandler : WidgetsApiHandler {

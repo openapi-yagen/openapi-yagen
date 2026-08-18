@@ -1,9 +1,9 @@
 package com.example.kitchensink.server.support
 
-import com.example.kitchensink.server.PetsApiHandler
-import com.example.kitchensink.server.PetsApiRoutes
-import com.example.kitchensink.server.WidgetsApiHandler
-import com.example.kitchensink.server.WidgetsApiRoutes
+import com.example.kitchensink.server.apis.PetsApiHandler
+import com.example.kitchensink.server.apis.PetsApiRoutes
+import com.example.kitchensink.server.apis.WidgetsApiHandler
+import com.example.kitchensink.server.apis.WidgetsApiRoutes
 import com.example.kitchensink.server.fakes.FakePetsApiHandler
 import com.example.kitchensink.server.fakes.FakeWidgetsApiHandler
 import com.example.kitchensink.server.fakes.NotFoundException

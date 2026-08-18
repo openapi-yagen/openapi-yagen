@@ -1,7 +1,8 @@
 {%- include "templates/_macros.kt.j2" -%}
 package {{ packageName }}
 
-import io.ktor.client.HttpClient
+{% for g in groups %}import {{ apisPackage }}.{{ g.tagClass }}
+{% endfor %}import io.ktor.client.HttpClient
 
 // Bundles one instance of every tag's API client class, constructed once from a shared
 // HttpClient/baseUrl, so callers don't have to instantiate each tag class individually.

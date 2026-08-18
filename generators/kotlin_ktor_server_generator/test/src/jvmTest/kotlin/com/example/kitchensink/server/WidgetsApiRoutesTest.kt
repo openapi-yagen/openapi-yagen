@@ -1,5 +1,11 @@
 package com.example.kitchensink.server
 
+import com.example.kitchensink.server.models.Circle
+import com.example.kitchensink.server.models.Shape
+import com.example.kitchensink.server.models.Square
+import com.example.kitchensink.server.models.Widget
+import com.example.kitchensink.server.models.WidgetVariant
+import com.example.kitchensink.server.models.Widgets
 import com.example.kitchensink.server.support.installKitchenSinkApp
 import io.ktor.client.request.get
 import io.ktor.client.request.header

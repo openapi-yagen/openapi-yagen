@@ -1,5 +1,13 @@
 package com.example.kitchensink.client
 
+import com.example.kitchensink.client.apis.WidgetsApi
+import com.example.kitchensink.client.models.Circle
+import com.example.kitchensink.client.models.Shape
+import com.example.kitchensink.client.models.Square
+import com.example.kitchensink.client.models.Widget
+import com.example.kitchensink.client.models.WidgetsApiListWidgetsStatus
+import com.example.kitchensink.client.models.WidgetVariant
+import com.example.kitchensink.client.models.WidgetVariantC
 import com.example.kitchensink.client.support.buildTestClient
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData

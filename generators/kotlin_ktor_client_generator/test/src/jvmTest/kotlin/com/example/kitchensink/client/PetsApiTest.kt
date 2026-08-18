@@ -1,5 +1,10 @@
 package com.example.kitchensink.client
 
+import com.example.kitchensink.client.apis.PetsApi
+import com.example.kitchensink.client.models.Error
+import com.example.kitchensink.client.models.NewPet
+import com.example.kitchensink.client.models.Pet
+import com.example.kitchensink.client.models.Rating
 import com.example.kitchensink.client.support.buildTestClient
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData

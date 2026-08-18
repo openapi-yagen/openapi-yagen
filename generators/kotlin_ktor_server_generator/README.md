@@ -47,14 +47,16 @@ ModelValidation.kt      validate() extension for every object model, rendered on
 Written flat, not nested under a `packageName`-derived directory - unlike Java, Kotlin's compiler
 doesn't require a file's physical location to mirror its `package` declaration, and wherever `-o`
 points already lives inside whatever package-derived source tree you're integrating into, so
-another nested layer here would just be redundant.
+another nested layer here would just be redundant. `packageName` is a *base* package: `models/`
+is generated into `packageName.models`, `apis/` into `packageName.apis`; `Validation.kt` and
+`ModelValidation.kt` stay at `packageName` itself.
 
 ## Sharing models with the client generator
 
 `models/*.kt` is byte-for-byte the same output whether it comes from this generator or from
-[`kotlin_ktor_client_generator`](../kotlin_ktor_client_generator/README.md) - both use the same flat,
-import-free package (`packageName`, no `.models` sub-package) and the same template for every
-model kind. `ModelValidation.kt`'s `.validate()` extensions (needed by the generated routes) are
+[`kotlin_ktor_client_generator`](../kotlin_ktor_client_generator/README.md) - both generate into
+the same `packageName.models` sub-package and use the same template for every model kind.
+`ModelValidation.kt`'s `.validate()` extensions (needed by the generated routes) are
 kept in their own file specifically so `models/*.kt` stays portable: unlike `Validation.kt`, the
 model files themselves never import `io.ktor.server.*`, so they're safe to compile into a
 multiplatform client target too.
@@ -82,6 +84,9 @@ All three must share the same `packageName` (and `dateTimeType`, if non-default)
 `server`/`client` reference resolve to the `shared` module's classes.
 
 ## Integrating the generated code
+
+Import statements omitted below for brevity - `PetsApiHandler`/`PetsApiRoutes` live in
+`packageName.apis`, `Pet`/`Pets` in `packageName.models`.
 
 ```kotlin
 class PetsService : PetsApiHandler {

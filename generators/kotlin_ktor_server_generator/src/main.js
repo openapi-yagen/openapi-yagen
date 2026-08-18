@@ -2,6 +2,8 @@ import { buildModelRegistry, finalizeValidationCalls, configureDateTimeType } fr
 import { collectOperationsByTag } from "./lib/operations.js";
 
 const packageName = vars.packageName;
+const modelsPackage = `${packageName}.models`;
+const apisPackage = `${packageName}.apis`;
 configureDateTimeType(vars.dateTimeType);
 
 const GENERATE_MODES = ["all", "models", "api"];
@@ -31,24 +33,60 @@ if (generate !== "api") {
     const model = registry.models.get(name);
     const tmpl = MODEL_TEMPLATES[model.kind];
     if (!tmpl) throw Error(`<158657ec> Unknown model kind: ${model.kind}`);
-    renderTemplate(tmpl, { packageName, model }, `models/${name}.kt`);
+    renderTemplate(tmpl, { packageName, modelsPackage, apisPackage, model }, `models/${name}.kt`);
   }
+}
+
+// A group's operations reference generated model types only as embedded identifiers inside
+// already-formatted Kotlin type strings (signatureParams, response.type, param converters, ...) -
+// rather than threading a parallel "which models does this operation touch" list through every
+// shape in operations.js, scan the whole (doc-comment-stripped, so a model's name appearing in
+// prose can't false-positive) group for each known model name as a whole word. Same word-
+// boundary-against-known-names approach as e.g. types.js's own List</Set<...> extraction
+// elsewhere in this codebase - just applied at the group level instead of one field at a time.
+function referencedModelNames(group) {
+  const text = JSON.stringify(group.operations, (key, value) =>
+    key === "description" || key === "docComment" || key === "summary" ? undefined : value
+  );
+  const found = [];
+  for (const name of registry.models.keys()) {
+    if (new RegExp(`\\b${name}\\b`).test(text)) found.push(name);
+  }
+  return found.sort();
 }
 
 if (generate !== "models") {
   for (const [, group] of groups) {
-    const data = { packageName, tagClass: group.tagClass, tagDescription: group.description, operations: group.operations };
+    const referencedModels = referencedModelNames(group);
+    // .validate() (api_routes.kt.j2's op.body.hasValidate) is a top-level extension function in
+    // ModelValidation.kt (root package) - importing it by name (not per-model) is enough, Kotlin
+    // resolves the right overload by the call's receiver type.
+    const needsValidate = group.operations.some((op) => op.body && op.body.hasValidate);
+    const data = {
+      packageName,
+      modelsPackage,
+      apisPackage,
+      tagClass: group.tagClass,
+      tagDescription: group.description,
+      operations: group.operations,
+      referencedModels,
+      needsValidate,
+    };
     renderTemplate("templates/api_handler.kt.j2", data, `apis/${group.tagClass}Handler.kt`);
     renderTemplate("templates/api_routes.kt.j2", data, `apis/${group.tagClass}Routes.kt`);
   }
 
-  renderTemplate("templates/validation.kt.j2", { packageName }, "Validation.kt");
+  renderTemplate("templates/validation.kt.j2", { packageName, modelsPackage, apisPackage }, "Validation.kt");
 
   // Routes call .validate() (see api_routes.kt.j2's op.body.hasValidate) on whatever the body
   // model type turns out to be, whether or not this run also generated models/*.kt - so these
   // extensions always render alongside the routes/handlers, never alongside models/*.kt itself.
   const validatedModels = registry.order.map((name) => registry.models.get(name)).filter((model) => model.kind === "object");
-  renderTemplate("templates/model_validation.kt.j2", { packageName, models: validatedModels }, "ModelValidation.kt");
+  renderTemplate(
+    "templates/model_validation.kt.j2",
+    { packageName, modelsPackage, apisPackage, models: validatedModels },
+    "ModelValidation.kt"
+  );
 }
 
 dump(`Generated (mode: ${generate}) ${registry.order.length} model(s) and ${groups.size} operation group(s)`);

@@ -15,8 +15,10 @@
 //
 // External types are always referenced fully-qualified (kotlinx.datetime.Instant,
 // kotlinx.serialization.json.JsonElement/JsonObject) so callers never need per-file import
-// bookkeeping - every model lives in the same package, so referencing another generated model by
-// its class name needs no import either.
+// bookkeeping. Every model lives in the same {{ modelsPackage }} sub-package as every other model
+// (main.js), so referencing another generated model by its class name needs no import either -
+// only code outside models/ (apis/, root files) needs an explicit import for a model type, see
+// main.js's referencedModelNames().
 //
 // `schema` (global) has no `$ref` anywhere - every reference is already the actual target object
 // (see README's "Global values"). `nameOf(x)` recovers the components.schemas name a schema was

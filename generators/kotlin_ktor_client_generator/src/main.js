@@ -2,6 +2,8 @@ import { buildModelRegistry, configureDateTimeType } from "./lib/types.js";
 import { collectOperationsByTag } from "./lib/operations.js";
 
 const packageName = vars.packageName;
+const modelsPackage = `${packageName}.models`;
+const apisPackage = `${packageName}.apis`;
 configureDateTimeType(vars.dateTimeType);
 
 const GENERATE_MODES = ["all", "models", "api"];
@@ -28,20 +30,46 @@ if (generate !== "api") {
     const model = registry.models.get(name);
     const tmpl = MODEL_TEMPLATES[model.kind];
     if (!tmpl) throw Error(`<15755a9e> Unknown model kind: ${model.kind}`);
-    renderTemplate(tmpl, { packageName, model }, `models/${name}.kt`);
+    renderTemplate(tmpl, { packageName, modelsPackage, apisPackage, model }, `models/${name}.kt`);
   }
+}
+
+// A group's operations reference generated model types only as embedded identifiers inside
+// already-formatted Kotlin type strings (signatureParams, response.type, ...) - rather than
+// threading a parallel "which models does this operation touch" list through every shape in
+// operations.js, scan the whole (doc-comment-stripped, so a model's name appearing in prose can't
+// false-positive) group for each known model name as a whole word. Same word-boundary-against-
+// known-names approach as e.g. types.js's own List</Set<...> extraction elsewhere in this
+// codebase - just applied at the group level instead of one field at a time.
+function referencedModelNames(group) {
+  const text = JSON.stringify(group.operations, (key, value) =>
+    key === "description" || key === "docComment" || key === "summary" ? undefined : value
+  );
+  const found = [];
+  for (const name of registry.models.keys()) {
+    if (new RegExp(`\\b${name}\\b`).test(text)) found.push(name);
+  }
+  return found.sort();
 }
 
 if (generate !== "models") {
   for (const [, group] of groups) {
     renderTemplate(
       "templates/api_client.kt.j2",
-      { packageName, tagClass: group.tagClass, tagDescription: group.description, operations: group.operations },
+      {
+        packageName,
+        modelsPackage,
+        apisPackage,
+        tagClass: group.tagClass,
+        tagDescription: group.description,
+        operations: group.operations,
+        referencedModels: referencedModelNames(group),
+      },
       `apis/${group.tagClass}.kt`
     );
   }
 
-  renderTemplate("templates/query_utils.kt.j2", { packageName }, "QueryUtils.kt");
+  renderTemplate("templates/query_utils.kt.j2", { packageName, modelsPackage, apisPackage }, "QueryUtils.kt");
 
   // The document's own top-level description (info.description) - distinct from a tag's
   // description (group.description, already threaded onto each per-tag class) - is the only
@@ -53,6 +81,8 @@ if (generate !== "models") {
     "templates/api_bundle.kt.j2",
     {
       packageName,
+      modelsPackage,
+      apisPackage,
       apiDescription,
       groups: [...groups.values()].map((g) => ({ tagClass: g.tagClass, propertyName: g.propertyName, description: g.description })),
     },

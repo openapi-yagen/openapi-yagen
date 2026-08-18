@@ -1,5 +1,7 @@
 package com.example.kitchensink.server
 
+import com.example.kitchensink.server.models.Pet
+import com.example.kitchensink.server.models.Pets
 import com.example.kitchensink.server.support.installKitchenSinkApp
 import io.ktor.client.request.delete
 import io.ktor.client.request.get

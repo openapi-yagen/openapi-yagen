@@ -1,6 +1,10 @@
 {%- include "templates/_macros.kt.j2" -%}
-package {{ packageName }}
+package {{ apisPackage }}
 
+{% for m in referencedModels %}import {{ modelsPackage }}.{{ m }}
+{% endfor %}import {{ packageName }}.headerParam
+import {{ packageName }}.queryParam
+import {{ packageName }}.queryParamList
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.*

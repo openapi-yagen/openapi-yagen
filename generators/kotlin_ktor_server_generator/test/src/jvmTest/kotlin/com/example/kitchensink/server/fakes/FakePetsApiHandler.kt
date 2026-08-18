@@ -1,11 +1,11 @@
 package com.example.kitchensink.server.fakes
 
-import com.example.kitchensink.server.NewPet
-import com.example.kitchensink.server.Pet
-import com.example.kitchensink.server.Pets
-import com.example.kitchensink.server.PetsApiHandler
-import com.example.kitchensink.server.PetSubscription
-import com.example.kitchensink.server.Rating
+import com.example.kitchensink.server.apis.PetsApiHandler
+import com.example.kitchensink.server.models.NewPet
+import com.example.kitchensink.server.models.Pet
+import com.example.kitchensink.server.models.Pets
+import com.example.kitchensink.server.models.PetSubscription
+import com.example.kitchensink.server.models.Rating
 import io.ktor.http.content.MultiPartData
 import io.ktor.http.content.forEachPart
 import kotlinx.datetime.Instant

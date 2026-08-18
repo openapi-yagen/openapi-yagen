@@ -1,5 +1,5 @@
 {%- include "templates/_macros.kt.j2" -%}
-package {{ packageName }}
+package {{ modelsPackage }}
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -28,7 +28,7 @@ sealed interface {{ model.name }}{% if model.implements %} : {{ model.implements
     // serializer<...>(), never the wrapper class's own derived (de)serializer, keeping the wire
     // shape flat and symmetric.
     object Serializer : KSerializer<{{ model.name }}> {
-        override val descriptor: SerialDescriptor = buildClassSerialDescriptor("{{ packageName }}.{{ model.name }}")
+        override val descriptor: SerialDescriptor = buildClassSerialDescriptor("{{ modelsPackage }}.{{ model.name }}")
 
         override fun serialize(encoder: Encoder, value: {{ model.name }}) {
             val jsonEncoder = encoder as? JsonEncoder ?: throw IllegalStateException("{{ model.name }} can only be serialized to Json")
