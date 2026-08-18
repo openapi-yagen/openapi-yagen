@@ -196,14 +196,15 @@ function registerUnion(registry, name, schema, variantOpts) {
 // affected - kotlinx-datetime's LocalDate hasn't moved - so it stays hardcoded below.
 const DATE_TIME_TYPES = {
   "kotlinx.datetime.Instant": { type: "kotlinx.datetime.Instant", serializerAnnotation: null },
-  "kotlin.time.Instant": {
-    type: "kotlin.time.Instant",
-    // kotlin.time.Instant is a stdlib class with no kotlinx.serialization support of its own -
-    // kotlinx.datetime.Instant gets that for free because kotlinx-datetime marks that *typealias*
-    // itself @Serializable(with = ...), which doesn't carry over to referencing kotlin.time.Instant
-    // directly.
-    serializerAnnotation: "@Serializable(with = kotlinx.datetime.serializers.InstantIso8601Serializer::class)",
-  },
+  // kotlin.time.Instant has built-in kotlinx.serialization support as of the kotlinx-serialization
+  // version this dateTimeType targets (>= 0.7.0-compatible kotlinx-datetime, Kotlin >= 2.1) - no
+  // @Serializable(with = ...) needed. kotlinx.datetime.serializers.InstantIso8601Serializer isn't
+  // even usable here: it doesn't exist for kotlin.time.Instant in kotlinx-datetime 0.7.x (only the
+  // abstract FormattedInstantSerializer does, and its own KDoc says the default serializer already
+  // covers this type) - that class only ever existed for the OLD kotlinx.datetime.Instant typealias
+  // case (the "kotlinx.datetime.Instant" branch above, which needs no annotation for a different
+  // reason: kotlinx-datetime marks that typealias itself @Serializable).
+  "kotlin.time.Instant": { type: "kotlin.time.Instant", serializerAnnotation: null },
   String: { type: "String", serializerAnnotation: null },
 };
 let dateTimeType = DATE_TIME_TYPES["kotlinx.datetime.Instant"];

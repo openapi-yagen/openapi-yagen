@@ -43,17 +43,18 @@ class DateTimeTypeTest {
     }
 
     @Test
-    fun `dateTimeType=kotlin_time_Instant generates the stdlib type with an explicit serializer`() {
+    fun `dateTimeType=kotlin_time_Instant generates the stdlib type with no serializer annotation`() {
         val outDir = Files.createTempDirectory("kotlin-server-datetimetype-stdlib-").toFile()
         try {
             val (exitCode, output) = generate(outDir, "-v", "dateTimeType=kotlin.time.Instant")
             assertTrue(exitCode == 0, "expected generation to succeed: $output")
             val petSource = File(outDir, "models/Pet.kt").readText()
             assertTrue(petSource.contains("val createdAt: kotlin.time.Instant"), petSource)
-            assertTrue(
-                petSource.contains("@Serializable(with = kotlinx.datetime.serializers.InstantIso8601Serializer::class)"),
-                petSource,
-            )
+            // kotlin.time.Instant has built-in kotlinx.serialization support - no
+            // @Serializable(with = ...) needed (and InstantIso8601Serializer doesn't even exist
+            // for it in kotlinx-datetime 0.7.x, only for the legacy kotlinx.datetime.Instant
+            // typealias - see lib/types.js's DATE_TIME_TYPES).
+            assertFalse(petSource.contains("InstantIso8601Serializer"), petSource)
         } finally {
             outDir.deleteRecursively()
         }
