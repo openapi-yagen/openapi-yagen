@@ -162,11 +162,12 @@ From the `generators/` directory, with `openapi-yagen` on `PATH`:
 
 ```bash
 cd generators && openapi-yagen g -o out/python-tornado-server -g python_tornado_server_generator/src \
-    -c ../test/resources/petstore.yaml -v packageName=petstore_api
+    -c python_tornado_server_generator/test/resources/kitchensink.yaml -v packageName=petstore_api
 ```
 
 For a real generate-then-run check exercising every operation, positive and negative, see
-[`test/`](test/) - this generator's own self-contained test suite (see also
+[`test/`](https://github.com/openapi-yagen/openapi-yagen/tree/master/generators/python_tornado_server_generator/test) -
+this generator's own self-contained test suite (see also
 [`../README.md`](../README.md) for the collection-wide convention): `pip install -r
 test/requirements.txt && OPENAPI_YAGEN=/path/to/openapi-yagen pytest test/`, which regenerates from
 `test/resources/kitchensink.yaml`, boots the result behind `tornado.testing.AsyncHTTPTestCase`
