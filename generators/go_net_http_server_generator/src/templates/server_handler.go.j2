@@ -1,0 +1,14 @@
+package server
+
+import (
+	"context"
+{% if handlerImports.time %}	"time"
+{% endif %}{% if handlerImports.models %}
+	"{{ packageName }}/models"
+{% endif %})
+
+{% if description %}{{ buildDocComment(description, null, [], "//") }}
+{% endif %}type {{ handlerType }} interface {
+{% for op in operations %}{% if op.docComment %}{{ op.docComment | indent("\t", true) }}
+{% endif %}	{{ op.name }}({{ op.signature }}) ({% if op.returnsValue %}{{ op.response.type }}, {% endif %}error)
+{% endfor %}}

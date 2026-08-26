@@ -1,0 +1,467 @@
+openapi: 3.0.3
+info:
+  title: Kitchen Sink (go_net_http_server_generator test fixture)
+  version: "1.0"
+  description: >-
+    A small, purpose-built spec exercising every feature this generator's README claims to
+    support (required/optional/nullable properties, every constraint kind, enums, arrays with and
+    without uniqueItems, discriminated and undiscriminated oneOf/anyOf, path/query/header
+    parameters, array-typed query parameters, bearer/apiKey security schemes) plus operations
+    designed to trigger validation errors, missing-auth errors, and not-found responses.
+security: []
+tags:
+  - name: pets
+    description: Operations for browsing and managing pets - also exercises document-level
+      tags[].description reaching the generated tag client's own doc comment.
+  - name: widgets
+    description: Operations for the oneOf/anyOf coverage vehicle (see WidgetVariant below).
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      tags: [pets]
+      summary: List all pets.
+      description: Returns a page of pets, optionally filtered by tag or tags.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of pets to return.
+          schema:
+            type: integer
+            maximum: 100
+        - name: tag
+          in: query
+          required: false
+          description: Only return pets with this tag.
+          schema:
+            type: string
+        - name: tags
+          in: query
+          required: false
+          description: Only return pets with any of these tags (repeated query key).
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        "200":
+          description: A page of pets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pets"
+    post:
+      operationId: createPet
+      tags: [pets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewPet"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+  /pets/{petId}:
+    get:
+      operationId: getPetById
+      tags: [pets]
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The pet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+    delete:
+      operationId: deletePet
+      tags: [pets]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+  /pets/{petId}/ratings:
+    post:
+      operationId: ratePet
+      tags: [pets]
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Request-Id
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Rating"
+      responses:
+        "204":
+          description: Recorded
+  /pets/{petId}/photo:
+    post:
+      operationId: uploadPetPhoto
+      tags: [pets]
+      description: Exercises multipart/form-data request bodies.
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/PetPhotoUpload"
+      responses:
+        "204":
+          description: Photo uploaded
+  /pets/{petId}/subscribe:
+    post:
+      operationId: subscribeToPet
+      tags: [pets]
+      description: Exercises application/x-www-form-urlencoded request bodies.
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/PetSubscription"
+      responses:
+        "204":
+          description: Subscribed
+  /pets/{petId}/notes:
+    post:
+      operationId: setPetNotes
+      tags: [pets]
+      description: Exercises a text-content-type request AND response body (a plain string, not JSON-encoded).
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: Notes stored; echoes them back
+          content:
+            text/plain:
+              schema:
+                type: string
+  /pets/{petId}/avatar:
+    put:
+      operationId: uploadPetAvatar
+      tags: [pets]
+      description: Exercises a raw-bytes (non-text, non-JSON) request AND response body.
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Avatar stored; echoes it back
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /widgets:
+    get:
+      operationId: listWidgets
+      tags: [widgets]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: >-
+            An enum-typed query parameter - the wire value (e.g. "sold-out") differs from the
+            generated Go constant name (e.g. WidgetStatusSoldOut), exercising the round-trip
+            through the enum's underlying string type.
+          schema:
+            type: string
+            enum: [available, pending, sold-out]
+        - name: id
+          in: query
+          required: false
+          description: >-
+            A primitive-shaped anyOf query parameter (either a numeric id or a string slug) -
+            since a query value is always just a string on the wire anyway, this is passed
+            straight through as a plain string rather than a typed union.
+          schema:
+            anyOf:
+              - type: integer
+              - type: string
+        - name: X-Client-Version
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A page of widgets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Widgets"
+    post:
+      operationId: createWidget
+      tags: [widgets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Widget"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Widget"
+  /widgets/shapes/{shapeId}:
+    get:
+      operationId: getShape
+      tags: [widgets]
+      parameters:
+        - name: shapeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The shape
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shape"
+components:
+  schemas:
+    Pet:
+      description: A pet available in the store.
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: The pet's display name.
+        tag:
+          type: string
+        notes:
+          type: string
+        status:
+          $ref: "#/components/schemas/PetStatus"
+        createdAt:
+          type: string
+          format: date-time
+          description: When the pet was added to the store.
+    NewPet:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        tag:
+          type: string
+        notes:
+          type: string
+        status:
+          $ref: "#/components/schemas/PetStatus"
+    PetStatus:
+      description: A pet's availability status.
+      type: string
+      enum: [available, pending, sold]
+    Rating:
+      type: object
+      required: [score, label]
+      properties:
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+        label:
+          type: string
+          minLength: 2
+          maxLength: 20
+          pattern: "^[a-z]+$"
+    PetPhotoUpload:
+      type: object
+      required: [photo]
+      properties:
+        caption:
+          type: string
+        photo:
+          type: string
+          format: binary
+    PetSubscription:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+        notify:
+          type: boolean
+    Tag:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+    Pets:
+      description: A page of pets.
+      type: array
+      items:
+        $ref: "#/components/schemas/Pet"
+    TagSet:
+      type: array
+      uniqueItems: true
+      items:
+        $ref: "#/components/schemas/Tag"
+    Widget:
+      type: object
+      required: [id, name, variant]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        tags:
+          $ref: "#/components/schemas/TagSet"
+        variant:
+          $ref: "#/components/schemas/WidgetVariant"
+    Widgets:
+      type: array
+      items:
+        $ref: "#/components/schemas/Widget"
+    Shape:
+      description: A discriminated union - dispatched via the `shapeType` discriminator.
+      oneOf:
+        - $ref: "#/components/schemas/Circle"
+        - $ref: "#/components/schemas/Square"
+      discriminator:
+        propertyName: shapeType
+        mapping:
+          circle: "#/components/schemas/Circle"
+          square: "#/components/schemas/Square"
+    Circle:
+      type: object
+      required: [shapeType, radius]
+      properties:
+        shapeType:
+          type: string
+        radius:
+          type: number
+    Square:
+      type: object
+      required: [shapeType, side]
+      properties:
+        shapeType:
+          type: string
+        side:
+          type: number
+    WidgetVariant:
+      description: >-
+        An undiscriminated union ("union" kind): two object-shaped variants disambiguated by a
+        required property unique to each, a bare string variant to exercise the non-object
+        dispatch branch, a third object-shaped variant disambiguated by an optional (not
+        required) property unique to it, and a trailing unconstrained ("{}") catch-all variant
+        for any other JSON shape.
+      oneOf:
+        - $ref: "#/components/schemas/WidgetVariantA"
+        - $ref: "#/components/schemas/WidgetVariantB"
+        - type: string
+        - $ref: "#/components/schemas/WidgetVariantC"
+        - {}
+    WidgetVariantA:
+      type: object
+      required: [kind, value]
+      properties:
+        kind:
+          type: string
+        value:
+          type: integer
+    WidgetVariantB:
+      type: object
+      required: [label]
+      properties:
+        label:
+          type: string
+    WidgetVariantC:
+      type: object
+      properties:
+        note:
+          type: string
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key

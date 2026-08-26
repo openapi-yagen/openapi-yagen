@@ -80,6 +80,24 @@ runs the `.js`-extension variant with Node's built-in `node:test` against a hand
 stub (`test/src/support/fetchStub.ts`) - no mocking library, same `OPENAPI_YAGEN`-env-var-with-
 `dist/openapi-yagen`-fallback convention as the Gradle projects.
 
+`go_net_http_client_generator`/`go_net_http_server_generator`'s test suites use `go generate`
+(a `//go:generate ./generate.sh` directive in `test/generate.go`) as the regenerate-before-compile
+step, since a Go test binary can't regenerate its own statically-imported packages at run time the
+way a JVM/Node test runner can shell out mid-run:
+
+```bash
+cd generators/go_net_http_client_generator/test
+OPENAPI_YAGEN=/path/to/openapi-yagen go generate ./... && go test ./...
+```
+
+It regenerates from its own `test/resources/kitchensink.yaml` into `test/generated/` (gitignored),
+then runs ordinary `go test` against it - client tests point the generated client at an
+`httptest.Server` with a hand-rolled handler; server tests mount the generated routes onto a fresh
+`http.ServeMux` wrapped in `httptest.NewServer` and hit it with `net/http` - no mocking library,
+same `OPENAPI_YAGEN`-env-var-with-`dist/openapi-yagen`-fallback convention as every other
+generator's test project (built into `generate.sh` itself here, since Go has no build-tool-level
+env-var substitution the way Gradle/npm scripts do it).
+
 A generator's `test/` project has exactly one relative reference back into this repo: `../src`,
 pointing at its own sibling generator directory. That's it - no root `settings.gradle.kts`/
 `package.json`, no composite build, no shared build logic. This is deliberate: a `test/` project
@@ -124,9 +142,10 @@ regenerate-then-verify on its own).
 
 Globs `generators/*/test/build.gradle.kts` (running `./gradlew test` in each),
 `generators/*/test/package.json` (running `npm install && npm test` in each),
-`generators/*/test/Gemfile` (running `bundle install && bundle exec rake test` in each), and
+`generators/*/test/Gemfile` (running `bundle install && bundle exec rake test` in each),
 `generators/*/test/requirements.txt` (running `python3 -m venv .venv && .venv/bin/pip install -r
 requirements.txt && .venv/bin/pytest` in each - see `python_tornado_server_generator/test/` for the
-worked example). Pure convenience glue, not a build dependency of anything else - new generators are
-auto-discovered by whichever glob matches their own `test/` project, no registration needed
-anywhere.
+worked example), and `generators/*/test/go.mod` (running `go generate ./... && go test ./...` in
+each - see `go_net_http_server_generator/test/` for the worked example). Pure convenience glue, not
+a build dependency of anything else - new generators are auto-discovered by whichever glob matches
+their own `test/` project, no registration needed anywhere.

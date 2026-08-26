@@ -1,0 +1,6 @@
+package models
+
+{% if model.needsTime %}import "time"
+
+{% endif %}{% if model.description %}{{ buildDocComment(model.name + " - " + model.description, null, [], "//") }}
+{% endif %}type {{ model.name }} {{ model.targetType }}

@@ -1,0 +1,43 @@
+# Generator name
+name: go_net_http_server
+
+# Generator description
+description: >-
+  Go net/http server generator. Generates a models package (one struct/type per schema, with
+  Validate() methods) and, per OpenAPI tag, a handler interface plus a RegisterXRoutes function
+  that registers one http.HandlerFunc per operation onto a caller-supplied *http.ServeMux (Go
+  1.22+ method+wildcard routing). Incoming requests (path/query/header parameters and, where
+  constrained, the request body) are parsed and validated before the handler is called, using
+  shared helper functions instead of duplicating checks per operation.
+
+# Main JavaScript file (entrypoint).
+mainScriptPath: main.js
+
+# The OpenAPI version this generator's main.js/templates are written to consume - the engine
+# converts the input spec to this version before running main.js if it declares a different one.
+openApiVersion: "3.1"
+
+# Variables that can be used to customize script execution
+variables:
+  - name: packageName
+    description: >-
+      Go import path for the generated code (e.g. github.com/example/petstore). Used to build the
+      import statement server code needs to reference the models package - the package clause of
+      every generated file is always the literal "models"/"server", never this value. -o should
+      point at the root of a Go module already initialized with this import path.
+    required: true
+  - name: strict
+    description: >-
+      When "true" (default), a schema or operation the generator can't handle aborts generation
+      with an error. Set to "false" to instead skip it with a printed warning and generate
+      everything else - useful for large real-world specs where a handful of unsupported
+      constructs shouldn't block the rest of the generated code.
+    defaultValue: "true"
+  - name: generate
+    description: >-
+      What to generate. "all" (default): models plus the server. "models": only models/*.go -
+      nothing else. "api": everything except models/*.go (server/*.go only). Use "models"/"api"
+      together across a client+server pair sharing one spec/packageName - generate "models" once
+      into a shared package, then generate "api" for both the client and server generators against
+      it.
+    defaultValue: "all"

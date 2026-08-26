@@ -1,0 +1,16 @@
+package client
+
+import "net/http"
+
+// ApiClient bundles one instance of every tag's client, constructed once from a shared
+// *http.Client/baseURL, so callers don't have to instantiate each tag client individually.
+{% if description %}{{ buildDocComment(description, null, [], "//") }}
+{% endif %}type ApiClient struct {
+{% for g in groups %}	{{ g.fieldName }} *{{ g.tagType }}
+{% endfor %}}
+
+func NewApiClient(httpClient *http.Client, baseURL string) *ApiClient {
+	return &ApiClient{
+{% for g in groups %}		{{ g.fieldName }}: New{{ g.tagType }}(httpClient, baseURL),
+{% endfor %}	}
+}

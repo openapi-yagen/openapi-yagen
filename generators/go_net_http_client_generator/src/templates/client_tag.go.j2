@@ -1,0 +1,137 @@
+package client
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+{% if imports.bytesPkg %}	"bytes"
+{% endif %}{% if imports.json %}	"encoding/json"
+{% endif %}{% if imports.multipart %}	"mime/multipart"
+{% endif %}{% if imports.strings %}	"strings"
+{% endif %}{% if imports.time %}	"time"
+{% endif %}{% if imports.urlPkg %}	"net/url"
+{% endif %}
+{% if imports.models %}	"{{ packageName }}/models"
+{% endif %})
+
+{% if description %}{{ buildDocComment(description, null, [], "//") }}
+{% endif %}type {{ tagType }} struct {
+	httpClient *http.Client
+	baseURL    string
+}
+
+func New{{ tagType }}(httpClient *http.Client, baseURL string) *{{ tagType }} {
+	return &{{ tagType }}{httpClient: httpClient, baseURL: baseURL}
+}
+
+{% for op in operations %}
+{% if op.docComment %}{{ op.docComment }}
+{% endif %}func (c *{{ tagType }}) {{ op.name }}({{ op.signature }}) ({% if op.returnsValue %}{{ op.response.type }}, {% endif %}error) {
+{% if op.returnsValue %}	var yagenZero {{ op.response.type }}
+{% endif %}	yagenReqURL := c.baseURL + fmt.Sprintf({{ op.path.formatLiteral }}{% for a in op.path.args %}, {{ a }}{% endfor %})
+
+{% if op.queryParams %}	yagenQuery := url.Values{}
+{% for p in op.queryParams %}{% if p.isArray %}{% if p.pointer %}	if {{ p.goName }} != nil {
+		addQueryParamList(yagenQuery, {{ p.wireNameLiteral }}, {{ p.goName }})
+	}
+{% else %}	addQueryParamList(yagenQuery, {{ p.wireNameLiteral }}, {{ p.goName }})
+{% endif %}{% else %}{% if p.pointer %}	if {{ p.goName }} != nil {
+		addQueryParam(yagenQuery, {{ p.wireNameLiteral }}, *{{ p.goName }})
+	}
+{% else %}	addQueryParam(yagenQuery, {{ p.wireNameLiteral }}, {{ p.goName }})
+{% endif %}{% endif %}{% endfor %}	if len(yagenQuery) > 0 {
+		yagenReqURL += "?" + yagenQuery.Encode()
+	}
+
+{% endif %}{% if op.body %}{% if op.body.encoding == "json" %}{% if op.body.pointer %}	var yagenBodyReader io.Reader
+	if body != nil {
+		yagenEncoded, err := json.Marshal(body)
+		if err != nil {
+			return {% if op.returnsValue %}yagenZero, {% endif %}err
+		}
+		yagenBodyReader = bytes.NewReader(yagenEncoded)
+	}
+{% else %}	yagenEncoded, err := json.Marshal(body)
+	if err != nil {
+		return {% if op.returnsValue %}yagenZero, {% endif %}err
+	}
+	yagenBodyReader := bytes.NewReader(yagenEncoded)
+{% endif %}{% else if op.body.encoding == "urlencoded" %}	yagenForm := url.Values{}
+{% for f in op.body.fields %}{% if f.pointer %}	if body.{{ f.goName }} != nil {
+		yagenForm.Set({{ toStringLiteral(f.wireName) }}, formatParam(*body.{{ f.goName }}))
+	}
+{% else %}	yagenForm.Set({{ toStringLiteral(f.wireName) }}, formatParam(body.{{ f.goName }}))
+{% endif %}{% endfor %}	yagenBodyReader := strings.NewReader(yagenForm.Encode())
+{% else if op.body.encoding == "multipart" %}	var yagenMultipartBuf bytes.Buffer
+	yagenMultipartWriter := multipart.NewWriter(&yagenMultipartBuf)
+{% for f in op.body.fields %}{% if f.pointer %}	if body.{{ f.goName }} != nil {
+		if err := yagenMultipartWriter.WriteField({{ toStringLiteral(f.wireName) }}, formatParam(*body.{{ f.goName }})); err != nil {
+			return {% if op.returnsValue %}yagenZero, {% endif %}err
+		}
+	}
+{% else %}	if err := yagenMultipartWriter.WriteField({{ toStringLiteral(f.wireName) }}, formatParam(body.{{ f.goName }})); err != nil {
+		return {% if op.returnsValue %}yagenZero, {% endif %}err
+	}
+{% endif %}{% endfor %}	if err := yagenMultipartWriter.Close(); err != nil {
+		return {% if op.returnsValue %}yagenZero, {% endif %}err
+	}
+	yagenBodyReader := &yagenMultipartBuf
+{% else if op.body.encoding == "text" %}{% if op.body.pointer %}	var yagenBodyReader io.Reader
+	if body != nil {
+		yagenBodyReader = strings.NewReader(*body)
+	}
+{% else %}	yagenBodyReader := strings.NewReader(body)
+{% endif %}{% else %}{% if op.body.pointer %}	var yagenBodyReader io.Reader
+	if body != nil {
+		yagenBodyReader = bytes.NewReader(*body)
+	}
+{% else %}	yagenBodyReader := bytes.NewReader(body)
+{% endif %}{% endif %}
+	yagenHTTPReq, err := http.NewRequestWithContext(ctx, {{ toStringLiteral(op.method) }}, yagenReqURL, yagenBodyReader)
+	if err != nil {
+		return {% if op.returnsValue %}yagenZero, {% endif %}err
+	}
+{% if op.body.encoding == "json" %}	yagenHTTPReq.Header.Set("Content-Type", "application/json")
+{% else if op.body.encoding == "urlencoded" %}	yagenHTTPReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+{% else if op.body.encoding == "multipart" %}	yagenHTTPReq.Header.Set("Content-Type", yagenMultipartWriter.FormDataContentType())
+{% else %}	yagenHTTPReq.Header.Set("Content-Type", {{ op.body.mediaTypeLiteral }})
+{% endif %}{% else %}	yagenHTTPReq, err := http.NewRequestWithContext(ctx, {{ toStringLiteral(op.method) }}, yagenReqURL, nil)
+	if err != nil {
+		return {% if op.returnsValue %}yagenZero, {% endif %}err
+	}
+{% endif %}
+{% for p in op.headerParams %}{% if p.pointer %}	if {{ p.goName }} != nil {
+		yagenHTTPReq.Header.Set({{ p.wireNameLiteral }}, formatParam(*{{ p.goName }}))
+	}
+{% else %}	yagenHTTPReq.Header.Set({{ p.wireNameLiteral }}, formatParam({{ p.goName }}))
+{% endif %}{% endfor %}
+	yagenResp, err := c.httpClient.Do(yagenHTTPReq)
+	if err != nil {
+		return {% if op.returnsValue %}yagenZero, {% endif %}err
+	}
+	defer yagenResp.Body.Close()
+
+	if yagenResp.StatusCode >= 400 {
+		yagenRespBody, _ := io.ReadAll(yagenResp.Body)
+		return {% if op.returnsValue %}yagenZero, {% endif %}&ResponseError{StatusCode: yagenResp.StatusCode, Body: yagenRespBody}
+	}
+
+{% if op.returnsValue %}{% if op.response.type == "string" %}	yagenRespBody, err := io.ReadAll(yagenResp.Body)
+	if err != nil {
+		return yagenZero, err
+	}
+	return string(yagenRespBody), nil
+{% else if op.response.type == "[]byte" %}	yagenRespBody, err := io.ReadAll(yagenResp.Body)
+	if err != nil {
+		return yagenZero, err
+	}
+	return yagenRespBody, nil
+{% else %}	var yagenResult {{ op.response.type }}
+	if err := json.NewDecoder(yagenResp.Body).Decode(&yagenResult); err != nil {
+		return yagenZero, err
+	}
+	return yagenResult, nil
+{% endif %}{% else %}	return nil
+{% endif %}}
+{% endfor %}

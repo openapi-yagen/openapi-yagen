@@ -1,0 +1,16 @@
+package models
+
+{% if model.needsTime %}import "time"
+
+{% endif %}{% if model.description %}{{ buildDocComment(model.name + " - " + model.description, null, [], "//") }}
+{% endif %}type {{ model.name }} struct {
+{% filter indent("\t", true) %}{% for p in model.properties %}{% if p.description %}{{ buildDocComment(p.description, null, [], "//") }}
+{% endif %}{{ p.goName }} {% if p.pointer %}*{% endif %}{{ p.type }} `json:"{{ p.wireName }}{% if p.omitempty %},omitempty{% endif %}"`
+{% endfor %}{% endfilter %}}
+
+// Validate checks {{ model.name }}'s own declared constraints (minimum/maximum/minLength/
+// maxLength/pattern). It does not recurse into nested model fields.
+func (v *{{ model.name }}) Validate() error {
+{% filter indent("\t", true) %}{% for p in model.properties %}{% for call in p.validationCalls %}{{ call }}
+{% endfor %}{% endfor %}return nil{% endfilter %}
+}

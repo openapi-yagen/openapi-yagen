@@ -1,0 +1,42 @@
+# Generator name
+name: go_net_http_client
+
+# Generator description
+description: >-
+  Go net/http client generator. Generates a models package (one struct/type per schema, with
+  Validate() methods) and, per OpenAPI tag, a client type with one method per operation. Each
+  tag client takes a caller-supplied *http.Client and base URL in its constructor - no HTTP
+  transport or authentication is chosen by the generated code, so callers configure timeouts,
+  retries, and auth (e.g. via a custom http.RoundTripper) on the *http.Client itself.
+
+# Main JavaScript file (entrypoint).
+mainScriptPath: main.js
+
+# The OpenAPI version this generator's main.js/templates are written to consume - the engine
+# converts the input spec to this version before running main.js if it declares a different one.
+openApiVersion: "3.1"
+
+# Variables that can be used to customize script execution
+variables:
+  - name: packageName
+    description: >-
+      Go import path for the generated code (e.g. github.com/example/petstore). Used to build the
+      import statement client code needs to reference the models package - the package clause of
+      every generated file is always the literal "models"/"client", never this value. -o should
+      point at the root of a Go module already initialized with this import path.
+    required: true
+  - name: strict
+    description: >-
+      When "true" (default), a schema or operation the generator can't handle aborts generation
+      with an error. Set to "false" to instead skip it with a printed warning and generate
+      everything else - useful for large real-world specs where a handful of unsupported
+      constructs shouldn't block the rest of the generated code.
+    defaultValue: "true"
+  - name: generate
+    description: >-
+      What to generate. "all" (default): models plus the client. "models": only models/*.go -
+      nothing else. "api": everything except models/*.go (client/*.go only). Use "models"/"api"
+      together across a client+server pair sharing one spec/packageName - generate "models" once
+      into a shared package, then generate "api" for both the client and server generators against
+      it.
+    defaultValue: "all"

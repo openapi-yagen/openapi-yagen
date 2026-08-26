@@ -150,7 +150,8 @@ version before checking it in, or to inspect what a 3.1 spec looks like once fol
 `-g` accepts:
 1. **`builtin:<name>`** - one of the generators embedded directly into the `openapi-yagen` binary
    at compile time (currently `kotlin_ktor_client`, `kotlin_ktor_server`, `typescript_fetch_client`,
-   `ruby_faraday_client`, and `python_tornado_server` - run `openapi-yagen list-generators` for the
+   `ruby_faraday_client`, `python_tornado_server`, `go_net_http_client`, and `go_net_http_server` -
+   run `openapi-yagen list-generators` for the
    current list with descriptions). Works with no local checkout, network access, or filesystem at
    all. Use
    `openapi-yagen extract <name> -o <dir>` to write a built-in generator's files out to disk, e.g.

@@ -262,6 +262,12 @@ Generators are located in the `generators` folder:
   [Tornado](https://www.tornadoweb.org/) server routing + a handler interface you implement, with
   request validation (Python has no compiler to catch a wrong-shaped value, so every model gets a
   generated `validate()`).
+- [`go_net_http_client_generator`](generators/go_net_http_client_generator/README.md) - Go API
+  client on the standard library's `net/http`/`encoding/json` only, taking a caller-supplied
+  `*http.Client`, zero third-party dependencies.
+- [`go_net_http_server_generator`](generators/go_net_http_server_generator/README.md) - Go HTTP
+  handlers on the standard library's `net/http` (Go 1.22+ `ServeMux` routing), with request
+  validation, zero third-party dependencies.
 
 ## Development
 

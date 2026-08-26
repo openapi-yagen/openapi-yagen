@@ -1,0 +1,55 @@
+package models
+
+import (
+	"encoding/json"
+	"fmt"
+{% if model.isInt %}	"strconv"
+{% endif %})
+
+{% if model.description %}{{ buildDocComment(model.name + " - " + model.description, null, [], "//") }}
+{% endif %}type {{ model.name }} {% if model.isInt %}int{% else %}string{% endif %}
+
+const (
+{% filter indent("\t", true) %}{% for e in model.entries %}{{ e.goName }} {{ model.name }} = {% if model.isInt %}{{ e.wireValue }}
+{% else %}{{ toStringLiteral(e.wireValue) }}
+{% endif %}{% endfor %}{% endfilter %})
+
+func (v {{ model.name }}) IsValid() bool {
+	switch v {
+	case {% for e in model.entries %}{{ e.goName }}{% if not loop.is_last %}, {% endif %}{% endfor %}:
+		return true
+	}
+	return false
+}
+
+// Parse{{ model.name }} converts a wire-format string (e.g. a path/query/header parameter value)
+// to a {{ model.name }}, rejecting an unrecognized value.
+func Parse{{ model.name }}(s string) ({{ model.name }}, error) {
+{% if model.isInt %}	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid {{ model.name }} value: %q", s)
+	}
+	candidate := {{ model.name }}(n)
+{% else %}	candidate := {{ model.name }}(s)
+{% endif %}	if !candidate.IsValid() {
+		return {% if model.isInt %}0{% else %}""{% endif %}, fmt.Errorf("invalid {{ model.name }} value: %q", s)
+	}
+	return candidate, nil
+}
+
+func (v {{ model.name }}) MarshalJSON() ([]byte, error) {
+	return json.Marshal({% if model.isInt %}int{% else %}string{% endif %}(v))
+}
+
+func (v *{{ model.name }}) UnmarshalJSON(data []byte) error {
+	var raw {% if model.isInt %}int{% else %}string{% endif %}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	candidate := {{ model.name }}(raw)
+	if !candidate.IsValid() {
+		return fmt.Errorf("invalid {{ model.name }} value: %v", raw)
+	}
+	*v = candidate
+	return nil
+}

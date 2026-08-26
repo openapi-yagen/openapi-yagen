@@ -71,9 +71,23 @@ for requirements in "$REPO_ROOT"/generators/*/test/requirements.txt; do
     fi
 done
 
+for gomod in "$REPO_ROOT"/generators/*/test/go.mod; do
+    [ -e "$gomod" ] || continue
+    FOUND=$((FOUND + 1))
+    dir="$(dirname "$gomod")"
+    name="$(basename "$(dirname "$dir")")"
+
+    echo
+    echo "=== $name ==="
+    if ! (cd "$dir" && go generate ./... && go test ./...); then
+        echo "FAIL ($name)" >&2
+        FAILURES=$((FAILURES + 1))
+    fi
+done
+
 echo
 if [ "$FOUND" -eq 0 ]; then
-    echo "No generator test suites found (generators/*/test/build.gradle.kts, generators/*/test/package.json, generators/*/test/Gemfile, or generators/*/test/requirements.txt)."
+    echo "No generator test suites found (generators/*/test/build.gradle.kts, generators/*/test/package.json, generators/*/test/Gemfile, generators/*/test/requirements.txt, or generators/*/test/go.mod)."
     exit 0
 elif [ "$FAILURES" -eq 0 ]; then
     echo "All $FOUND generator test suite(s) passed."

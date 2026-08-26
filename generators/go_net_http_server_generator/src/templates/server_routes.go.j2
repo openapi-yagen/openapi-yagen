@@ -1,0 +1,107 @@
+package server
+
+import (
+	"net/http"
+{% if routesImports.io %}	"io"
+{% endif %}{% if routesImports.strconv %}	"strconv"
+{% endif %}
+{% if routesImports.models %}	"{{ packageName }}/models"
+{% endif %})
+
+{% if description %}{{ buildDocComment(description, null, [], "//") }}
+{% endif %}func {{ registerFunc }}(mux *http.ServeMux, handler {{ handlerType }}, onError ErrorHandler) {
+	if onError == nil {
+		onError = DefaultErrorHandler
+	}
+{% for op in operations %}	mux.HandleFunc({{ op.pattern }}, func(w http.ResponseWriter, r *http.Request) {
+{% filter indent("\t\t", true) %}var err error
+
+{% for p in op.pathParams %}{{ p.goName }}, err := pathParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+if err != nil {
+	onError(w, r, err)
+	return
+}
+{% endfor %}{% for p in op.queryParams %}{% if p.isArray %}{{ p.goName }}, err := queryParamListAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+if err != nil {
+	onError(w, r, err)
+	return
+}
+{% if p.required %}if {{ p.goName }} == nil {
+	onError(w, r, &models.ValidationError{Field: {{ p.wireNameLiteral }}, Message: "is required"})
+	return
+}
+{% endif %}{% else %}{% if p.required %}{{ p.goName }}, err := requireQueryParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% else %}{{ p.goName }}, err := queryParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% endif %}if err != nil {
+	onError(w, r, err)
+	return
+}
+{% endif %}{% endfor %}{% for p in op.headerParams %}{% if p.required %}{{ p.goName }}, err := requireHeaderParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% else %}{{ p.goName }}, err := headerParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% endif %}if err != nil {
+	onError(w, r, err)
+	return
+}
+{% endfor %}{% for p in op.authParams %}{% if p.kind == "bearer" %}{{ p.goName }}, err := RequireBearerToken(r, {{ p.headerNameLiteral }})
+{% else %}{{ p.goName }}, err := RequireAPIKey(r, {{ p.locationLiteral }}, {{ p.nameLiteral }})
+{% endif %}if err != nil {
+	onError(w, r, err)
+	return
+}
+{% endfor %}{% if op.body %}{% if op.body.encoding == "json" %}{% if op.body.pointer %}body, err := decodeOptionalJSONBody[{{ op.body.type }}](r)
+if err != nil {
+	onError(w, r, err)
+	return
+}
+{% if op.body.hasValidate %}if body != nil {
+	if err := body.Validate(); err != nil {
+		onError(w, r, err)
+		return
+	}
+}
+{% endif %}{% else %}body, err := decodeJSONBody[{{ op.body.type }}](r)
+if err != nil {
+	onError(w, r, err)
+	return
+}
+{% if op.body.hasValidate %}if err := body.Validate(); err != nil {
+	onError(w, r, err)
+	return
+}
+{% endif %}{% endif %}{% else if op.body.encoding == "urlencoded" or op.body.encoding == "multipart" %}{% for f in op.body.fields %}{% if f.pointer %}{{ f.localName }}, err := formFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
+{% else %}{{ f.localName }}, err := requireFormFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
+{% endif %}if err != nil {
+	onError(w, r, err)
+	return
+}
+{% endfor %}body := {{ op.body.type }}{ {% for f in op.body.fields %}{{ f.goName }}: {{ f.localName }}, {% endfor %}}
+{% else if op.body.encoding == "text" %}bodyBytes, err := io.ReadAll(r.Body)
+if err != nil {
+	onError(w, r, err)
+	return
+}
+body := string(bodyBytes)
+{% else %}body, err := io.ReadAll(r.Body)
+if err != nil {
+	onError(w, r, err)
+	return
+}
+{% endif %}{% endif %}
+{% if op.returnsValue %}result, err := handler.{{ op.name }}({{ op.callArgs }})
+{% else %}err = handler.{{ op.name }}({{ op.callArgs }})
+{% endif %}if err != nil {
+	onError(w, r, err)
+	return
+}
+
+{% if op.returnsValue %}{% if op.response.type == "string" %}w.Header().Set("Content-Type", {{ op.response.mediaTypeLiteral }})
+w.WriteHeader({{ op.response.statusCode }})
+w.Write([]byte(result))
+{% else if op.response.type == "[]byte" %}w.Header().Set("Content-Type", {{ op.response.mediaTypeLiteral }})
+w.WriteHeader({{ op.response.statusCode }})
+w.Write(result)
+{% else %}writeJSON(w, {{ op.response.statusCode }}, result){% endif %}
+{% else %}w.WriteHeader({{ op.response.statusCode }})
+{% endif %}{% endfilter %}
+	})
+{% endfor %}}

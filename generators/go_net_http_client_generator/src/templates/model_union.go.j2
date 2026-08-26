@@ -1,0 +1,121 @@
+package models
+
+import (
+{% if not model.discriminant %}	"bytes"
+{% endif %}	"encoding/json"
+	"fmt"
+{% if model.needsTime %}	"time"
+{% endif %})
+
+{% if model.description %}{{ buildDocComment(model.name + " - " + model.description, null, [], "//") }}
+{% endif %}{% if model.discriminant %}// {{ model.name }} is a union dispatched on the "{{ model.discriminant }}" discriminator property.
+{% else %}// {{ model.name }} is a union of {% for v in model.variants %}{{ v.valueType }}{% if not loop.is_last %}, {% endif %}{% endfor %}, dispatched on the JSON value's shape.
+{% endif %}type {{ model.name }} struct {
+{% filter indent("\t", true) %}{% if model.discriminant %}discriminant string
+{% endif %}{% for v in model.variants %}{{ v.fieldName }} *{{ v.valueType }}
+{% endfor %}{% endfilter %}}
+
+{% if model.discriminant %}func (v {{ model.name }}) Discriminant() string { return v.discriminant }
+
+{% endif %}{% for v in model.variants %}func (v *{{ model.name }}) As{{ v.accessorName }}() ({{ v.valueType }}, bool) {
+	if v.{{ v.fieldName }} == nil {
+		var zero {{ v.valueType }}
+		return zero, false
+	}
+	return *v.{{ v.fieldName }}, true
+}
+
+func (v *{{ model.name }}) From{{ v.accessorName }}(value {{ v.valueType }}) *{{ model.name }} {
+	*v = {{ model.name }}{ {{ v.fieldName }}: &value{% if model.discriminant %}, discriminant: {{ toStringLiteral(v.literal) }}{% endif %} }
+	return v
+}
+
+{% endfor %}func (v {{ model.name }}) MarshalJSON() ([]byte, error) {
+{% if model.discriminant %}	switch v.discriminant {
+{% for v in model.variants %}	case {{ toStringLiteral(v.literal) }}:
+		return marshalWithDiscriminator(v.{{ v.fieldName }}, {{ toStringLiteral(model.discriminant) }}, v.discriminant)
+{% endfor %}	}
+{% else %}	switch {
+{% for v in model.variants %}	case v.{{ v.fieldName }} != nil:
+		return json.Marshal(v.{{ v.fieldName }})
+{% endfor %}	}
+{% endif %}	return nil, fmt.Errorf("{{ model.name }}: no variant set")
+}
+
+func (v *{{ model.name }}) UnmarshalJSON(data []byte) error {
+{% if model.discriminant %}	var probe struct {
+		Discriminant string `json:"{{ model.discriminant }}"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return err
+	}
+	switch probe.Discriminant {
+{% for v in model.variants %}	case {{ toStringLiteral(v.literal) }}:
+		var value {{ v.valueType }}
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		v.From{{ v.accessorName }}(value)
+		return nil
+{% endfor %}	}
+	return fmt.Errorf("{{ model.name }}: unrecognized {{ model.discriminant }} %q", probe.Discriminant)
+{% else %}	trimmed := bytes.TrimSpace(data)
+	var probe map[string]json.RawMessage
+	isObject := len(trimmed) > 0 && trimmed[0] == '{'
+	if isObject {
+		if err := json.Unmarshal(data, &probe); err != nil {
+			return err
+		}
+	}
+	switch {
+{% for v in model.variants %}{% if v.dispatchKind == "object" and v.dispatchField %}	case isObject && hasKey(probe, {{ toStringLiteral(v.dispatchField) }}):
+		var value {{ v.valueType }}
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		v.From{{ v.accessorName }}(value)
+		return nil
+{% else if v.dispatchKind == "object" %}	case isObject:
+		var value {{ v.valueType }}
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		v.From{{ v.accessorName }}(value)
+		return nil
+{% else if v.dispatchKind == "array" %}	case len(trimmed) > 0 && trimmed[0] == '[':
+		var value {{ v.valueType }}
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		v.From{{ v.accessorName }}(value)
+		return nil
+{% else if v.dispatchKind == "string" %}	case len(trimmed) > 0 && trimmed[0] == '"':
+		var value {{ v.valueType }}
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		v.From{{ v.accessorName }}(value)
+		return nil
+{% else if v.dispatchKind == "boolean" %}	case len(trimmed) > 0 && (trimmed[0] == 't' || trimmed[0] == 'f'):
+		var value {{ v.valueType }}
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		v.From{{ v.accessorName }}(value)
+		return nil
+{% else if v.dispatchKind == "number" %}	case len(trimmed) > 0 && (trimmed[0] == '-' || (trimmed[0] >= '0' && trimmed[0] <= '9')):
+		var value {{ v.valueType }}
+		if err := json.Unmarshal(data, &value); err != nil {
+			return err
+		}
+		v.From{{ v.accessorName }}(value)
+		return nil
+{% endif %}{% endfor %}	}
+{% if model.catchAllVariant %}	var value {{ model.catchAllVariant.valueType }}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	v.From{{ model.catchAllVariant.accessorName }}(value)
+	return nil
+{% else %}	return fmt.Errorf("{{ model.name }}: unrecognized JSON shape")
+{% endif %}{% endif %}}

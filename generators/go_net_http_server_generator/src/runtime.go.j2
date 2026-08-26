@@ -1,0 +1,233 @@
+package server
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"{{ packageName }}/models"
+)
+
+func parseString(s string) (string, error) { return s, nil }
+
+func parseInt32(s string) (int32, error) {
+	n, err := strconv.ParseInt(s, 10, 32)
+	return int32(n), err
+}
+
+func parseInt64(s string) (int64, error) {
+	return strconv.ParseInt(s, 10, 64)
+}
+
+func parseFloat32(s string) (float32, error) {
+	n, err := strconv.ParseFloat(s, 32)
+	return float32(n), err
+}
+
+func parseFloat64(s string) (float64, error) {
+	return strconv.ParseFloat(s, 64)
+}
+
+func parseRFC3339(s string) (time.Time, error) {
+	return time.Parse(time.RFC3339, s)
+}
+
+func convertParam[T any](raw string, field string, convert func(string) (T, error)) (T, error) {
+	v, err := convert(raw)
+	if err != nil {
+		var zero T
+		return zero, &models.ValidationError{Field: field, Message: fmt.Sprintf("is not a valid value: %v", err)}
+	}
+	return v, nil
+}
+
+func pathParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (T, error) {
+	return convertParam(r.PathValue(name), name, convert)
+}
+
+func queryParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (*T, error) {
+	if !r.URL.Query().Has(name) {
+		return nil, nil
+	}
+	v, err := convertParam(r.URL.Query().Get(name), name, convert)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func requireQueryParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (T, error) {
+	var zero T
+	if !r.URL.Query().Has(name) {
+		return zero, &models.ValidationError{Field: name, Message: "is required"}
+	}
+	return convertParam(r.URL.Query().Get(name), name, convert)
+}
+
+// OpenAPI 3's default array-typed query parameter serialization (`style: form, explode: true`):
+// one repeated `name=` key per element, e.g. `?ids=1&ids=2`.
+func queryParamListAs[T any](r *http.Request, name string, convert func(string) (T, error)) ([]T, error) {
+	raws := r.URL.Query()[name]
+	if raws == nil {
+		return nil, nil
+	}
+	result := make([]T, 0, len(raws))
+	for _, raw := range raws {
+		v, err := convertParam(raw, name, convert)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, v)
+	}
+	return result, nil
+}
+
+func headerParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (*T, error) {
+	values := r.Header.Values(name)
+	if len(values) == 0 {
+		return nil, nil
+	}
+	v, err := convertParam(values[0], name, convert)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func requireHeaderParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (T, error) {
+	var zero T
+	values := r.Header.Values(name)
+	if len(values) == 0 {
+		return zero, &models.ValidationError{Field: name, Message: "is required"}
+	}
+	return convertParam(values[0], name, convert)
+}
+
+// formFieldAs/requireFormFieldAs read a urlencoded or multipart request body field - Go's
+// net/http parses either the same way once ParseMultipartForm has been called (it falls back to
+// ParseForm for a non-multipart body), so one code path covers both request body encodings.
+func formFieldAs[T any](r *http.Request, name string, convert func(string) (T, error)) (*T, error) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil && err != http.ErrNotMultipart {
+		return nil, &models.ValidationError{Field: name, Message: fmt.Sprintf("invalid form body: %v", err)}
+	}
+	if !r.PostForm.Has(name) {
+		return nil, nil
+	}
+	v, err := convertParam(r.PostForm.Get(name), name, convert)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func requireFormFieldAs[T any](r *http.Request, name string, convert func(string) (T, error)) (T, error) {
+	var zero T
+	if err := r.ParseMultipartForm(32 << 20); err != nil && err != http.ErrNotMultipart {
+		return zero, &models.ValidationError{Field: name, Message: fmt.Sprintf("invalid form body: %v", err)}
+	}
+	if !r.PostForm.Has(name) {
+		return zero, &models.ValidationError{Field: name, Message: "is required"}
+	}
+	return convertParam(r.PostForm.Get(name), name, convert)
+}
+
+func decodeJSONBody[T any](r *http.Request) (T, error) {
+	var v T
+	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
+		var zero T
+		return zero, &models.ValidationError{Field: "body", Message: fmt.Sprintf("invalid JSON: %v", err)}
+	}
+	return v, nil
+}
+
+// decodeOptionalJSONBody is decodeJSONBody's counterpart for a requestBody that isn't marked
+// `required` - an absent (empty) body decodes to (nil, nil) instead of a decode error.
+func decodeOptionalJSONBody[T any](r *http.Request) (*T, error) {
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, &models.ValidationError{Field: "body", Message: fmt.Sprintf("invalid JSON: %v", err)}
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	var v T
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, &models.ValidationError{Field: "body", Message: fmt.Sprintf("invalid JSON: %v", err)}
+	}
+	return &v, nil
+}
+
+func writeJSON(w http.ResponseWriter, statusCode int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(v)
+}
+
+// MissingAuthenticationError is returned when a securityScheme's credentials (bearer token /
+// apiKey) are absent from the request - distinct from models.ValidationError, so DefaultErrorHandler
+// maps it to 401 (you haven't authenticated), not 400 (your request is malformed).
+type MissingAuthenticationError struct {
+	msg string
+}
+
+func (e *MissingAuthenticationError) Error() string { return e.msg }
+
+// RequireBearerToken extracts a bearer token from the given header for an `http`/`bearer`
+// securityScheme, stripping a "Bearer " prefix if present.
+func RequireBearerToken(r *http.Request, headerName string) (string, error) {
+	raw := r.Header.Get(headerName)
+	if raw == "" {
+		return "", &MissingAuthenticationError{msg: fmt.Sprintf("missing required %q header", headerName)}
+	}
+	const prefix = "Bearer "
+	if strings.HasPrefix(raw, prefix) {
+		return strings.TrimPrefix(raw, prefix), nil
+	}
+	return raw, nil
+}
+
+// RequireAPIKey extracts an apiKey securityScheme's value from wherever its `in` says it lives.
+func RequireAPIKey(r *http.Request, location, name string) (string, error) {
+	var raw string
+	switch location {
+	case "header":
+		raw = r.Header.Get(name)
+	case "query":
+		raw = r.URL.Query().Get(name)
+	case "cookie":
+		if c, err := r.Cookie(name); err == nil {
+			raw = c.Value
+		}
+	default:
+		return "", fmt.Errorf("unsupported apiKey location: %s", location)
+	}
+	if raw == "" {
+		return "", &MissingAuthenticationError{msg: fmt.Sprintf("missing required apiKey %q (in: %s)", name, location)}
+	}
+	return raw, nil
+}
+
+// ErrorHandler decides how to respond when parameter parsing/validation, authentication, or a
+// handler method itself returns an error.
+type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
+
+// DefaultErrorHandler maps *models.ValidationError to 400, *MissingAuthenticationError to 401,
+// and anything else to 500.
+func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	var validationErr *models.ValidationError
+	if errors.As(err, &validationErr) {
+		http.Error(w, validationErr.Error(), http.StatusBadRequest)
+		return
+	}
+	var authErr *MissingAuthenticationError
+	if errors.As(err, &authErr) {
+		http.Error(w, authErr.Error(), http.StatusUnauthorized)
+		return
+	}
+	http.Error(w, "internal server error", http.StatusInternalServerError)
+}
