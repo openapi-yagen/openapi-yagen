@@ -3,10 +3,12 @@ info:
   title: Kitchen Sink (python_tornado_server_generator test fixture)
   version: "1.0"
   description: >-
-    A small, purpose-built spec exercising every feature this generator's README claims to support
-    in v1: object/map schemas, allOf-single-$ref unwrapping, const, OAS 3.1 nullable, required/
-    optional query+header parameters, a JSON body, a binary body, a text/plain response, an empty
-    response, and one path with two HTTP methods (GET+POST on the same RequestHandler class).
+    A small, purpose-built spec exercising every feature this generator's README claims to support:
+    object/map schemas, allOf-single-$ref unwrapping, const, OAS 3.1 nullable, enums, discriminated
+    and undiscriminated oneOf/anyOf, required/optional/array-typed query and header parameters, a
+    JSON body, a binary body, multipart/form-data and application/x-www-form-urlencoded bodies, a
+    text/plain response, an empty response, bearer and apiKey security schemes, and one path with
+    two HTTP methods (GET+POST on the same RequestHandler class).
 tags:
   - name: Widgets
     description: Operations for browsing and managing widgets - exercises document-level
@@ -26,6 +28,20 @@ paths:
           schema:
             type: string
             minLength: 1
+        - name: status
+          in: query
+          required: false
+          description: Only return widgets with this status.
+          schema:
+            $ref: "#/components/schemas/WidgetStatus"
+        - name: tags
+          in: query
+          required: false
+          description: Only return widgets with any of these tags (repeated query key).
+          schema:
+            type: array
+            items:
+              type: string
       responses:
         "200":
           description: A list of widgets.
@@ -81,6 +97,8 @@ paths:
       operationId: exportWidgets
       tags: [Widgets]
       summary: Export every widget as a binary archive.
+      security:
+        - apiKeyAuth: []
       responses:
         "200":
           description: A tar archive of every widget.
@@ -89,6 +107,119 @@ paths:
               schema:
                 type: string
                 format: binary
+
+  /widgets/{widgetId}:
+    get:
+      operationId: getWidgetById
+      tags: [Widgets]
+      summary: Get a widget by ID.
+      description: Returns a single widget by its identifier.
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          description: Identifier of the widget to fetch.
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The requested widget.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Widget"
+        "404":
+          description: No widget with this ID exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteWidget
+      tags: [Widgets]
+      summary: Delete a widget.
+      description: Exercises a bearer-token security scheme.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          description: Identifier of the widget to delete.
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Widget deleted.
+
+  /widgets/{widgetId}/photo:
+    post:
+      operationId: uploadWidgetPhoto
+      tags: [Widgets]
+      summary: Upload a widget's photo.
+      description: Exercises multipart/form-data request bodies.
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          description: Identifier of the widget to attach the photo to.
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        description: The photo to attach.
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/WidgetPhotoUpload"
+      responses:
+        "204":
+          description: Photo uploaded.
+
+  /widgets/{widgetId}/subscribe:
+    post:
+      operationId: subscribeToWidget
+      tags: [Widgets]
+      summary: Subscribe to updates for a widget.
+      description: Exercises application/x-www-form-urlencoded request bodies.
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          description: Identifier of the widget to subscribe to.
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        description: The subscription details.
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/WidgetSubscription"
+      responses:
+        "204":
+          description: Subscribed.
+
+  /widgets/shapes/{shapeId}:
+    get:
+      operationId: getShapeById
+      tags: [Widgets]
+      summary: Get a shape by ID.
+      description: Returns a discriminated-union Shape (Circle or Square).
+      parameters:
+        - name: shapeId
+          in: path
+          required: true
+          description: Identifier of the shape to fetch.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The requested shape.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shape"
 
   /health:
     get:
@@ -143,6 +274,14 @@ components:
           allOf:
             - $ref: "#/components/schemas/WidgetLabels"
           description: Arbitrary string labels for this widget.
+        status:
+          allOf:
+            - $ref: "#/components/schemas/WidgetStatus"
+          description: Initial lifecycle status.
+        variant:
+          allOf:
+            - $ref: "#/components/schemas/WidgetVariant"
+          description: Free-form variant payload.
 
     Widget:
       type: object
@@ -155,12 +294,131 @@ components:
           description: Server-assigned identifier.
         name:
           type: string
+          description: Display name.
           minLength: 1
           maxLength: 64
         owner:
           type: string
+          description: Owning user.
         note:
           type: [string, "null"]
+          description: Optional free-text note; explicitly nullable.
         labels:
           allOf:
             - $ref: "#/components/schemas/WidgetLabels"
+          description: Arbitrary string labels for this widget.
+        status:
+          allOf:
+            - $ref: "#/components/schemas/WidgetStatus"
+          description: Current lifecycle status.
+        variant:
+          allOf:
+            - $ref: "#/components/schemas/WidgetVariant"
+          description: Free-form variant payload.
+
+    WidgetStatus:
+      type: string
+      description: Adoption/lifecycle status of a widget.
+      enum: [available, pending, retired]
+
+    Shape:
+      description: A discriminated union - dispatched via the `shapeType` discriminator.
+      oneOf:
+        - $ref: "#/components/schemas/Circle"
+        - $ref: "#/components/schemas/Square"
+      discriminator:
+        propertyName: shapeType
+        mapping:
+          circle: "#/components/schemas/Circle"
+          square: "#/components/schemas/Square"
+
+    Circle:
+      type: object
+      description: A circular shape.
+      required: [shapeType, radius]
+      properties:
+        shapeType:
+          type: string
+          description: Discriminator identifying this variant as a circle.
+        radius:
+          type: number
+          description: Radius of the circle.
+
+    Square:
+      type: object
+      description: A square shape.
+      required: [shapeType, side]
+      properties:
+        shapeType:
+          type: string
+          description: Discriminator identifying this variant as a square.
+        side:
+          type: number
+          description: Side length of the square.
+
+    WidgetVariant:
+      description: >-
+        An undiscriminated union ("union" kind): two object-shaped variants disambiguated by a
+        required property unique to each, and a bare string variant to exercise the non-object
+        dispatch branch.
+      oneOf:
+        - $ref: "#/components/schemas/WidgetVariantA"
+        - $ref: "#/components/schemas/WidgetVariantB"
+        - type: string
+
+    WidgetVariantA:
+      type: object
+      description: The "kind/value" shaped widget variant.
+      required: [kind, value]
+      properties:
+        kind:
+          type: string
+          description: Distinguishing property unique to this variant.
+        value:
+          type: integer
+          description: The variant's own integer payload.
+
+    WidgetVariantB:
+      type: object
+      description: The "label" shaped widget variant.
+      required: [label]
+      properties:
+        label:
+          type: string
+          description: Distinguishing property unique to this variant.
+
+    WidgetPhotoUpload:
+      type: object
+      description: Multipart form fields for uploading a widget's photo.
+      required: [photo]
+      properties:
+        caption:
+          type: string
+          description: Optional caption for the photo.
+        photo:
+          type: string
+          format: binary
+          description: The photo's raw bytes, received as a plain form field.
+
+    WidgetSubscription:
+      type: object
+      description: Form fields for subscribing to widget updates.
+      required: [email]
+      properties:
+        email:
+          type: string
+          description: Subscriber's email address.
+        notify:
+          type: boolean
+          description: Whether to send notifications immediately.
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: A bearer token in the Authorization header.
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: An API key in the X-Api-Key header.

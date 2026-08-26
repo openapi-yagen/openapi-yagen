@@ -130,10 +130,11 @@ export function buildValidateStatements(descriptor, schema, expr, fieldLabel, de
   if (c.maxProperties != null) statements.push(`runtime.require_max_properties(${expr}, ${c.maxProperties}, ${field})`);
 
   if (descriptor.kind === "ref") {
-    // Only a class (Object, or a multi-branch AllOf registered the same way) ever reaches here as
-    // a "ref" descriptor - see lib/types.js's header comment - so this unconditionally calls the
-    // referenced model's own generated validate().
-    statements.push(`if ${expr} is not None: ${expr}.validate()`);
+    // A dataclass/enum "ref" always has its own validate() - but a *union* "ref" can point at a
+    // bare primitive value at runtime (e.g. the `str` variant of an undiscriminated oneOf/anyOf),
+    // which has none - hasattr() guards against calling .validate() on a value that doesn't define
+    // it, without needing a separate descriptor kind just for unions.
+    statements.push(`if ${expr} is not None and hasattr(${expr}, "validate"): ${expr}.validate()`);
   } else if (descriptor.kind === "array") {
     const itemVar = `item${depth}`;
     const itemStatements = buildValidateStatements(descriptor.item, (resolved && resolved.items) || {}, itemVar, fieldLabel, depth + 1);

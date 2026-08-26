@@ -35,7 +35,8 @@ copyFile("package_init.py", `${packageName}/__init__.py`);
 
 if (generate !== "api") {
   const models = registry.order.map((name) => registry.models.get(name));
-  renderTemplate("templates/models.py.j2", { models }, `${packageName}/models.py`);
+  const needsEnum = models.some((m) => m.kind === "enum");
+  renderTemplate("templates/models.py.j2", { models, needsEnum }, `${packageName}/models.py`);
 }
 
 if (generate !== "models") {

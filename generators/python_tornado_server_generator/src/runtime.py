@@ -32,6 +32,13 @@ class ValidationError(Exception):
     RequestHandler, and the generator's README "Integrating the generated code")."""
 
 
+class MissingAuthenticationError(Exception):
+    """Raised when an operation's required security-scheme credentials (a bearer token or apiKey)
+    are absent from the request - deliberately NOT a ValidationError (a subclass or otherwise):
+    this means "you haven't authenticated", not "your request is malformed", so each generated
+    RequestHandler maps it to a distinct HTTP status (401) rather than ValidationError's 422."""
+
+
 def require_str(value: Any, field: str) -> None:
     if value is not None and not isinstance(value, str):
         raise ValidationError('"{}" has the wrong type: expected str, got {}'.format(field, type(value).__name__))

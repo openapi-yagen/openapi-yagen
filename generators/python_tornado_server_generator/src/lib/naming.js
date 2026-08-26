@@ -28,6 +28,13 @@ export function moduleName(name) {
   return sanitizeIdentifier(snake.length ? snake : "value");
 }
 
+// Enum member names: SCREAMING_SNAKE_CASE, Python's own convention (PEP 8) for enum members. A
+// literal `null` entry (see lib/types.js's registerEnum) never reaches here.
+export function enumConstantName(value) {
+  const screaming = toScreamingSnakeCase(String(value));
+  return sanitizeIdentifier(screaming.length ? screaming : "VALUE");
+}
+
 export function operationName(method, pathStr, operationId) {
   let base;
   if (operationId) {

@@ -112,16 +112,63 @@ openapi-yagen g -o out -g python_tornado_server_generator openapi.yaml \
     -v packageName=petstore_api -v handlerBaseClass=your_app.support.BaseHandler
 ```
 
+### Model types
+
+An `enum` schema generates a plain `class Name(str, Enum)` (or `(int, Enum)`) with `from_wire`/
+`to_wire` staticmethods and a no-op `validate()` - `from_wire` wraps the constructor (`Name(value)`
+already raises `ValueError` on an unrecognized value, re-raised as `ValidationError`).
+
+A discriminated `oneOf`/`anyOf` (`discriminator.propertyName` set, every variant a `$ref`) and an
+undiscriminated one both generate a plain class acting as a `from_wire`/`to_wire` dispatch
+namespace - no instance of that class is ever constructed; `from_wire` returns an instance of
+whichever variant class matched (by discriminator value, or by the JSON value's shape for an
+undiscriminated union), and `to_wire` dispatches back out the same way:
+
+```python
+shape = Shape.from_wire(payload)  # returns a Circle or Square instance directly
+if isinstance(shape, Circle):
+    ...
+Shape.to_wire(shape)
+```
+
+Generation fails if an undiscriminated union's variants can't be unambiguously told apart from the
+raw JSON alone (e.g. two object variants with no property that distinguishes them).
+
+### Authentication
+
+Only `http`/`bearer` and `apiKey` security schemes are supported. A secured operation's handler
+method gets one extra keyword-only `str` parameter per required scheme, already extracted and
+validated before the handler runs:
+
+```python
+def delete_pet(self, *, pet_id: str, bearer_auth_token: str) -> None: ...
+```
+
+A missing credential raises the generator's own `runtime.MissingAuthenticationError` - deliberately
+not a `ValidationError` (or a subclass of it) - immediately caught by the generated
+`RequestHandler` method and re-raised as `tornado.web.HTTPError(401, reason=str(exc))`, alongside
+the existing `ValidationError` -> 422 mapping. A security requirement with two or more
+OR-alternatives (`security: [{a: []}, {b: []}]`) is a generator error - only a single combination of
+schemes (`security: [{a: [], b: []}]`, meaning both required together) is supported.
+`oauth2`/`openIdConnect` schemes are also a generator error.
+
 ### Request/response body content types
 
 Request/response body content types are picked from whichever the spec declares in priority order
-`application/json` > (a single remaining media type, received/sent as `str` for any `text/*` media
-type, or raw `bytes` otherwise):
+`application/json` > `multipart/form-data`/`application/x-www-form-urlencoded` > (a single
+remaining media type, received/sent as `str` for any `text/*` media type, or raw `bytes`
+otherwise):
 
 - **`application/json`** (default): the body is `json.loads`-parsed, converted via the schema's own
   generated `from_wire`, and validated (`.validate()` for an object schema, or the same recursive
   constraint walk for a Map/array/primitive schema) before the handler is called - the handler
   method's `body:` parameter is the generated type.
+- **`multipart/form-data`/`application/x-www-form-urlencoded`**: Tornado parses either into the
+  same `self.get_body_argument()` API, so one generated code path covers both. The schema must be
+  `type: object` with only primitive/enum-typed properties (a nested object/array field is a
+  generator error) - each field is extracted individually, then the constructed object's own
+  `validate()` is called once for required-ness and every declared constraint, same as the JSON
+  encoding's whole-body validation.
 - **a single `text/*` media type** (`text/plain`, `text/csv`, `text/html`, ...): the handler
   method's `body:`/return type is a plain `str` - `self.request.body.decode("utf-8")` /
   `self.write(result)`, no JSON involved.
@@ -129,31 +176,35 @@ type, or raw `bytes` otherwise):
   the handler method's `body:`/return type is raw `bytes` - `self.request.body` /
   `self.write(result)` directly, no encoding/decoding.
 
-  A request/response body declaring two or more media types outside `application/json` plus one of
-  the above is ambiguous (which one would the generated handler actually expect?) and is a generator
-  error, same as any other unsupported content-type - see "Known limitations".
+  A request/response body declaring two or more media types outside the ones above is ambiguous
+  (which one would the generated handler actually expect?) and is a generator error, same as any
+  other unsupported content-type - see "Known limitations".
+
+### Path/query/header parameters
+
+Must resolve to a primitive scalar type (string/integer/number/boolean), an enum, or (query
+parameters only) an array of one of those, serialized as repeated `?name=a&name=b` keys (OpenAPI's
+default `style: form, explode: true`) - path/header parameters stay scalar-only. An object,
+nested array, or `oneOf`/`anyOf` in one of these positions is a generator error.
 
 ## Known limitations (v1)
 
-- **No `oneOf`/`anyOf`/`enum` support yet.** A schema using any of these is a generator error
-  (aborts generation under default `strict=true`; skips just that schema/operation with a printed
-  warning under `-v strict=false`).
-- **No `multipart/form-data` or `application/x-www-form-urlencoded` request bodies.** Request and
-  response bodies support `application/json`, a single `text/*` media type (as `str`), and a single
-  other media type (as raw `bytes`) - see "Request/response body content types" above.
-- **No security scheme / auth codegen.** An operation's `security` requirement is not read at all -
-  add your own authentication as a Tornado `prepare()` override (e.g. on the same shared base
-  `RequestHandler` used for error-body shaping above) until this generator grows support.
-- Path/query/header parameters must resolve to a primitive scalar type (string/integer/number/
-  boolean) - an object, array, or `oneOf`/`anyOf` in one of those positions is a generator error.
-  There is no array-typed (repeated-key) query parameter support yet.
+- Request and response bodies support `application/json`, `multipart/form-data`, `application/
+  x-www-form-urlencoded`, a single `text/*` media type (as `str`), and a single other media type
+  (as raw `bytes`) - see "Request/response body content types" above. A requestBody/response
+  declaring two or more media types outside those fixed ones is a generator error (aborts
+  generation under default `strict=true`; skips just that operation with a printed warning under
+  `-v strict=false`).
+- Only `http`/`bearer` and `apiKey` security schemes are supported; a security requirement with two
+  or more OR-alternatives is a generator error - see "Authentication" above.
 - Body/model validation covers `minLength`/`maxLength`/`pattern`/`minimum`/`maximum`/
   `exclusiveMinimum`/`exclusiveMaximum`/`multipleOf`/`minItems`/`maxItems`/`uniqueItems`/
   `minProperties`/`maxProperties`/`const`, and recurses into nested object properties (via their own
   generated `validate()`), array elements, and Map (`additionalProperties`) values - but only for a
   property/parameter whose own declared type is directly one of those shapes, not through a `$ref`
-  to a Map/array/primitive-kind schema (a `$ref` to an **object** schema is always deep-validated,
-  since that's the common case a generated `validate()` method exists for in the first place).
+  to a Map/array/primitive-kind schema (a `$ref` to an **object**, **enum**, or **union** schema is
+  always deep-validated, since that's the common case a generated `validate()` method exists for in
+  the first place).
 - Generated files are not run through a formatter.
 
 ## Try it

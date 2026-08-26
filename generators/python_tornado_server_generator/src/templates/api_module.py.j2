@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from tornado.routing import URLSpec
 from tornado.web import HTTPError
@@ -13,7 +13,7 @@ from tornado.web import HTTPError
 {% endif %}
 from .. import runtime
 from ..models import *
-from ..runtime import ValidationError
+from ..runtime import MissingAuthenticationError, ValidationError
 
 
 class {{ tagClass }}(ABC):

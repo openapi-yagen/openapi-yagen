@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, cast
+{% if needsEnum %}from enum import Enum
+{% endif %}from typing import Any, Dict, List, Optional, cast
 
 from . import runtime
 from .runtime import ValidationError
@@ -35,7 +36,67 @@ class {{ model.name }}:
 {% endfor %}        }
 
 
-{% else %}{{ docstring(model.description) }}{{ model.name }} = {{ model.label }}
+{% else if model.kind == "enum" %}{{ docstring(model.description) }}class {{ model.name }}({% if model.isInt %}int{% else %}str{% endif %}, Enum):
+{% for e in model.entries %}    {{ e.constantName }} = {{ e.wireValueLiteral }}
+{% endfor %}
+    @staticmethod
+    def from_wire(value: Optional[{% if model.isInt %}int{% else %}str{% endif %}]) -> Optional["{{ model.name }}"]:
+        if value is None:
+            return None
+        try:
+            return {{ model.name }}(value)
+        except ValueError:
+            raise ValidationError("invalid {{ model.name }} value: {!r}".format(value))
+
+    def validate(self) -> None:
+        pass
+
+    @staticmethod
+    def to_wire(value: Optional["{{ model.name }}"]) -> Optional[{% if model.isInt %}int{% else %}str{% endif %}]:
+        return value.value if value is not None else None
+
+
+{% else if model.kind == "union" %}{% if model.discriminant %}{{ docstring(model.description) }}class {{ model.name }}:
+    """A discriminated union of {{ model.variantLabelsJoined }}, dispatched via the "{{ model.discriminant }}" property."""
+
+    @staticmethod
+    def from_wire(value: Optional[Dict[str, Any]]) -> Optional[Any]:
+        if value is None:
+            return None
+        _discriminant = value.get({{ model.discriminantLiteral }})
+{% for v in model.variants %}        if _discriminant == {{ v.literalLiteral }}:
+            return {{ v.label }}.from_wire(value)
+{% endfor %}        raise ValidationError("{{ model.name }}: unrecognized {{ model.discriminant }} {!r}".format(_discriminant))
+
+    @staticmethod
+    def to_wire(value: Optional[Any]) -> Any:
+        if value is None:
+            return None
+        return type(value).to_wire(value)
+
+
+{% else %}{{ docstring(model.description) }}class {{ model.name }}:
+    """A union of {{ model.variantLabelsJoined }}, dispatched on the JSON value's shape."""
+
+    @staticmethod
+    def from_wire(value: Optional[Any]) -> Optional[Any]:
+        if value is None:
+            return None
+{% for v in model.variants %}{% if v.guardExpr %}        if {{ v.guardExpr }}:
+            return {{ v.fromWireExpr }}
+{% endif %}{% endfor %}{% if model.fallbackFromWireExpr %}        return {{ model.fallbackFromWireExpr }}
+{% else %}        raise ValidationError("{{ model.name }}: unrecognized JSON shape")
+{% endif %}
+    @staticmethod
+    def to_wire(value: Optional[Any]) -> Optional[Any]:
+        if value is None:
+            return None
+{% for v in model.variants %}{% if v.valueGuardExpr %}        if {{ v.valueGuardExpr }}:
+            return {{ v.toWireExpr }}
+{% endif %}{% endfor %}        return value
+
+
+{% endif %}{% else %}{{ docstring(model.description) }}{{ model.name }} = {{ model.label }}
 
 
 {% endif %}{% endfor %}
