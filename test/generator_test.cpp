@@ -360,6 +360,55 @@ renderTemplate("test_template", {
     REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("nameThreeCollisions=FooWrapper3"));
 }
 
+TEST_CASE("buildDocComment splits an embedded newline in summary/description/param text into its own line", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js", R"JS(
+renderTemplate("test_template", {
+  // A "/** */" block comment tolerates a raw embedded newline syntactically, but each line should
+  // still get its own " * " prefix instead of losing indentation partway through.
+  docBlock: buildDocComment("Line one.\nLine two.", null, []),
+
+  // "//" doesn't tolerate a raw embedded newline at all - an un-prefixed continuation line isn't
+  // a comment, it splices straight into the surrounding source (this used to be a real bug).
+  docSlash: buildDocComment("Line one.\nLine two.", "Desc one.\nDesc two.", [
+    { name: "a", description: "first.\nsecond." },
+  ], "//"),
+
+  // A trailing "\r" (CRLF input) shouldn't leak into the split line's own text.
+  docCrlf: buildDocComment("Line one.\r\nLine two.", null, [], "//"),
+}, "outfile");
+)JS" },
+        { "generator.yml", readResource("generator.yml") },
+    };
+
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { make_shared<MockedFileReaderBackend>(files) },
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { },
+        .tags = {},
+    });
+
+    gen.generate(getResourcePath("petstore.yaml"));
+
+    auto& out = fileWriter->files["outfile"];
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("docBlock=/**\n * Line one.\n * Line two.\n */"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring(
+                           "docSlash=// Line one.\n// Line two.\n// Desc one.\n// Desc two.\n//\n// @param a first.\n// second."));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("docCrlf=// Line one.\n// Line two."));
+}
+
 TEST_CASE("buildDocComment rejects an unrecognized style", "[generator]")
 {
     auto fileWriter = make_shared<MockedFileWriter>();

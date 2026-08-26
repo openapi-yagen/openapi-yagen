@@ -91,6 +91,27 @@ Node nodeBuildDocComment(const Node::Vec& args)
             "<219d3c07> buildDocComment: unrecognized style \"{}\" - expected one of \"/** */\", \"//\", \"///\", \"#\"",
             style));
 
+    // Splits `text` on embedded newlines (tolerating a trailing "\r" per line for CRLF input) and
+    // appends each resulting line to `target` individually - `summary`/`description`/a single
+    // param's `description` are otherwise treated as one opaque line each, which is harmless for
+    // the "/** */" style (a C-family block comment tolerates a raw newline mid-comment just fine)
+    // but corrupts "//"/"///"/"#" output: a real multi-paragraph OpenAPI description commonly
+    // contains "\n", and an un-prefixed continuation line for those styles isn't a comment at all
+    // - it splices straight into the surrounding source.
+    auto appendLines = [](vector<string>& target, const string& text) {
+        size_t start = 0;
+        while (true) {
+            auto pos = text.find('\n', start);
+            auto line = pos == string::npos ? text.substr(start) : text.substr(start, pos - start);
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            target.push_back(line);
+            if (pos == string::npos)
+                break;
+            start = pos + 1;
+        }
+    };
+
     vector<string> paramLines;
     if (args.size() >= 3) {
         auto params = args[2].getIf<Node::Vec>();
@@ -107,7 +128,14 @@ Node nodeBuildDocComment(const Node::Vec& args)
                 if (!desc || desc->empty())
                     continue;
                 auto name = nameIt != m->end() && nameIt->second.getIf<string>() ? *nameIt->second.getIf<string>() : "";
-                paramLines.push_back(format("@param {} {}", name, *desc));
+                // A multi-line param description gets "@param name" on its first line only;
+                // continuation lines are plain text, matching how every other doc-comment
+                // convention here renders a wrapped @param description.
+                vector<string> descLines;
+                appendLines(descLines, *desc);
+                paramLines.push_back(format("@param {} {}", name, descLines[0]));
+                for (size_t i = 1; i < descLines.size(); i++)
+                    paramLines.push_back(descLines[i]);
             }
         }
     }
@@ -115,7 +143,7 @@ Node nodeBuildDocComment(const Node::Vec& args)
     vector<string> lines;
     for (auto s : { getOptStr(0), getOptStr(1) })
         if (s && !s->empty())
-            lines.push_back(*s);
+            appendLines(lines, *s);
     if (!paramLines.empty()) {
         if (!lines.empty())
             lines.push_back("");
