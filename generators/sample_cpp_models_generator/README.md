@@ -48,6 +48,6 @@ cd generators && ./run.sh
 ```
 generates into `generators/out` from `test/resources/petstore.yaml`.
 
-There is no `test/` subdirectory for this generator yet (unlike the Kotlin generators) - see
+There is no `test/` subdirectory for this generator yet - see
 [`generators/README.md`](../README.md) for the `README.md`/`src/`/`test/` convention this
 generator should eventually adopt too.

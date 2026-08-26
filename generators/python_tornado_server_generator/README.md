@@ -46,17 +46,14 @@ openapi-yagen g -o out -g python_tornado_server_generator openapi.yaml -v packag
   runtime.py               shared parameter-extraction/constraint-checking helpers
 ```
 
-Written under a real `<packageName>`-named directory, unlike this collection's Kotlin generators -
-Python, unlike Kotlin, requires a file's location to match its import path, so `-o` should point at
-the parent directory the package gets created inside.
+Written under a real `<packageName>`-named directory - Python requires a file's location to match
+its import path, so `-o` should point at the parent directory the package gets created inside.
 
-Every schema lives in a single `models.py`, not one file per schema (unlike the Kotlin/Ruby/
-TypeScript generators in this collection). This is a deliberate, Python-specific choice: Python has
-no lightweight equivalent of Kotlin's package-relative type resolution or Ruby's `require`-anywhere
-module system, so splitting models across files would mean either hand-tracking which model needs
-which sibling import (real circular-import risk for models that reference each other) or a blanket
-wildcard re-export - `models.py` sidesteps that complexity entirely while staying just as easy to
-read for a spec of this size.
+Every schema lives in a single `models.py`, not one file per schema. This is a deliberate choice:
+splitting models across files would mean either hand-tracking which model needs which sibling
+import (real circular-import risk for models that reference each other) or a blanket wildcard
+re-export - `models.py` sidesteps that complexity entirely while staying just as easy to read for a
+spec of this size.
 
 ## Integrating the generated code
 
@@ -90,9 +87,7 @@ error page; pass `-v handlerBaseClass=your_app.support.BaseHandler` (a dotted
 `module.path.ClassName`) to have every generated `RequestHandler` subclass your own base instead of
 `tornado.web.RequestHandler` directly, and override `write_error(status_code, **kwargs)` there to
 control the actual JSON error body your application wants to send (and/or `prepare()`/`on_finish()`
-for request-ID correlation, logging, auth, ...) - the generator itself doesn't hardcode any of this,
-the same way this collection's Kotlin server generator leaves `BadRequestException` -> 400
-body-shaping to the integrator's own `StatusPages` install rather than baking one in:
+for request-ID correlation, logging, auth, ...) - the generator itself doesn't hardcode any of this:
 
 ```python
 # your_app/support.py

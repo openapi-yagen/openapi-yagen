@@ -65,9 +65,8 @@ pets_api = PetStore::PetsClient.new(connection: connection) # only need one tag?
 
 Do **not** install a JSON-parsing response middleware (e.g. `faraday-json`'s
 `Faraday::Response::Json`) on the connection you inject - `OpenapiYagenRuntime.request` parses the
-raw response body itself (there's no equivalent of Ktor's installed `ContentNegotiation` plugin for
-the generated code to lean on instead), and a response body that's already been parsed into a Hash
-by your own middleware would make it try to `JSON.parse` a Hash and fail.
+raw response body itself, and a response body that's already been parsed into a Hash by your own
+middleware would make it try to `JSON.parse` a Hash and fail.
 
 ### Request body content types
 
@@ -120,9 +119,9 @@ argument** (an instance of the schema's generated model class) - only the wire e
 
 ### Validation
 
-Unlike the TypeScript/Kotlin generators, Ruby has no compiler to reject a wrong-shaped or
-out-of-spec `body:` before it reaches the wire - passing a plain `Hash`, or a correctly-typed
-instance with a value that violates the schema (`minLength`, `pattern`, `minimum`/`maximum`, an
+Ruby has no compiler to reject a wrong-shaped or out-of-spec `body:` before it reaches the wire -
+passing a plain `Hash`, or a correctly-typed instance with a value that violates the schema
+(`minLength`, `pattern`, `minimum`/`maximum`, an
 enum value that isn't one of the declared ones, ...), would otherwise be serialized and sent
 without anyone noticing. With the default `-v validate=true`, every generated model class gets a
 `validate!` method (and every enum/union module's own `to_wire` gets the equivalent check), called
@@ -202,10 +201,9 @@ end
   delegates to the matching variant class's own `from_h` (e.g. `Circle.from_h`/`Square.from_h`);
   `to_wire` delegates to `value.class.to_wire(value)`, since every variant is itself an ordinary
   registered class.
-- **Undiscriminated** (or discriminated but unresolvable): a shape-dispatching module instead,
-  built from the same variant-distinguishing analysis the Kotlin Ktor client generator uses for its
-  own sealed-interface deserializer - checking each object variant's own distinguishing property
-  first, then any array/string/number/boolean-shaped variant, then falling back to whatever's left
+- **Undiscriminated** (or discriminated but unresolvable): a shape-dispatching module instead -
+  checking each object variant's own distinguishing property first, then any
+  array/string/number/boolean-shaped variant, then falling back to whatever's left
   (at most one property-less/unconstrained variant is allowed as that trailing fallback). A
   `oneOf`/`anyOf` that can't be dispatched this way (e.g. two variants sharing the same non-object
   shape with nothing else to tell them apart, more than one fallback, or a variant that's itself a
@@ -224,7 +222,7 @@ end
   object or array in one of those positions is a generator error. Query parameters have no such
   restriction: any shape (scalar, enum, array, or a plain object for the `deepObject`-style filter
   idiom) is passed straight through - `runtime.rb`'s `build_query` walks it generically at request
-  time, since Ruby has no static type to get right ahead of time the way TypeScript/Kotlin do.
+  time, since Ruby has no static type to get right ahead of time.
 - Query array parameters serialize as a repeated key (`?tag=a&tag=b`, OpenAPI 3's default `style:
   form, explode: true`) - other serialization styles (`explode: false`,
   `spaceDelimited`/`pipeDelimited`) aren't supported.
@@ -255,7 +253,7 @@ end
 ## Try it
 
 From the `generators/` directory, with `openapi-yagen` on `PATH` (see `run_ruby_client.sh`,
-sibling to `run.sh`/`run_kotlin_client.sh`/`run_ts_client.sh`):
+sibling to `run.sh`):
 
 ```bash
 cd generators && ./run_ruby_client.sh

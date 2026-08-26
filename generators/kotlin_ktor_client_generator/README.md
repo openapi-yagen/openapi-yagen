@@ -207,7 +207,7 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
   operation with a printed warning under `-v strict=false`) - it is never silently dropped.
 - A `type: string, format: binary` property inside a `multipart/form-data` body still maps to the
   generic `String` every `format: binary` schema maps to (see below) - there's no `ByteArray`/
-  streaming-upload type yet, unlike the TypeScript generator's `Blob | File` for the same position.
+  streaming-upload type yet.
 - Path/query/header parameters must resolve to a primitive scalar type (string/integer/
   number/boolean), an enum, or a oneOf/anyOf whose every variant is itself primitive/enum-shaped
   (passed straight through as a plain, unparsed `String` - see "oneOf/anyOf support" above) - an

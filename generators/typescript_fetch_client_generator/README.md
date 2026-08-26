@@ -24,9 +24,8 @@ applies the credential from a dedicated `auth` config - see "Authentication" bel
 openapi-yagen g -o out -g typescript_fetch_client_generator openapi.yaml
 ```
 
-No variable is required - unlike a generator for a nominally-typed language (e.g. this repo's
-`kotlin_ktor_client_generator`, which needs a `packageName`), TypeScript has no package/namespace
-system to parameterize, and the output layout below is fixed.
+No variable is required - TypeScript has no package/namespace system to parameterize, and the
+output layout below is fixed.
 
 | Variable          | Required | Description |
 |--------------------|----------|-------------|
@@ -159,9 +158,9 @@ try {
 ## oneOf/anyOf support
 
 Every `oneOf`/`anyOf` - discriminated or not - becomes a plain native TS union type
-(`type Shape = Circle | Square;`). Unlike a nominally-typed target (Kotlin/Java/...), TypeScript
-needs no runtime dispatcher to tell union members apart: `JSON.parse` already returns a plain
-value, and TS's own control-flow narrowing works directly on any shared property:
+(`type Shape = Circle | Square;`). TypeScript needs no runtime dispatcher to tell union members
+apart: `JSON.parse` already returns a plain value, and TS's own control-flow narrowing works
+directly on any shared property:
 
 ```ts
 if (shape.shapeType === "circle") {
@@ -265,7 +264,7 @@ npx prettier --write "out/**/*.ts"
 ## Try it
 
 From the `generators/` directory, with `openapi-yagen` on `PATH` (see `run_ts_client.sh`, sibling
-to `run.sh`/`run_kotlin_client.sh`):
+to `run.sh`):
 
 ```bash
 cd generators && ./run_ts_client.sh
