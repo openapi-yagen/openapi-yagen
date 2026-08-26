@@ -1,0 +1,48 @@
+# Generator name
+name: python_tornado_server
+
+# Generator description
+description: >-
+  Tornado server generator. Generates one models.py module with a dataclass per object schema
+  (from_wire/to_wire/validate included - Python has no compiler to reject a wrong-shaped value the
+  way a statically-typed target does), and per OpenAPI tag a handler interface plus
+  tornado.web.RequestHandler subclasses (one per path) wired up via a build_<tag>_routes() function
+  returning tornado.web.URLSpec entries ready for tornado.web.Application(). Incoming requests
+  (path/query/header parameters and, where constrained, the request body) are parsed and validated
+  before the handler is called, using shared validator functions (see runtime.py) instead of
+  duplicating checks per operation.
+
+# Main JavaScript file (entrypoint).
+mainScriptPath: main.js
+
+# The OpenAPI version this generator's main.js/templates are written to consume - the engine
+# converts the input spec to this version before running main.js if it declares a different one.
+openApiVersion: "3.0"
+
+# Variables that can be used to customize script execution
+variables:
+  - name: packageName
+    description: Python package name for the generated code (e.g. system_agent_api)
+    required: true
+  - name: strict
+    description: >-
+      When "true" (default), a schema or operation the generator can't handle aborts generation
+      with an error. Set to "false" to instead skip it with a printed warning and generate
+      everything else - useful for large real-world specs where a handful of unsupported
+      constructs shouldn't block the rest of the generated code.
+    defaultValue: "true"
+  - name: generate
+    description: >-
+      What to generate. "all" (default): models.py plus the apis/ routes/handlers. "models": only
+      models.py. "api": everything except models.py (apis/, runtime.py) - use together across a
+      client+server pair sharing one spec/packageName, once this collection has a Python client
+      generator to pair it with.
+    defaultValue: "all"
+  - name: handlerBaseClass
+    description: >-
+      A dotted "module.path.ClassName" every generated tornado.web.RequestHandler subclasses
+      instead of tornado.web.RequestHandler directly - the integration point for an app-provided
+      base class (error-body shaping via write_error(), request-ID/logging via prepare()/
+      on_finish(), auth, ...). Empty (default) uses tornado.web.RequestHandler itself. See README
+      "Integrating the generated code".
+    required: false

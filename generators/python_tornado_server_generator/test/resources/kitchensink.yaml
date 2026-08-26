@@ -1,0 +1,166 @@
+openapi: 3.1.0
+info:
+  title: Kitchen Sink (python_tornado_server_generator test fixture)
+  version: "1.0"
+  description: >-
+    A small, purpose-built spec exercising every feature this generator's README claims to support
+    in v1: object/map schemas, allOf-single-$ref unwrapping, const, OAS 3.1 nullable, required/
+    optional query+header parameters, a JSON body, a binary body, a text/plain response, an empty
+    response, and one path with two HTTP methods (GET+POST on the same RequestHandler class).
+tags:
+  - name: Widgets
+    description: Operations for browsing and managing widgets - exercises document-level
+      tags[].description reaching the generated handler interface's own docstring.
+paths:
+  /widgets:
+    get:
+      operationId: listWidgets
+      tags: [Widgets]
+      summary: List all widgets.
+      description: Returns every known widget, optionally filtered by owner.
+      parameters:
+        - name: owner
+          in: query
+          required: false
+          description: Only return widgets owned by this user.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        "200":
+          description: A list of widgets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Widget"
+    post:
+      operationId: createWidget
+      tags: [Widgets]
+      summary: Create a widget.
+      parameters:
+        - name: X-Request-ID
+          in: header
+          required: true
+          description: Correlates this request in logs.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewWidget"
+      responses:
+        "201":
+          description: Widget created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Widget"
+        "422":
+          description: Validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /widgets/reset:
+    post:
+      operationId: resetWidgets
+      tags: [Widgets]
+      summary: Delete every widget.
+      responses:
+        "200":
+          description: Reset accepted; no response body.
+
+  /widgets/export:
+    get:
+      operationId: exportWidgets
+      tags: [Widgets]
+      summary: Export every widget as a binary archive.
+      responses:
+        "200":
+          description: A tar archive of every widget.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /health:
+    get:
+      operationId: healthCheck
+      tags: [Widgets]
+      summary: Check service health.
+      responses:
+        "200":
+          description: The service is healthy.
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: OK
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      description: A validation or processing error.
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+
+    WidgetLabels:
+      type: object
+      description: Free-form string labels attached to a widget.
+      additionalProperties:
+        type: string
+
+    NewWidget:
+      type: object
+      description: Fields needed to create a new widget.
+      additionalProperties: false
+      required: [name, owner]
+      properties:
+        name:
+          type: string
+          description: Display name.
+          minLength: 1
+          maxLength: 64
+        owner:
+          type: string
+          description: Owning user.
+        note:
+          type: [string, "null"]
+          description: Optional free-text note; explicitly nullable.
+        labels:
+          allOf:
+            - $ref: "#/components/schemas/WidgetLabels"
+          description: Arbitrary string labels for this widget.
+
+    Widget:
+      type: object
+      description: A single widget.
+      additionalProperties: false
+      required: [id, name, owner]
+      properties:
+        id:
+          type: integer
+          description: Server-assigned identifier.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        owner:
+          type: string
+        note:
+          type: [string, "null"]
+        labels:
+          allOf:
+            - $ref: "#/components/schemas/WidgetLabels"

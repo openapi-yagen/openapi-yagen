@@ -9,6 +9,8 @@
 /generators/*/test/build
 /generators/*/test/node_modules
 /generators/*/test/dist
+/generators/*/test/.venv
+/generators/*/test/.pytest_cache
 /generators/*/test/generated
 /generators/*/test/generated-default
 /generators/*/test/generated-validated

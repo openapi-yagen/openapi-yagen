@@ -159,6 +159,12 @@ const generators = [
     to: '/generators/ruby-faraday-client',
   },
   {
+    language: 'Python',
+    title: 'Tornado server',
+    text: 'Validated routes and a handler interface for Tornado servers, with generated model validation.',
+    to: '/generators/python-tornado-server',
+  },
+  {
     language: 'C++',
     title: 'Models example',
     text: 'A small example generator for C++ model structs.',

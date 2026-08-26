@@ -1,0 +1,41 @@
+"""Generated handler interface and Tornado routes for this tag - do not edit by hand."""
+
+from __future__ import annotations
+
+import json
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional
+
+from tornado.routing import URLSpec
+from tornado.web import HTTPError
+{% if handlerBase.module %}from {{ handlerBase.module }} import {{ handlerBase.className }} as _BaseRequestHandler
+{% else %}from tornado.web import RequestHandler as _BaseRequestHandler
+{% endif %}
+from .. import runtime
+from ..models import *
+from ..runtime import ValidationError
+
+
+class {{ tagClass }}(ABC):
+{% if description %}    """{{ description }}"""
+
+{% endif %}{% for path in paths %}{% for op in path.operations %}    @abstractmethod
+    def {{ op.name }}({{ op.signature }}) -> {{ op.response.type }}:
+{% if op.docstring %}        """{{ op.docstring | indent(8) }}"""
+{% endif %}        raise NotImplementedError
+
+{% endfor %}{% endfor %}
+
+{% for path in paths %}class {{ path.handlerClass }}(_BaseRequestHandler):
+    def initialize(self, handler: {{ tagClass }}) -> None:
+        self._handler = handler
+{% for op in path.operations %}
+    def {{ op.httpMethod }}({{ path.pathMethodSignature }}) -> None:
+{% for line in op.bodyLines %}        {{ line | indent(8) }}
+{% endfor %}{% endfor %}
+
+{% endfor %}
+def build_{{ tagModule }}_routes(handler: {{ tagClass }}) -> List[URLSpec]:
+    return [
+{% for path in paths %}        URLSpec(r"{{ path.urlPattern }}", {{ path.handlerClass }}, dict(handler=handler)),
+{% endfor %}    ]

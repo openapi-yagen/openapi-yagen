@@ -258,6 +258,10 @@ Generators are located in the `generators` folder:
 - [`ruby_faraday_client_generator`](generators/ruby_faraday_client_generator/README.md) - Ruby API
   client built on [Faraday](https://lostisland.github.io/faraday/), taking a caller-supplied
   `Faraday::Connection`, adapter-agnostic (works with `net_http`, Typhoeus, httpx, ...).
+- [`python_tornado_server_generator`](generators/python_tornado_server_generator/README.md) -
+  [Tornado](https://www.tornadoweb.org/) server routing + a handler interface you implement, with
+  request validation (Python has no compiler to catch a wrong-shaped value, so every model gets a
+  generated `validate()`).
 
 ## Development
 

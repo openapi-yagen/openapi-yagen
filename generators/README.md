@@ -122,7 +122,11 @@ regenerate-then-verify on its own).
 ./scripts/test-all-generators.sh
 ```
 
-Globs `generators/*/test/build.gradle.kts` (running `./gradlew test` in each) and
-`generators/*/test/package.json` (running `npm install && npm test` in each). Pure convenience
-glue, not a build dependency of anything else - new generators are auto-discovered by either glob,
-no registration needed anywhere.
+Globs `generators/*/test/build.gradle.kts` (running `./gradlew test` in each),
+`generators/*/test/package.json` (running `npm install && npm test` in each),
+`generators/*/test/Gemfile` (running `bundle install && bundle exec rake test` in each), and
+`generators/*/test/requirements.txt` (running `python3 -m venv .venv && .venv/bin/pip install -r
+requirements.txt && .venv/bin/pytest` in each - see `python_tornado_server_generator/test/` for the
+worked example). Pure convenience glue, not a build dependency of anything else - new generators are
+auto-discovered by whichever glob matches their own `test/` project, no registration needed
+anywhere.

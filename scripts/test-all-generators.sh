@@ -57,9 +57,23 @@ for gemfile in "$REPO_ROOT"/generators/*/test/Gemfile; do
     fi
 done
 
+for requirements in "$REPO_ROOT"/generators/*/test/requirements.txt; do
+    [ -e "$requirements" ] || continue
+    FOUND=$((FOUND + 1))
+    dir="$(dirname "$requirements")"
+    name="$(basename "$(dirname "$dir")")"
+
+    echo
+    echo "=== $name ==="
+    if ! (cd "$dir" && python3 -m venv .venv && .venv/bin/pip install --quiet -r requirements.txt && .venv/bin/pytest); then
+        echo "FAIL ($name)" >&2
+        FAILURES=$((FAILURES + 1))
+    fi
+done
+
 echo
 if [ "$FOUND" -eq 0 ]; then
-    echo "No generator test suites found (generators/*/test/build.gradle.kts, generators/*/test/package.json, or generators/*/test/Gemfile)."
+    echo "No generator test suites found (generators/*/test/build.gradle.kts, generators/*/test/package.json, generators/*/test/Gemfile, or generators/*/test/requirements.txt)."
     exit 0
 elif [ "$FAILURES" -eq 0 ]; then
     echo "All $FOUND generator test suite(s) passed."

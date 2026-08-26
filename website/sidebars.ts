@@ -29,6 +29,7 @@ const sidebars: SidebarsConfig = {
         'generators/kotlin_ktor_client_generator/README',
         'generators/kotlin_ktor_server_generator/README',
         'generators/ruby_faraday_client_generator/README',
+        'generators/python_tornado_server_generator/README',
         'generators/sample_cpp_models_generator/README',
       ],
     },

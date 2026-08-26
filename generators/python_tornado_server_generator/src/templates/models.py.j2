@@ -1,0 +1,41 @@
+{%- include "templates/_macros.py.j2" -%}
+"""Generated model classes - do not edit by hand."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, cast
+
+from . import runtime
+from .runtime import ValidationError
+
+{% for model in models %}{% if model.kind == "class" %}{{ docstring(model.description) }}@dataclass
+class {{ model.name }}:
+{% for p in model.properties %}{% if p.description %}    """{{ p.description | indent(4) }}"""
+{% endif %}{% if p.optional %}    {{ p.pyName }}: Optional[{{ p.label }}] = None
+{% else %}    {{ p.pyName }}: {{ p.label }}
+{% endif %}{% endfor %}
+    @staticmethod
+    def from_wire(d: Optional[Dict[str, Any]]) -> Optional["{{ model.name }}"]:
+        if d is None:
+            return None
+        return {{ model.name }}(
+{% for p in model.properties %}            {{ p.pyName }}={{ p.fromWireExpr }},
+{% endfor %}        )
+
+    def validate(self) -> None:
+{% for line in model.validateBodyLines %}        {{ line | indent(8) }}
+{% endfor %}
+    @staticmethod
+    def to_wire(value: Optional["{{ model.name }}"]) -> Optional[Dict[str, Any]]:
+        if value is None:
+            return None
+        return {
+{% for p in model.properties %}            {{ p.wireLiteral }}: {{ p.toWireExpr }},
+{% endfor %}        }
+
+
+{% else %}{{ docstring(model.description) }}{{ model.name }} = {{ model.label }}
+
+
+{% endif %}{% endfor %}
