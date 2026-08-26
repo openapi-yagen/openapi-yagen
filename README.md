@@ -243,7 +243,21 @@ See [`docs/`](docs/README.md) for the full generator-writing documentation: a st
 
 ## Generators
 
-Generators are located in the `generators` folder:
+Generators are located in the `generators` folder. Built into the `openapi-yagen` binary itself
+(usable via `-g builtin:<name>` with no local checkout, zip, or network access - see "Using a
+built-in generator" above):
+
+- `builtin:kotlin_ktor_client`
+- `builtin:kotlin_ktor_server`
+- `builtin:typescript_fetch_client`
+- `builtin:ruby_faraday_client`
+- `builtin:python_tornado_server`
+- `builtin:go_net_http_client`
+- `builtin:go_net_http_server`
+
+Run `openapi-yagen list-generators` for this same list straight from whatever binary you have
+installed. The full collection, including generators not built in (pass `-g` a directory/zip/URL
+instead):
 
 - [`sample_cpp_models_generator`](generators/sample_cpp_models_generator/README.md) - minimal
   example generating C++ model structs from schemas.
