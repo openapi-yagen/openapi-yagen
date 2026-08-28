@@ -27,6 +27,10 @@
 // hand-rolled `Array.isArray(s.enum)`-style checks this file used to do. All three only work while
 // still in this main-script phase, before a schema is passed into renderTemplate (see
 // lib/operations.js's note on the same thing).
+//
+// This generator declares openApiVersion "3.2" (see generator.yml), so nullability is read from the
+// JSON Schema 2020-12 dialect OAS 3.1+ uses: a schema is nullable when its `type` is an array
+// containing "null" (there is no `nullable` boolean key in this dialect - see isNullable below).
 
 import { className, fieldName, enumConstantName } from "./naming.js";
 import { escapeKotlinString } from "./keywords.js";
@@ -34,7 +38,11 @@ import { withResilience } from "./strict.js";
 
 // Builds calls into the shared Validation.kt runtime helpers (DRY: constraint-checking logic
 // lives once there, both model validate() extensions and route parameter validation call it).
-export function buildValidationCalls(varExpr, fieldLabel, type, constraints) {
+// `format` is only ever passed (non-undefined) by registerObject's own property call site below -
+// path/query/header parameter validation (operations.js) and array-item validation
+// (buildNestedValidationCalls) both call this without it, so format: uuid is checked only for a
+// struct property, not a bare parameter - the same scope Validate()'s other checks already have.
+export function buildValidationCalls(varExpr, fieldLabel, type, constraints, format) {
   const calls = [];
   const isNumeric = type === "Int" || type === "Long" || type === "Float" || type === "Double";
   if (isNumeric) {
@@ -46,6 +54,7 @@ export function buildValidationCalls(varExpr, fieldLabel, type, constraints) {
       calls.push(`requireMaxLength(${varExpr}, ${constraints.maxLength}, "${fieldLabel}")`);
     if (typeof constraints.minLength === "number")
       calls.push(`requireMinLength(${varExpr}, ${constraints.minLength}, "${fieldLabel}")`);
+    if (format === "uuid") calls.push(`requireUuid(${varExpr}, "${fieldLabel}")`);
     if (typeof constraints.pattern === "string")
       calls.push(`requirePattern(${varExpr}, ${escapeKotlinString(constraints.pattern)}, "${fieldLabel}")`);
   }
@@ -81,7 +90,7 @@ function buildNestedValidationCalls(varExpr, fieldLabel, propSchema, propType, n
     const itemKind = kindOf(itemSchema);
     if (itemKind === "Object" || itemKind === "AllOf") {
       const itemType = (/^(?:List|Set)<(.+)>$/.exec(propType) || [])[1] || null;
-      const itemAccessor = itemSchema.nullable === true ? "?." : ".";
+      const itemAccessor = isNullable(itemSchema) ? "?." : ".";
       calls.push({ text: `${varExpr}${accessor}forEach { it${itemAccessor}validate() }`, requiresType: itemType });
     } else {
       const itemPrim = primitiveKtType(itemSchema);
@@ -90,6 +99,20 @@ function buildNestedValidationCalls(varExpr, fieldLabel, propSchema, propType, n
         const itemCalls = buildValidationCalls("it", `${fieldLabel}[]`, itemType, constraintsOf(itemSchema));
         if (itemCalls.length > 0) calls.push({ text: `${varExpr}${accessor}forEach { ${itemCalls.join("; ")} }`, requiresType: null });
       }
+    }
+  } else if (kind === "Map") {
+    // additionalProperties: only a constrained VALUE type needs recursion (a Map's keys are
+    // always plain wire strings with nothing of their own to validate) - mirrors the Array branch
+    // above, but over .values (a Map<String, T> has no direct forEach-over-values shorthand the
+    // way a List/Set does over its own elements) and with no analogous primitive-value-constraint
+    // case: additionalProperties has no per-value type/format in the schema to read constraints
+    // off of the way an array's `items` schema already does.
+    const valueSchema = typeof propSchema.additionalProperties === "object" ? propSchema.additionalProperties : null;
+    const valueKind = valueSchema ? kindOf(valueSchema) : null;
+    if (valueKind === "Object" || valueKind === "AllOf") {
+      const valueType = (/^Map<String,\s*(.+)>$/.exec(propType) || [])[1] || null;
+      const valueAccessor = isNullable(valueSchema) ? "?." : ".";
+      calls.push({ text: `${varExpr}${accessor}values${accessor}forEach { it${valueAccessor}validate() }`, requiresType: valueType });
     }
   }
   return calls;
@@ -121,6 +144,36 @@ function addModel(registry, name, entry) {
   registry.order.push(name);
 }
 
+// A schema is nullable in the OAS 3.1+/3.2 dialect when its `type` is an array containing "null" -
+// there is no `nullable` boolean key in this dialect (that's 3.0-only).
+function isNullable(schema) {
+  return Array.isArray(schema.type) && schema.type.includes("null");
+}
+
+// Turns a property's `default` schema keyword into a Kotlin literal for its constructor default
+// parameter (see registerObject below) - kotlinx.serialization already applies a constructor
+// default when a JSON key is absent, and does NOT apply it for an explicit JSON null (the same
+// "absent vs. explicit null" distinction the Go generator needs a custom UnmarshalJSON for -
+// Kotlin gets it for free from the language's own default-parameter semantics), so this is just a
+// literal, not a codec. Returns null for any shape not recognized (e.g. an object/array default -
+// not worth the extra literal-building complexity for a rare case) - the property then falls back
+// to its ordinary `= null` (nullable, no default) handling, same as if `default` were absent.
+function buildDefaultLiteral(registry, type, value) {
+  if (value === undefined) return null;
+  if (type === "String") return escapeKotlinString(String(value));
+  if (type === "Int") return String(value);
+  if (type === "Long") return `${value}L`;
+  if (type === "Float") return `${value}f`;
+  if (type === "Double") return String(value);
+  if (type === "Boolean") return value ? "true" : "false";
+  const model = registry.models.get(type);
+  if (model && model.kind === "enum") {
+    const entry = model.entries.find((e) => e.wireValue === String(value));
+    return entry ? `${type}.${entry.ktName}` : null;
+  }
+  return null;
+}
+
 function registerObject(registry, name, schema, variantOpts) {
   if (registry.models.has(name)) return;
   const skipProperty = variantOpts && variantOpts.skipProperty;
@@ -131,8 +184,12 @@ function registerObject(registry, name, schema, variantOpts) {
     const { kotlinName, needsSerialName } = fieldName(propName);
     const t = ktType(registry, propSchema, name + className(propName));
     const isRequired = required.has(propName);
-    const nullable = !isRequired || propSchema.nullable === true;
+    const nullable = !isRequired || isNullable(propSchema);
     const constraints = constraintsOf(propSchema);
+    // Only an optional property gets a default literal - matching Go's own `p.pointer` gate, a
+    // `default` alongside a required property is unusual (the property is never actually absent)
+    // and not worth special-casing.
+    const defaultLiteral = !isRequired && "default" in propSchema ? buildDefaultLiteral(registry, t.type, propSchema.default) : null;
     props.push({
       ktName: kotlinName,
       wireName: propName,
@@ -140,13 +197,14 @@ function registerObject(registry, name, schema, variantOpts) {
       type: t.type,
       serializerAnnotation: t.serializerAnnotation || null,
       nullable,
+      defaultLiteral,
       description: propSchema.description || null,
       constraints,
       // Untagged (plain-string) pass-1 constraint calls have no cross-type dependency; tag them
       // uniformly with buildNestedValidationCalls's {text, requiresType} shape so pass 3 (see
       // buildModelRegistry) can filter this whole list the same way regardless of source.
       validationCalls: [
-        ...buildValidationCalls(kotlinName, propName, t.type, constraints).map((text) => ({ text, requiresType: null })),
+        ...buildValidationCalls(kotlinName, propName, t.type, constraints, propSchema.format).map((text) => ({ text, requiresType: null })),
         ...buildNestedValidationCalls(kotlinName, propName, propSchema, t.type, nullable),
       ],
     });
@@ -300,6 +358,12 @@ function primitiveKtType(s) {
   if (type === "string") {
     if (s.format === "date") return "kotlinx.datetime.LocalDate";
     if (s.format === "date-time") return dateTimeType;
+    // `format: binary` means "arbitrary file/binary content" (OpenAPI's convention for a
+    // multipart file field or a raw-bytes body) - mapped to a real ByteArray instead of the
+    // generic String every other string format falls back to, so a multipart/urlencoded form
+    // field can be sent/received as an actual file part (see operations.js's buildFormField)
+    // instead of a text field holding raw bytes-as-characters.
+    if (s.format === "binary") return "ByteArray";
     return "String";
   }
   if (type === "integer") return s.format === "int64" ? "Long" : "Int";

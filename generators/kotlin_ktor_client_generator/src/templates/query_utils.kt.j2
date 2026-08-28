@@ -3,6 +3,7 @@ package {{ packageName }}
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.http.HttpHeaders
 
 fun HttpRequestBuilder.queryParam(name: String, value: Any?) {
     if (value != null) parameter(name, value)
@@ -16,4 +17,19 @@ fun HttpRequestBuilder.queryParamList(name: String, values: List<*>?) {
 
 fun HttpRequestBuilder.headerParam(name: String, value: Any?) {
     if (value != null) header(name, value)
+}
+
+// Sends an `in: cookie` parameter as a "name=value" pair on the request's single Cookie header -
+// HTTP allows only one Cookie header, semicolon-separated (unlike Set-Cookie, which repeats), so
+// this reads-appends-rewrites rather than calling header() again per cookie param (that would
+// either overwrite the previous one or emit an invalid second Cookie: line, depending on the
+// engine). Deliberately not routed through the `HttpCookies` plugin/CookiesStorage: that's a
+// cross-request cookie JAR for cookies the SERVER sets, a different concern from sending one
+// spec-declared `in: cookie` parameter's value on this one request.
+fun HttpRequestBuilder.cookieParam(name: String, value: Any?) {
+    if (value != null) {
+        val pair = "$name=$value"
+        val existing = headers.get(HttpHeaders.Cookie)
+        headers.set(HttpHeaders.Cookie, if (existing != null) "$existing; $pair" else pair)
+    }
 }

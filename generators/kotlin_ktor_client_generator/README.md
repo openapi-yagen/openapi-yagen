@@ -109,6 +109,15 @@ on `kotlinx-datetime >= 0.7.0`, generate with `-v dateTimeType=kotlin.time.Insta
 `-v dateTimeType=String` to skip the `kotlinx-datetime` dependency for `date-time` fields entirely
 (`format: date` always generates `kotlinx.datetime.LocalDate`, unaffected by this setting).
 
+An optional property's `default` schema keyword becomes a Kotlin constructor default parameter
+literal (e.g. `val priority: Int? = 1`) instead of the usual `= null` - `kotlinx.serialization`
+already applies a constructor default when the JSON key is absent, and does NOT apply it for an
+explicit JSON `null` (`{"priority": null}` still decodes to `priority = null`, not `1`), so no
+custom (de)serializer is needed for this "absent vs. explicit null" distinction, unlike the Go
+generator's equivalent. A `default` on a required property, or one whose value doesn't map to a
+recognized literal shape (an object/array default), is ignored - the property keeps its ordinary
+required/nullable handling.
+
 ### Request body content types
 
 Request-body content types are picked from whichever the spec declares in priority order
@@ -119,21 +128,27 @@ differs:
 
 - **`application/json`** (default): `contentType(ContentType.Application.Json); setBody(body)`.
 - **`application/x-www-form-urlencoded`**: `setBody(FormDataContent(Parameters.build { ... }))`,
-  one `append("wireName", body.ktName.toString())` per property. The schema must be `type: object`
-  with only scalar/enum properties (a nested object/array field is a generator error - see "Known
-  limitations").
-- **`multipart/form-data`**: same restriction, `setBody(MultiPartFormDataContent(formData {
+  one `append("wireName", body.ktName.toString())` per scalar/enum property, or one `append(...)`
+  per element for an array property (one repeated `name=` key per element, OpenAPI's default
+  `style: form, explode: true` - same convention an array-typed query parameter already follows).
+  The schema must be `type: object` with only scalar/enum properties, or arrays of either; a
+  nested object property, or an array of non-scalar items, is a generator error - see "Known
+  limitations".
+- **`multipart/form-data`**: same schema restriction, `setBody(MultiPartFormDataContent(formData {
   ... }))` instead - both builders come from `io.ktor.client.request.forms`, part of
-  `ktor-client-core` itself (no extra Gradle dependency beyond what's already listed above).
+  `ktor-client-core` itself (no extra Gradle dependency beyond what's already listed above). A
+  `type: string, format: binary` property maps to a real Kotlin `ByteArray` (see `primitiveKtType`
+  in `types.js`) and is sent as an actual multipart file part - `append("wireName", body.ktName)` -
+  not a text field.
 - **any single `text/*` media type** (`text/plain`, `text/csv`, `text/html`, ...): `body: String`,
   sent with `contentType(ContentType.parse("text/csv"))` (the exact declared media type, not a
   generic `text/plain`) and a plain `setBody(body)` - Ktor sends a `String` body as-is, no
   `ContentNegotiation` plugin needed.
 - **any single other remaining media type** (`application/octet-stream`, `application/zip`,
   `application/pdf`, `image/png`, ...): `body: ByteArray`, sent the same way - Ktor sends a
-  `ByteArray` body as-is too. The declared schema (`type: string, format: binary` or otherwise) has
-  no bearing here - the wire content-type alone decides `String` vs. `ByteArray`, same as it does at
-  runtime for a real client/server.
+  `ByteArray` body as-is too. This only applies to a `format: binary` schema used as the ENTIRE
+  request body (not as one property of a multipart/urlencoded object) - the wire content-type
+  alone decides `String` vs. `ByteArray` here, same as it does at runtime for a real client/server.
 
   A requestBody declaring two or more media types outside the three fixed ones above is ambiguous
   (which one would the generated method actually send?) and is a generator error, same as any other
@@ -205,13 +220,11 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
   types" above). **A requestBody/response declaring two or more media types outside those fixed
   ones is a generator error** (aborts generation under default `strict=true`; skips just that
   operation with a printed warning under `-v strict=false`) - it is never silently dropped.
-- A `type: string, format: binary` property inside a `multipart/form-data` body still maps to the
-  generic `String` every `format: binary` schema maps to (see below) - there's no `ByteArray`/
-  streaming-upload type yet.
-- Path/query/header parameters must resolve to a primitive scalar type (string/integer/
+- Path/query/header/cookie parameters must resolve to a primitive scalar type (string/integer/
   number/boolean), an enum, or a oneOf/anyOf whose every variant is itself primitive/enum-shaped
   (passed straight through as a plain, unparsed `String` - see "oneOf/anyOf support" above) - an
-  object or array in one of those positions is a generator error.
+  object or array in one of those positions is a generator error, except a `query`-position array
+  (one repeated key per element).
 - Generated files are not run through a formatter - see "Formatting generated sources" above.
 
 ## Try it

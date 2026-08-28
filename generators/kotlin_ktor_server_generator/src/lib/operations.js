@@ -169,6 +169,7 @@ function buildParam(registry, hintBase, p) {
   let extractFn;
   if (isPath) extractFn = "pathParamAs";
   else if (p.in === "header") extractFn = required ? "requireHeaderParamAs" : "headerParamAs";
+  else if (p.in === "cookie") extractFn = required ? "requireCookieParamAs" : "cookieParamAs";
   else extractFn = required ? "requireQueryParamAs" : "queryParamAs";
   return {
     ktName: kotlinName,
@@ -188,16 +189,33 @@ function buildParam(registry, hintBase, p) {
 
 // Builds one handler parameter for a single named security scheme (one entry of a `security`
 // requirement object) - see buildAuthParams below for how the requirement array/object as a whole
-// is interpreted. Only http/bearer and apiKey are supported (the two Validation.kt has runtime
-// helpers for); oauth2/openIdConnect are a generator error (withResilience: warning + no auth
-// param in non-strict mode - see collectOperationsByTag).
+// is interpreted. Only http/bearer, apiKey, oauth2, and openIdConnect are supported.
+// oauth2/openIdConnect are handled identically to http/bearer: per RFC 6750, an OAuth2/OIDC access
+// token travels as `Authorization: Bearer <token>` regardless of how it was obtained
+// (authorization-code, client-credentials, ...), and this generator never validates a token's
+// signature/scopes/audience for any scheme - that's left entirely to the handler implementation,
+// consistent with how bearer/apiKey are already just "is a value present" extraction. Anything
+// else is a generator error (withResilience: warning + no auth param in non-strict mode - see
+// collectOperationsByTag).
 function buildAuthParamForScheme(schemeName, scheme) {
   if (!scheme) {
     throw Error(`<590e8da1> security references scheme "${schemeName}", not declared in components.securitySchemes`);
   }
   const { kotlinName } = fieldName(schemeName);
-  if (scheme.type === "http" && String(scheme.scheme || "").toLowerCase() === "bearer") {
-    return { ktName: kotlinName, type: "String", nullable: false, extractExpr: `call.requireBearerToken("Authorization")` };
+  const isBearerLike =
+    (scheme.type === "http" && String(scheme.scheme || "").toLowerCase() === "bearer") ||
+    scheme.type === "oauth2" ||
+    scheme.type === "openIdConnect";
+  if (isBearerLike) {
+    return {
+      schemeName,
+      ktName: kotlinName,
+      type: "String",
+      nullable: false,
+      kind: "bearer",
+      headerNameLiteral: escapeKotlinString("Authorization"),
+      extractExpr: `call.requireBearerToken("Authorization")`,
+    };
   }
   if (scheme.type === "apiKey") {
     const loc = scheme.in;
@@ -205,37 +223,55 @@ function buildAuthParamForScheme(schemeName, scheme) {
       throw Error(`<4f7bcbf0> apiKey security scheme "${schemeName}" has an unsupported location "in: ${loc}"`);
     }
     return {
+      schemeName,
       ktName: kotlinName,
       type: "String",
       nullable: false,
+      kind: "apiKey",
+      locationLiteral: escapeKotlinString(loc),
+      nameLiteral: escapeKotlinString(scheme.name),
       extractExpr: `call.requireApiKey("${loc}", ${escapeKotlinString(scheme.name)})`,
     };
   }
   throw Error(
-    `<13404665> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer and ` +
-      `apiKey are currently supported`
+    `<13404665> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer, apiKey, ` +
+      `oauth2, and openIdConnect are supported`
   );
 }
 
 // Turns an operation's already-resolved `security` (see collectOperations() in
-// docs/javascript-api.md) into extra required handler parameters, one per named scheme. `security`
-// is an array of alternative requirement objects (OR between array entries, AND between the scheme
-// names within one object) - only a single alternative is supported today (the common case: one
-// way to authenticate), since generating a runtime OR-branch per alternative is real added
-// complexity with no consumer needing it yet.
+// docs/javascript-api.md) into extra handler parameters, one per named scheme. `security` is an
+// array of alternative requirement objects (OR between array entries, AND between the scheme names
+// within one object). A single alternative (the common case) becomes required, non-nullable
+// parameters, extracted eagerly (throwing 401 via MissingAuthenticationException on the first
+// missing one) - unchanged from before. 2+ alternatives return { authParams, authAlternatives }
+// instead: every scheme across every alternative becomes a nullable parameter (only one
+// alternative needs to match, so any given scheme may end up unset), and api_routes.kt.j2's
+// authTry/authAlternative macros recurse over authAlternatives directly to resolve which one
+// matched, rather than this JS building that Kotlin source as a string itself.
 function buildAuthParams(op) {
   const reqs = op.security || [];
-  if (reqs.length === 0) return [];
-  if (reqs.length > 1) {
-    throw Error(
-      `<48aa07d7> Operation has ${reqs.length} alternative security requirements (OR) - only a single ` +
-        `requirement is supported`
-    );
-  }
-  const schemeNames = Object.keys(reqs[0]);
-  if (schemeNames.length === 0) return []; // an empty requirement object = anonymous access is allowed
+  if (reqs.length === 0) return { authParams: [], authAlternatives: null };
   const schemes = (schema.components && schema.components.securitySchemes) || {};
-  return schemeNames.map((name) => buildAuthParamForScheme(name, schemes[name]));
+  if (reqs.length === 1) {
+    const schemeNames = Object.keys(reqs[0]);
+    if (schemeNames.length === 0) return { authParams: [], authAlternatives: null }; // empty requirement object = anonymous access is allowed
+    return { authParams: schemeNames.map((name) => buildAuthParamForScheme(name, schemes[name])), authAlternatives: null };
+  }
+  // OR-alternatives: the same scheme name appearing in more than one alternative reuses the same
+  // Kotlin parameter (built once, on first sight).
+  const byName = new Map();
+  const authAlternatives = reqs.map((req) =>
+    Object.keys(req).map((name) => {
+      if (!byName.has(name)) {
+        const p = buildAuthParamForScheme(name, schemes[name]);
+        p.nullable = true;
+        byName.set(name, p);
+      }
+      return byName.get(name);
+    })
+  );
+  return { authParams: [...byName.values()], authAlternatives };
 }
 
 function paramSig(p) {
@@ -276,37 +312,49 @@ function isTextMediaType(mediaType) {
   return mediaType.startsWith("text/");
 }
 
-// application/x-www-form-urlencoded bodies are, by OpenAPI convention, always `type: object`
-// schemas with one property per form field - same restriction path/header params already apply
-// via buildParam's own converter lookup below. Anything else (a nested object/array property) is
-// a generator error - same "handle the common case, error on the rest" policy this generator
-// already follows everywhere else.
+// application/x-www-form-urlencoded and multipart/form-data bodies are, by OpenAPI convention,
+// always `type: object` schemas with one property per form field - same restriction path/header
+// params already apply via buildParam's own converter lookup below. A property may be a plain
+// scalar/enum (one form value/part) or an array of scalar/enum items (one repeated key/part per
+// element - see buildFormField). Anything else (a nested object property, or an array of
+// non-scalar items) is a generator error - same "handle the common case, error on the rest" policy
+// this generator already follows everywhere else.
 function requireFlatObjectSchema(bodySchema, mediaType) {
   if (kindOf(bodySchema) !== "Object") {
     throw Error(`<7b3f9c2e> A "${mediaType}" body must be an object schema (one property per form field) - got ${kindOf(bodySchema)}`);
   }
   for (const [propName, propSchema] of Object.entries(bodySchema.properties || {})) {
-    const kind = kindOf(unwrapSchema(propSchema));
+    const resolved = unwrapSchema(propSchema);
+    const kind = kindOf(resolved);
+    if (kind === "Array") {
+      const itemKind = kindOf(unwrapSchema(resolved.items || {}));
+      if (itemKind !== "Primitive" && itemKind !== "Enum") {
+        throw Error(
+          `<a06d4e83> Unsupported "${mediaType}" body field "${propName}": array items must be primitive ` +
+            `scalar types or enums - got ${itemKind}`
+        );
+      }
+      continue;
+    }
     if (kind !== "Primitive" && kind !== "Enum") {
       throw Error(
-        `<a06d4e83> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types or ` +
-          `enums are supported as form fields - got ${kind}`
+        `<a06d4e83> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types, enums, ` +
+          `or arrays of either are supported as form fields - got ${kind}`
       );
     }
   }
 }
 
 // Picks which request-body media type is present, preferring JSON (the common case), then
-// multipart (received as raw MultiPartData - see buildRequestBody's own comment on why that one
-// doesn't go through the model registry), then urlencoded. Failing those, a single remaining media
-// type is still accepted as a raw body: "text/*" is received as a plain Kotlin `String`, anything
-// else (application/octet-stream, application/zip, image/*, ...) is received as a raw `ByteArray` -
-// the wire content-type, not the declared schema, decides which (both are natively `call.receive<T>
-// ()`-able with no extra plugin, same as a JSON body needs ContentNegotiation for). Returns null
-// only when `content` has entries but none of the above applies - more than one non-JSON/form media
-// type is ambiguous (which one would the generated handler actually expect?) and the caller turns
-// that into a generation error instead of guessing (see this generator's README "Known
-// limitations").
+// multipart, then urlencoded (see buildRequestBody - both go through the model registry the same
+// way). Failing those, a single remaining media type is still accepted as a raw body: "text/*" is
+// received as a plain Kotlin `String`, anything else (application/octet-stream, application/zip,
+// image/*, ...) is received as a raw `ByteArray` - the wire content-type, not the declared schema,
+// decides which (both are natively `call.receive<T>()`-able with no extra plugin, same as a JSON
+// body needs ContentNegotiation for). Returns null only when `content` has entries but none of the
+// above applies - more than one non-JSON/form media type is ambiguous (which one would the
+// generated handler actually expect?) and the caller turns that into a generation error instead of
+// guessing (see this generator's README "Known limitations").
 function pickBodyContent(content) {
   if (content[JSON_MEDIA_TYPE]) return { mediaType: JSON_MEDIA_TYPE, content: content[JSON_MEDIA_TYPE], encoding: "json" };
   if (content[MULTIPART_MEDIA_TYPE]) return { mediaType: MULTIPART_MEDIA_TYPE, content: content[MULTIPART_MEDIA_TYPE], encoding: "multipart" };
@@ -319,20 +367,45 @@ function pickBodyContent(content) {
   return null;
 }
 
-// Builds one urlencoded body field's parse descriptor - same PARAM_CONVERTERS/fromWireValue
-// lookup buildParam uses for query/header/path params, since a form field arrives exactly the
-// same way: an untyped raw string that needs converting/validating, not an already-typed value
-// (contrast the client generators' equivalent, which only ever *serializes* an already-typed
-// value - never parses one).
-function buildFormField(propModel, propSchema) {
+// Builds one urlencoded/multipart body field's parse descriptor - same PARAM_CONVERTERS/
+// fromWireValue lookup buildParam uses for query/header/path params, since a form field arrives
+// exactly the same way: an untyped raw string that needs converting/validating, not an
+// already-typed value (contrast the client generators' equivalent, which only ever *serializes* an
+// already-typed value - never parses one).
+//
+// Three shapes, dispatched by api_routes.kt.j2's `f.isFile`/`f.isArray`:
+//  - a multipart `format: binary` field (propModel.type "ByteArray") - `isFile: true`, no
+//    converter (see Validation.kt's requireFormFileAs/formFileAs, which read raw bytes directly,
+//    no string conversion involved).
+//  - an array field (propModel.type "List<X>"/"Set<X>") - `isArray: true`, `typeLabel`/`converter`
+//    describe the ITEM type X (one converted value per repeated key/part, same convention
+//    buildArrayQueryParam/queryParamListAs already use for query parameters).
+//  - a plain scalar/enum field - as before.
+function buildFormField(propModel, propSchema, encoding) {
+  const resolved = unwrapSchema(propSchema);
+  if (encoding === "multipart" && propModel.type === "ByteArray") {
+    return { ktName: propModel.ktName, wireName: propModel.wireName, typeLabel: null, nullable: propModel.nullable, isFile: true, isArray: false, converter: null };
+  }
+  if (kindOf(resolved) === "Array") {
+    const itemSchema = resolved.items || {};
+    const itemType = (/^(?:List|Set)<(.+)>$/.exec(propModel.type) || [])[1];
+    const converter = kindOf(itemSchema) === "Enum" ? `${itemType}.fromWireValue(it)` : PARAM_CONVERTERS[itemType];
+    if (!converter) {
+      throw Error(
+        `<5c8e1f47> Unsupported "${encoding}" body field "${propModel.wireName}": no known conversion ` +
+          `from a raw form value to ${itemType}`
+      );
+    }
+    return { ktName: propModel.ktName, wireName: propModel.wireName, typeLabel: itemType, nullable: propModel.nullable, isFile: false, isArray: true, converter };
+  }
   const converter = kindOf(propSchema) === "Enum" ? `${propModel.type}.fromWireValue(it)` : PARAM_CONVERTERS[propModel.type];
   if (!converter) {
     throw Error(
-      `<5c8e1f47> Unsupported "${URLENCODED_MEDIA_TYPE}" body field "${propModel.wireName}": no known conversion ` +
+      `<5c8e1f47> Unsupported "${encoding}" body field "${propModel.wireName}": no known conversion ` +
         `from a raw form value to ${propModel.type}`
     );
   }
-  return { ktName: propModel.ktName, wireName: propModel.wireName, typeLabel: propModel.type, nullable: propModel.nullable, converter };
+  return { ktName: propModel.ktName, wireName: propModel.wireName, typeLabel: propModel.type, nullable: propModel.nullable, isFile: false, isArray: false, converter };
 }
 
 // `required` correctly defaults to OpenAPI 3.0's actual default (`false` when absent) - the
@@ -352,16 +425,6 @@ function buildRequestBody(registry, hintBase, requestBody) {
     );
   }
 
-  if (picked.encoding === "multipart") {
-    // Doesn't go through ktType/registerObject at all: streaming parts/files don't fit a plain
-    // data class shape the way a flat urlencoded field list does, so the handler receives Ktor's
-    // own MultiPartData directly instead of a schema-derived type - the one place this generator's
-    // usual "handler always sees a clean, typed, already-validated body" promise doesn't hold (see
-    // README). Fully-qualified so no import bookkeeping is needed in api_handler.kt.j2, same
-    // convention as kotlinx.datetime.Instant/JsonElement elsewhere in this generator.
-    return { type: "io.ktor.http.content.MultiPartData", required: true, encoding: "multipart", hasValidate: false };
-  }
-
   // "text"/"bytes": the wire content-type alone decides the Kotlin type (String/ByteArray)
   // regardless of the declared schema - matches actual HTTP semantics (the Content-Type header is
   // what a real client/server keys its parsing on). Both fall through to api_routes.kt.j2's generic
@@ -375,8 +438,15 @@ function buildRequestBody(registry, hintBase, requestBody) {
     return { type: "ByteArray", required: requestBody.required === true, encoding: "bytes", hasValidate: false, mediaType: picked.mediaType };
   }
 
+  // urlencoded and multipart both go through ktType/registerObject the same way now: each becomes
+  // a plain generated data class, one property per form field/part (a `format: binary` field maps
+  // to ByteArray - see primitiveKtType), extracted by name in api_routes.kt.j2 via Validation.kt's
+  // paramAs/requireParamAs (urlencoded, from call.receiveParameters()) or formFieldAs/
+  // requireFormFieldAs/formFileAs/requireFormFileAs (multipart, from
+  // call.receiveMultipart().readAllParts()) - the handler always sees a clean, typed,
+  // already-validated body, the same promise every other body encoding already keeps.
   const bodySchema = picked.content.schema || {};
-  if (picked.encoding === "urlencoded") requireFlatObjectSchema(bodySchema, picked.mediaType);
+  if (picked.encoding !== "json") requireFlatObjectSchema(bodySchema, picked.mediaType);
   const t = ktType(registry, bodySchema, hintBase + "Body");
   const model = registry.models.get(t.type);
   const result = {
@@ -385,8 +455,10 @@ function buildRequestBody(registry, hintBase, requestBody) {
     encoding: picked.encoding,
     hasValidate: !!model && model.kind === "object",
   };
-  if (picked.encoding === "urlencoded") {
-    result.fields = (model.properties || []).map((propModel) => buildFormField(propModel, bodySchema.properties[propModel.wireName]));
+  if (picked.encoding !== "json") {
+    result.fields = (model.properties || []).map((propModel) =>
+      buildFormField(propModel, bodySchema.properties[propModel.wireName], picked.encoding)
+    );
   }
   return result;
 }
@@ -454,18 +526,21 @@ export function collectOperationsByTag(registry) {
         const pathParams = allParams.filter((p) => p.in === "path");
         const queryParams = allParams.filter((p) => p.in === "query");
         const headerParams = allParams.filter((p) => p.in === "header");
+        const cookieParams = allParams.filter((p) => p.in === "cookie");
 
-        // An unsupported security scheme (oauth2/openIdConnect) or multiple OR alternatives only
-        // drops the auth wiring for this one operation (non-strict mode) - not the whole
-        // operation, unlike the outer withResilience this block runs inside of.
+        // An unsupported security scheme only drops the auth wiring for this one operation
+        // (non-strict mode) - not the whole operation, unlike the outer withResilience this block
+        // runs inside of.
         let authParams = [];
+        let authAlternatives = null;
         withResilience(
           `security for operation ${op.method.toUpperCase()} ${op.path}`,
           () => {
-            authParams = buildAuthParams(op);
+            ({ authParams, authAlternatives } = buildAuthParams(op));
           },
           () => {
             authParams = [];
+            authAlternatives = null;
           }
         );
 
@@ -487,7 +562,9 @@ export function collectOperationsByTag(registry) {
           pathParams,
           queryParams,
           headerParams,
+          cookieParams,
           authParams,
+          authAlternatives,
           body,
           response,
           returnsValue: response.type !== "Unit",

@@ -5,3 +5,22 @@
 {% macro extractAndValidate(p) %}val {{ p.ktName }} = call.{{ p.extractFn }}({{ toStringLiteral(p.wireName) }}, "{{ p.typeLabel }}") { {{ p.converter }} }
 {% for v in p.validationCalls %}{{ v }}
 {% endfor %}{% endmacro -%}
+{# Attempts every scheme in one OR-alternative (an AND-combination within that alternative) in
+   turn, assigning each to its (nullable) handler-parameter var and setting authMatched = true only
+   once every scheme in the chain has succeeded. Reuses the local name "v" at each nesting level -
+   each `if` introduces its own block scope in Kotlin, so no collision even when the same scheme
+   appears in multiple alternatives. #}
+{% macro authTry(schemes, i) %}val v = {% if at(schemes, i).kind == "bearer" %}call.optionalBearerToken({{ at(schemes, i).headerNameLiteral }}){% else %}call.optionalApiKey({{ at(schemes, i).locationLiteral }}, {{ at(schemes, i).nameLiteral }}){% endif %}
+if (v != null) {
+    {{ at(schemes, i).ktName }} = v
+{% if i + 1 < length(schemes) %}{{ authTry(schemes, i + 1) | indent(4, true) }}
+{% else %}    authMatched = true
+{% endif %}}
+{% endmacro -%}
+{# One OR-alternative: skipped entirely once an earlier alternative already matched. An empty
+   alternative (security: [{}, ...], meaning "no auth also allowed") always matches. #}
+{% macro authAlternative(schemes) %}if (!authMatched) {
+{% if length(schemes) > 0 %}{{ authTry(schemes, 0) | indent(4, true) }}
+{% else %}    authMatched = true
+{% endif %}}
+{% endmacro -%}

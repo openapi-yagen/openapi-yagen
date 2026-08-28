@@ -37,12 +37,17 @@ import io.ktor.http.contentType
     }
 {% else %}    queryParam({{ toStringLiteral(p.wireName) }}, {{ p.ktName }})
 {% endif %}{% endif %}{% endfor %}{% for p in op.headerParams %}    headerParam({{ toStringLiteral(p.wireName) }}, {{ p.ktName }})
+{% endfor %}{% for p in op.cookieParams %}    cookieParam({{ toStringLiteral(p.wireName) }}, {{ p.ktName }})
 {% endfor %}{% if op.body %}{% if op.body.encoding == "urlencoded" %}    setBody(FormDataContent(Parameters.build {
-{% for f in op.body.fields %}        body.{{ f.ktName }}?.let { append({{ toStringLiteral(f.wireName) }}, it.toString()) }
-{% endfor %}    }))
+{% for f in op.body.fields %}{% if f.isArray %}        body.{{ f.ktName }}?.forEach { append({{ toStringLiteral(f.wireName) }}, it.toString()) }
+{% else %}        body.{{ f.ktName }}?.let { append({{ toStringLiteral(f.wireName) }}, it.toString()) }
+{% endif %}{% endfor %}    }))
 {% else if op.body.encoding == "multipart" %}    setBody(MultiPartFormDataContent(formData {
-{% for f in op.body.fields %}        body.{{ f.ktName }}?.let { append({{ toStringLiteral(f.wireName) }}, it.toString()) }
-{% endfor %}    }))
+{% for f in op.body.fields %}{% if f.isFile %}{% if f.nullable %}        body.{{ f.ktName }}?.let { append({{ toStringLiteral(f.wireName) }}, it) }
+{% else %}        append({{ toStringLiteral(f.wireName) }}, body.{{ f.ktName }})
+{% endif %}{% else if f.isArray %}        body.{{ f.ktName }}?.forEach { append({{ toStringLiteral(f.wireName) }}, it.toString()) }
+{% else %}        body.{{ f.ktName }}?.let { append({{ toStringLiteral(f.wireName) }}, it.toString()) }
+{% endif %}{% endfor %}    }))
 {% else if op.body.encoding == "text" or op.body.encoding == "bytes" %}    contentType(ContentType.parse({{ toStringLiteral(op.body.mediaType) }}))
     setBody(body)
 {% else %}    contentType(ContentType.Application.Json)

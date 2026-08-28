@@ -37,6 +37,12 @@ paths:
           description: Only return pets with this tag.
           schema:
             type: string
+        - name: session_id
+          in: cookie
+          required: false
+          description: "Exercises a cookie parameter."
+          schema:
+            type: string
       responses:
         "200":
           description: A page of pets
@@ -280,6 +286,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Shape"
+  /widgets/{widgetId}/favorite:
+    post:
+      operationId: favoriteWidget
+      tags: [widgets]
+      description: >-
+        Exercises an oauth2 security scheme (handled identically to http/bearer - an OAuth2 access
+        token travels as an Authorization: Bearer header regardless of flow) combined with an
+        OR-alternative security requirement: either oauth2Auth OR apiKeyAuth satisfies the request.
+      security:
+        - oauth2Auth: [write:widgets]
+        - apiKeyAuth: []
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Favorited
+  /widgets/{widgetId}/archive:
+    post:
+      operationId: archiveWidget
+      tags: [widgets]
+      description: >-
+        Exercises an OR-alternative security requirement where one alternative itself requires
+        two schemes together (AND-within-OR): either (oauth2Auth AND apiKeyAuth together) OR
+        bearerAuth alone satisfies the request.
+      security:
+        - oauth2Auth: [write:widgets]
+          apiKeyAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Archived
 components:
   securitySchemes:
     bearerAuth:
@@ -289,6 +336,13 @@ components:
       type: apiKey
       name: X-Api-Key
       in: header
+    oauth2Auth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://example.com/oauth/token
+          scopes:
+            write:widgets: Modify widgets
   schemas:
     Pet:
       description: A pet available in the store.
@@ -326,6 +380,19 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/PetStatus"
+        sku:
+          type: string
+          format: uuid
+          description: "Exercises format: uuid Validate() checking."
+        priority:
+          type: integer
+          default: 1
+          description: "Exercises a numeric default value applied by kotlinx.serialization when absent."
+        visibility:
+          type: string
+          enum: [public, private]
+          default: public
+          description: "Exercises an enum default value, resolved to its generated Kotlin constant."
         nicknames:
           type: array
           items:
@@ -334,6 +401,11 @@ components:
         ratings:
           type: array
           items:
+            $ref: "#/components/schemas/Rating"
+        ratingsBySource:
+          description: "Exercises recursive Validate() into a Map (additionalProperties) value."
+          type: object
+          additionalProperties:
             $ref: "#/components/schemas/Rating"
     PetStatus:
       description: A pet's availability status.
@@ -358,6 +430,11 @@ components:
       properties:
         caption:
           type: string
+        albums:
+          description: "Exercises an array-of-string multipart form field (one repeated part per element)."
+          type: array
+          items:
+            type: string
         photo:
           type: string
           format: binary
@@ -369,6 +446,11 @@ components:
           type: string
         notify:
           type: boolean
+        channels:
+          description: "Exercises an array-of-string urlencoded form field (one repeated key per element)."
+          type: array
+          items:
+            type: string
     Tag:
       type: object
       required: [id, name]

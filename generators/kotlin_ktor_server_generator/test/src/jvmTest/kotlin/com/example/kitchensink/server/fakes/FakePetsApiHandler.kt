@@ -4,10 +4,9 @@ import com.example.kitchensink.server.apis.PetsApiHandler
 import com.example.kitchensink.server.models.NewPet
 import com.example.kitchensink.server.models.Pet
 import com.example.kitchensink.server.models.Pets
+import com.example.kitchensink.server.models.PetPhotoUpload
 import com.example.kitchensink.server.models.PetSubscription
 import com.example.kitchensink.server.models.Rating
-import io.ktor.http.content.MultiPartData
-import io.ktor.http.content.forEachPart
 import kotlinx.datetime.Instant
 
 // Hand-written fake implementation of the generated PetsApiHandler interface - an in-memory
@@ -26,7 +25,13 @@ class FakePetsApiHandler : PetsApiHandler {
     )
     private var nextId = 2
 
-    override suspend fun listPets(limit: Int?, tag: String?): Pets {
+    // The fake doesn't branch on sessionId's value - PetsApiRoutesTest only exercises that
+    // Validation.kt's cookie extraction runs and reaches the handler intact.
+    var lastSeenSessionId: String? = null
+        private set
+
+    override suspend fun listPets(limit: Int?, tag: String?, sessionId: String?): Pets {
+        lastSeenSessionId = sessionId
         val filtered = pets.values.filter { tag == null || it.tag == tag }
         return if (limit != null) filtered.take(limit) else filtered.toList()
     }
@@ -53,24 +58,22 @@ class FakePetsApiHandler : PetsApiHandler {
         pets[petId] ?: throw NotFoundException("pet $petId not found")
     }
 
-    // Just consumes the multipart parts to prove the generated route/handler wiring actually
-    // delivers a receiveMultipart()-backed MultiPartData through, same "not persisted" spirit as
-    // ratePet above.
+    // Records what the generated route actually extracted from the multipart body, to prove the
+    // per-field extraction (formFieldAs/formFieldListAs/requireFormFileAs - see Validation.kt and
+    // api_routes.kt.j2) delivers a clean, already-typed PetPhotoUpload, same "not persisted" spirit
+    // as ratePet above.
     var lastUploadedCaption: String? = null
         private set
-    var lastUploadedPhotoSeen: Boolean = false
+    var lastUploadedAlbums: List<String>? = null
+        private set
+    var lastUploadedPhotoSize: Int = -1
         private set
 
-    override suspend fun uploadPetPhoto(petId: String, body: MultiPartData) {
+    override suspend fun uploadPetPhoto(petId: String, body: PetPhotoUpload) {
         pets[petId] ?: throw NotFoundException("pet $petId not found")
-        body.forEachPart { part ->
-            when (part) {
-                is io.ktor.http.content.PartData.FormItem -> if (part.name == "caption") lastUploadedCaption = part.value
-                is io.ktor.http.content.PartData.FileItem -> if (part.name == "photo") lastUploadedPhotoSeen = true
-                else -> {}
-            }
-            part.dispose()
-        }
+        lastUploadedCaption = body.caption
+        lastUploadedAlbums = body.albums
+        lastUploadedPhotoSize = body.photo.size
     }
 
     override suspend fun subscribeToPet(petId: String, body: PetSubscription) {

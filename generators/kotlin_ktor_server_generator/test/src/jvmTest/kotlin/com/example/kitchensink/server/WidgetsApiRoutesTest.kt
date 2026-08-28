@@ -173,4 +173,47 @@ class WidgetsApiRoutesTest {
         val response = client.get("/widgets/shapes/does-not-exist")
         assertEquals(HttpStatusCode.NotFound, response.status)
     }
+
+    // favoriteWidget: security: [{oauth2Auth}, {apiKeyAuth}] - a plain OR between two single-scheme
+    // alternatives. oauth2Auth is handled identically to a bearer token (RFC 6750).
+    @Test
+    fun `favoriteWidget requires either oauth2Auth or apiKeyAuth`() = testApplication {
+        installKitchenSinkApp()
+
+        val neither = client.post("/widgets/w1/favorite")
+        assertEquals(HttpStatusCode.Unauthorized, neither.status)
+
+        val withOauth2 = client.post("/widgets/w1/favorite") { header("Authorization", "Bearer sometoken") }
+        assertEquals(HttpStatusCode.NoContent, withOauth2.status)
+
+        val withApiKey = client.post("/widgets/w1/favorite") { header("X-Api-Key", "secret") }
+        assertEquals(HttpStatusCode.NoContent, withApiKey.status)
+    }
+
+    // archiveWidget: security: [{oauth2Auth, apiKeyAuth}, {bearerAuth}] - one alternative itself
+    // requires two schemes together (AND-within-OR), exercising authTry's nested-if recursion
+    // beyond a single scheme, not just authAlternative's OR-loop.
+    @Test
+    fun `archiveWidget requires both schemes of the AND-combined alternative, or bearerAuth alone`() = testApplication {
+        installKitchenSinkApp()
+
+        val neither = client.post("/widgets/w1/archive")
+        assertEquals(HttpStatusCode.Unauthorized, neither.status)
+
+        // Only one of the two AND-combined schemes (apiKeyAuth, no Authorization) - not enough on
+        // its own, and the second alternative (bearerAuth) isn't satisfied either.
+        val onlyApiKey = client.post("/widgets/w1/archive") { header("X-Api-Key", "secret") }
+        assertEquals(HttpStatusCode.Unauthorized, onlyApiKey.status)
+
+        // Both schemes the first alternative requires together.
+        val bothCombined = client.post("/widgets/w1/archive") {
+            header("X-Api-Key", "secret")
+            header("Authorization", "Bearer sometoken")
+        }
+        assertEquals(HttpStatusCode.NoContent, bothCombined.status)
+
+        // Second alternative (bearerAuth alone) also satisfies the request on its own.
+        val bearerAlone = client.post("/widgets/w1/archive") { header("Authorization", "Bearer sometoken") }
+        assertEquals(HttpStatusCode.NoContent, bearerAlone.status)
+    }
 }

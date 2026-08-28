@@ -30,7 +30,10 @@ class FormBodiesTest {
         }
         val api = PetsApi(client, "https://example.test")
 
-        api.subscribeToPet(petId = "1", body = PetSubscription(email = "me@example.com", notify = true))
+        api.subscribeToPet(
+            petId = "1",
+            body = PetSubscription(email = "me@example.com", notify = true, channels = listOf("email", "sms")),
+        )
 
         assertEquals(HttpMethod.Post, captured!!.method)
         val body = captured!!.body as OutgoingContent.ByteArrayContent
@@ -38,6 +41,9 @@ class FormBodiesTest {
         val params = parseQueryString(String(body.bytes()))
         assertEquals("me@example.com", params["email"])
         assertEquals("true", params["notify"])
+        // An array-typed form field (channels) sends one repeated key per element (OpenAPI's
+        // default `style: form, explode: true`), not a single comma-joined value.
+        assertEquals(listOf("email", "sms"), params.getAll("channels"))
     }
 
     @Test
@@ -49,7 +55,10 @@ class FormBodiesTest {
         }
         val api = PetsApi(client, "https://example.test")
 
-        api.uploadPetPhoto(petId = "1", body = PetPhotoUpload(caption = "cute", photo = "raw-bytes"))
+        api.uploadPetPhoto(
+            petId = "1",
+            body = PetPhotoUpload(caption = "cute", albums = listOf("vacation", "favorites"), photo = "raw-bytes".toByteArray()),
+        )
 
         assertEquals(HttpMethod.Post, captured!!.method)
         // MultiPartFormDataContent is streamed (WriteChannelContent), not a simple byte buffer -

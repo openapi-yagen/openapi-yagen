@@ -3,6 +3,7 @@ package com.example.kitchensink.client
 import com.example.kitchensink.client.apis.PetsApi
 import com.example.kitchensink.client.models.Error
 import com.example.kitchensink.client.models.NewPet
+import com.example.kitchensink.client.models.NewPetVisibility
 import com.example.kitchensink.client.models.Pet
 import com.example.kitchensink.client.models.Rating
 import com.example.kitchensink.client.support.buildTestClient
@@ -79,6 +80,22 @@ class PetsApiTest {
         assertEquals("dog", captured!!.url.parameters["tag"])
     }
 
+    // Wired from the spec's `in: cookie` session_id parameter - proves cookieParam (query_utils.kt.j2)
+    // actually sends it on the request's Cookie header, not silently dropping it.
+    @Test
+    fun `listPets sends the session_id cookie parameter on the Cookie header`() = runTest {
+        var captured: HttpRequestData? = null
+        val client = buildTestClient { request ->
+            captured = request
+            respond("[]", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val api = PetsApi(client, "https://example.test")
+
+        api.listPets(sessionId = "abc123")
+
+        assertEquals("session_id=abc123", captured!!.headers[HttpHeaders.Cookie])
+    }
+
     @Test
     fun `createPet sends a JSON body matching NewPet's shape`() = runTest {
         var captured: HttpRequestData? = null
@@ -98,6 +115,21 @@ class PetsApiTest {
         val sentJson = Json.parseToJsonElement((captured!!.body as TextContent).text).jsonObject
         assertEquals("Fido", sentJson.getValue("name").jsonPrimitive.content)
         assertEquals("dog", sentJson.getValue("tag").jsonPrimitive.content)
+    }
+
+    // `default` support: kotlinx.serialization applies a data class's constructor default when a
+    // JSON key is absent, but NOT for an explicit JSON null (see types.js's buildDefaultLiteral and
+    // model_data_class.kt.j2) - a plain decode test, no HTTP involved, same as the server's own
+    // NewPet default coverage.
+    @Test
+    fun `NewPet applies its numeric and enum defaults when the keys are absent, not when explicitly null`() {
+        val withAbsentKeys = Json.decodeFromString<NewPet>("""{"name":"Fido"}""")
+        assertEquals(1, withAbsentKeys.priority)
+        assertEquals(NewPetVisibility.PUBLIC, withAbsentKeys.visibility)
+
+        val withExplicitNulls = Json.decodeFromString<NewPet>("""{"name":"Fido","priority":null,"visibility":null}""")
+        assertEquals(null, withExplicitNulls.priority)
+        assertEquals(null, withExplicitNulls.visibility)
     }
 
     @Test

@@ -27,4 +27,8 @@ class FakeWidgetsApiHandler : WidgetsApiHandler {
 
     override suspend fun getShape(shapeId: String): Shape =
         shapes[shapeId] ?: throw NotFoundException("shape $shapeId not found")
+
+    override suspend fun favoriteWidget(widgetId: String, oauth2Auth: String?, apiKeyAuth: String?) {}
+
+    override suspend fun archiveWidget(widgetId: String, apiKeyAuth: String?, oauth2Auth: String?, bearerAuth: String?) {}
 }

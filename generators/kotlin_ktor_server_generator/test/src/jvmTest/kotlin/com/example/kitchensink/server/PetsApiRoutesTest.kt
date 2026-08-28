@@ -1,5 +1,8 @@
 package com.example.kitchensink.server
 
+import com.example.kitchensink.server.fakes.FakePetsApiHandler
+import com.example.kitchensink.server.models.NewPet
+import com.example.kitchensink.server.models.NewPetVisibility
 import com.example.kitchensink.server.models.Pet
 import com.example.kitchensink.server.models.Pets
 import com.example.kitchensink.server.support.installKitchenSinkApp
@@ -58,6 +61,21 @@ class PetsApiRoutesTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
+    // Wired from the spec's `in: cookie` parameter (see components... session_id in
+    // kitchensink.yaml) - proves Validation.kt's cookieParamAs (call.request.cookies[name])
+    // actually reads the Cookie header, not silently dropping it or misreading it as a query
+    // parameter.
+    @Test
+    fun `listPets reads the session_id cookie parameter`() = testApplication {
+        val handler = FakePetsApiHandler()
+        installKitchenSinkApp(petsHandler = handler)
+        val response = client.get("/pets") {
+            header("Cookie", "session_id=abc123")
+        }
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("abc123", handler.lastSeenSessionId)
+    }
+
     @Test
     fun `createPet with a valid body returns 201`() = testApplication {
         installKitchenSinkApp()
@@ -88,6 +106,49 @@ class PetsApiRoutesTest {
             setBody("""{"name":"${"x".repeat(51)}"}""")
         }
         assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `createPet with an invalid sku uuid returns 400`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Fido","sku":"not-a-uuid"}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `createPet with a valid sku uuid returns 201`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Fido","sku":"3fa85f64-5717-4562-b3fc-2c963f66afa6"}""")
+        }
+        assertEquals(HttpStatusCode.Created, response.status)
+    }
+
+    // Recursive validate(): a Map-typed (additionalProperties: Rating) property gets each VALUE's
+    // own validate() called too, not just List/array elements - Rating's score is constrained to
+    // 1..5.
+    @Test
+    fun `createPet with an out-of-range rating inside a Map value returns 400`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Fido","ratingsBySource":{"vet":{"score":10,"label":"great"}}}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `createPet with a valid rating inside a Map value returns 201`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Fido","ratingsBySource":{"vet":{"score":5,"label":"great"}}}""")
+        }
+        assertEquals(HttpStatusCode.Created, response.status)
     }
 
     // Recursive validate(): an array-of-primitive-with-constraints property (nicknames: string
@@ -132,6 +193,25 @@ class PetsApiRoutesTest {
             setBody("""{"name":"Fido","ratings":[{"score":4,"label":"good"}]}""")
         }
         assertEquals(HttpStatusCode.Created, response.status)
+    }
+
+    // `default` support: kotlinx.serialization applies a data class's constructor default when a
+    // JSON key is absent (priority/visibility below), but NOT for an explicit JSON null - the same
+    // "absent vs. explicit null" distinction the Go generator needs a custom UnmarshalJSON for,
+    // Kotlin gets for free from the language's own default-parameter semantics (see types.js's
+    // buildDefaultLiteral and model_data_class.kt.j2).
+    @Test
+    fun `NewPet applies its numeric and enum defaults when the keys are absent`() {
+        val pet = Json.decodeFromString<NewPet>("""{"name":"Fido"}""")
+        assertEquals(1, pet.priority)
+        assertEquals(NewPetVisibility.PUBLIC, pet.visibility)
+    }
+
+    @Test
+    fun `NewPet does not apply its default when the key is explicitly null`() {
+        val pet = Json.decodeFromString<NewPet>("""{"name":"Fido","priority":null,"visibility":null}""")
+        assertEquals(null, pet.priority)
+        assertEquals(null, pet.visibility)
     }
 
     @Test

@@ -37,6 +37,12 @@ paths:
           description: Only return pets with this tag.
           schema:
             type: string
+        - name: session_id
+          in: cookie
+          required: false
+          description: "Exercises a cookie parameter."
+          schema:
+            type: string
       responses:
         "200":
           description: A page of pets
@@ -314,6 +320,15 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/PetStatus"
+        priority:
+          type: integer
+          default: 1
+          description: "Exercises a numeric default value applied by kotlinx.serialization when absent."
+        visibility:
+          type: string
+          enum: [public, private]
+          default: public
+          description: "Exercises an enum default value, resolved to its generated Kotlin constant."
     PetStatus:
       description: A pet's availability status.
       type: string
@@ -337,6 +352,11 @@ components:
       properties:
         caption:
           type: string
+        albums:
+          description: "Exercises an array-of-string multipart form field (one repeated part per element)."
+          type: array
+          items:
+            type: string
         photo:
           type: string
           format: binary
@@ -348,6 +368,11 @@ components:
           type: string
         notify:
           type: boolean
+        channels:
+          description: "Exercises an array-of-string urlencoded form field (one repeated key per element)."
+          type: array
+          items:
+            type: string
     Tag:
       type: object
       required: [id, name]

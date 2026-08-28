@@ -1,9 +1,13 @@
 package {{ packageName }}
 
 import io.ktor.http.Parameters
+import io.ktor.http.content.MultiPartData
+import io.ktor.http.content.PartData
+import io.ktor.http.content.forEachPart
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.MissingRequestParameterException
 import io.ktor.server.routing.RoutingCall
+import io.ktor.utils.io.toByteArray
 
 // Shared request-parsing/validation helpers - generated once and called from every route instead
 // of duplicating parameter parsing and constraint checks per operation (see api_routes.kt.j2 and
@@ -53,11 +57,68 @@ fun <T> Parameters.paramAs(name: String, typeName: String, convert: (String) -> 
 fun <T> Parameters.requireParamAs(name: String, typeName: String, convert: (String) -> T): T =
     convertOrThrow(this[name] ?: throw MissingRequestParameterException(name), name, typeName, convert)
 
+// Array-of-scalar form field equivalents of paramAs/requireParamAs above (OpenAPI's default
+// `style: form, explode: true`: one repeated `name=` key per element) - same convention
+// queryParamListAs already applies to array-typed query parameters.
+fun <T> Parameters.paramListAs(name: String, typeName: String, convert: (String) -> T): List<T>? =
+    getAll(name)?.map { convertOrThrow(it, name, typeName, convert) }
+
+fun <T> Parameters.requireParamListAs(name: String, typeName: String, convert: (String) -> T): List<T> =
+    getAll(name)?.map { convertOrThrow(it, name, typeName, convert) } ?: throw MissingRequestParameterException(name)
+
+// multipart/form-data equivalents of paramAs/requireParamAs/paramListAs above. MultiPartData is a
+// streaming, forward-only sequence of parts with no random access of its own (its own
+// `readAllParts()` is deprecated - "can deadlock on large requests" - specifically because reading
+// everything into a list defeats that streaming design), so collect() below drains it exactly once
+// via `forEachPart` (disposing each part immediately after reading it, as Ktor requires) into a
+// small by-name index that formFieldAs/formFieldListAs/formFileAs then look up from - the
+// generated per-field extraction in api_routes.kt.j2 needs name-indexed, not sequential, access. A
+// `format: binary` field goes through formFileAs/requireFormFileAs instead: raw bytes, no string
+// conversion involved.
+class MultipartFields(val formValues: Map<String, List<String>>, val fileValues: Map<String, ByteArray>)
+
+suspend fun MultiPartData.collect(): MultipartFields {
+    val formValues = mutableMapOf<String, MutableList<String>>()
+    val fileValues = mutableMapOf<String, ByteArray>()
+    forEachPart { part ->
+        when (part) {
+            is PartData.FormItem -> part.name?.let { formValues.getOrPut(it) { mutableListOf() }.add(part.value) }
+            is PartData.FileItem -> part.name?.let { fileValues[it] = part.provider().toByteArray() }
+            else -> {}
+        }
+        part.dispose()
+    }
+    return MultipartFields(formValues, fileValues)
+}
+
+fun <T> MultipartFields.formFieldAs(name: String, typeName: String, convert: (String) -> T): T? =
+    formValues[name]?.firstOrNull()?.let { convertOrThrow(it, name, typeName, convert) }
+
+fun <T> MultipartFields.requireFormFieldAs(name: String, typeName: String, convert: (String) -> T): T =
+    convertOrThrow(formValues[name]?.firstOrNull() ?: throw MissingRequestParameterException(name), name, typeName, convert)
+
+fun <T> MultipartFields.formFieldListAs(name: String, typeName: String, convert: (String) -> T): List<T>? =
+    formValues[name]?.map { convertOrThrow(it, name, typeName, convert) }
+
+fun <T> MultipartFields.requireFormFieldListAs(name: String, typeName: String, convert: (String) -> T): List<T> =
+    formFieldListAs(name, typeName, convert) ?: throw MissingRequestParameterException(name)
+
+fun MultipartFields.formFileAs(name: String): ByteArray? = fileValues[name]
+
+fun MultipartFields.requireFormFileAs(name: String): ByteArray =
+    fileValues[name] ?: throw MissingRequestParameterException(name)
+
 fun <T> RoutingCall.headerParamAs(name: String, typeName: String, convert: (String) -> T): T? =
     request.headers[name]?.let { convertOrThrow(it, name, typeName, convert) }
 
 fun <T> RoutingCall.requireHeaderParamAs(name: String, typeName: String, convert: (String) -> T): T =
     convertOrThrow(request.headers[name] ?: throw MissingRequestParameterException(name), name, typeName, convert)
+
+fun <T> RoutingCall.cookieParamAs(name: String, typeName: String, convert: (String) -> T): T? =
+    request.cookies[name]?.let { convertOrThrow(it, name, typeName, convert) }
+
+fun <T> RoutingCall.requireCookieParamAs(name: String, typeName: String, convert: (String) -> T): T =
+    convertOrThrow(request.cookies[name] ?: throw MissingRequestParameterException(name), name, typeName, convert)
 
 // Thrown when a securityScheme's credentials (bearer token / apiKey) are absent from the request.
 // Deliberately NOT a MissingRequestParameterException/BadRequestException: those mean "your
@@ -82,6 +143,24 @@ fun RoutingCall.requireApiKey(location: String, name: String): String =
         else -> throw IllegalStateException("Unsupported apiKey location: $location")
     } ?: throw MissingAuthenticationException("Missing required apiKey \"$name\" (in: $location)")
 
+// Non-throwing counterparts to requireBearerToken/requireApiKey above (null instead of throwing
+// MissingAuthenticationException when absent) - used to resolve which of 2+ OR-alternative security
+// requirements (security: [{a}, {b}]) a request satisfies, trying each in turn (see
+// api_routes.kt.j2's authTry/authAlternative macros) rather than failing fast on the first one.
+fun RoutingCall.optionalBearerToken(headerName: String): String? {
+    val raw = request.headers[headerName] ?: return null
+    val prefix = "Bearer "
+    return if (raw.startsWith(prefix, ignoreCase = true)) raw.substring(prefix.length) else raw
+}
+
+fun RoutingCall.optionalApiKey(location: String, name: String): String? =
+    when (location) {
+        "header" -> request.headers[name]
+        "query" -> request.queryParameters[name]
+        "cookie" -> request.cookies[name]
+        else -> throw IllegalStateException("Unsupported apiKey location: $location")
+    }
+
 fun requireMax(value: Number?, max: Double, field: String) {
     if (value != null && value.toDouble() > max) throw BadRequestException("Field \"$field\" must be <= $max")
 }
@@ -101,4 +180,16 @@ fun requireMinLength(value: String?, min: Int, field: String) {
 fun requirePattern(value: String?, pattern: String, field: String) {
     if (value != null && !Regex(pattern).matches(value))
         throw BadRequestException("Field \"$field\" does not match pattern $pattern")
+}
+
+// Canonical 8-4-4-4-12 hyphenated hex form (RFC 4122 section 3) - version/variant bits aren't
+// checked, matching how requireMax/requireMaxLength/requirePattern above are also shape checks
+// only, not full semantic validation. `format: date` isn't checked at all here: it's already typed
+// as kotlinx.datetime.LocalDate (see primitiveKtType), so kotlinx.serialization's own parsing at
+// decode time already rejects a malformed date - a plain String property/parameter never happens
+// for format: date the way it still does for format: uuid.
+private val UUID_PATTERN = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+fun requireUuid(value: String?, field: String) {
+    if (value != null && !UUID_PATTERN.matches(value)) throw BadRequestException("Field \"$field\" must be a valid UUID")
 }

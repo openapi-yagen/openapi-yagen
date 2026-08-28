@@ -27,8 +27,13 @@
 // hand-rolled `Array.isArray(s.enum)`-style checks this file used to do. All three only work while
 // still in this main-script phase, before a schema is passed into renderTemplate (see
 // lib/operations.js's note on the same thing).
+//
+// This generator declares openApiVersion "3.2" (see generator.yml), so nullability is read from the
+// JSON Schema 2020-12 dialect OAS 3.1+ uses: a schema is nullable when its `type` is an array
+// containing "null" (there is no `nullable` boolean key in this dialect - see isNullable below).
 
 import { className, fieldName, enumConstantName } from "./naming.js";
+import { escapeKotlinString } from "./keywords.js";
 import { withResilience } from "./strict.js";
 
 function newRegistry(reservedNames) {
@@ -57,6 +62,36 @@ function addModel(registry, name, entry) {
   registry.order.push(name);
 }
 
+// A schema is nullable in the OAS 3.1+/3.2 dialect when its `type` is an array containing "null" -
+// there is no `nullable` boolean key in this dialect (that's 3.0-only).
+function isNullable(schema) {
+  return Array.isArray(schema.type) && schema.type.includes("null");
+}
+
+// Turns a property's `default` schema keyword into a Kotlin literal for its constructor default
+// parameter (see registerObject below) - kotlinx.serialization already applies a constructor
+// default when a JSON key is absent, and does NOT apply it for an explicit JSON null (the same
+// "absent vs. explicit null" distinction the Go generator needs a custom UnmarshalJSON for -
+// Kotlin gets it for free from the language's own default-parameter semantics), so this is just a
+// literal, not a codec. Returns null for any shape not recognized (e.g. an object/array default -
+// not worth the extra literal-building complexity for a rare case) - the property then falls back
+// to its ordinary `= null` (nullable, no default) handling, same as if `default` were absent.
+function buildDefaultLiteral(registry, type, value) {
+  if (value === undefined) return null;
+  if (type === "String") return escapeKotlinString(String(value));
+  if (type === "Int") return String(value);
+  if (type === "Long") return `${value}L`;
+  if (type === "Float") return `${value}f`;
+  if (type === "Double") return String(value);
+  if (type === "Boolean") return value ? "true" : "false";
+  const model = registry.models.get(type);
+  if (model && model.kind === "enum") {
+    const entry = model.entries.find((e) => e.wireValue === String(value));
+    return entry ? `${type}.${entry.ktName}` : null;
+  }
+  return null;
+}
+
 function registerObject(registry, name, schema, variantOpts) {
   if (registry.models.has(name)) return;
   const skipProperty = variantOpts && variantOpts.skipProperty;
@@ -67,7 +102,11 @@ function registerObject(registry, name, schema, variantOpts) {
     const { kotlinName, needsSerialName } = fieldName(propName);
     const t = ktType(registry, propSchema, name + className(propName));
     const isRequired = required.has(propName);
-    const nullable = !isRequired || propSchema.nullable === true;
+    const nullable = !isRequired || isNullable(propSchema);
+    // Only an optional property gets a default literal - matching Go's own `p.pointer` gate, a
+    // `default` alongside a required property is unusual (the property is never actually absent)
+    // and not worth special-casing.
+    const defaultLiteral = !isRequired && "default" in propSchema ? buildDefaultLiteral(registry, t.type, propSchema.default) : null;
     props.push({
       ktName: kotlinName,
       wireName: propName,
@@ -75,6 +114,7 @@ function registerObject(registry, name, schema, variantOpts) {
       type: t.type,
       serializerAnnotation: t.serializerAnnotation || null,
       nullable,
+      defaultLiteral,
       description: propSchema.description || null,
     });
   }
@@ -228,6 +268,12 @@ function primitiveKtType(s) {
   if (type === "string") {
     if (s.format === "date") return "kotlinx.datetime.LocalDate";
     if (s.format === "date-time") return dateTimeType;
+    // `format: binary` means "arbitrary file/binary content" (OpenAPI's convention for a
+    // multipart file field or a raw-bytes body) - mapped to a real ByteArray instead of the
+    // generic String every other string format falls back to, so a multipart/urlencoded form
+    // field can be sent/received as an actual file part (see operations.js's buildRequestBody)
+    // instead of a text field holding raw bytes-as-characters.
+    if (s.format === "binary") return "ByteArray";
     return "String";
   }
   if (type === "integer") return s.format === "int64" ? "Long" : "Int";

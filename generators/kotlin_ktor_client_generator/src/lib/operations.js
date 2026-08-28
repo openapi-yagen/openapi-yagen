@@ -193,24 +193,35 @@ function isTextMediaType(mediaType) {
 }
 
 // application/x-www-form-urlencoded and multipart/form-data bodies are, by OpenAPI convention,
-// always `type: object` schemas with one property per form field. Anything else (a nested
-// object/array property) is a generator error - same "handle the common case, error on the rest"
-// policy path/header params already follow. A `type: string, format: binary` property is already
-// classified `Primitive` by the engine's kindOf() (same as any other string), so it passes this
-// check and ends up typed the same generic `String` primitiveKtType maps every `format: binary`
-// schema to - unlike the TypeScript generator's multipart binary fields (mapped to `Blob | File`),
-// this generator doesn't special-case it to a Kotlin `ByteArray`/streaming type (see README "Known
-// limitations" - this is a real, currently-undithered gap, not a design choice).
+// always `type: object` schemas with one property per form field. A property may be a plain
+// scalar/enum (one repeated form value), or an array of scalar/enum items (one repeated key per
+// element, same "style: form, explode: true" convention buildArrayQueryParam already follows for
+// query parameters). Anything else (a nested object property, or an array of non-scalar items) is
+// a generator error - same "handle the common case, error on the rest" policy path/header params
+// already follow. A `type: string, format: binary` property is mapped to a Kotlin `ByteArray` by
+// primitiveKtType (types.js) - it's still `Primitive`-kind, so it passes this check like any other
+// scalar; buildRequestBody below is what actually sends it as a real multipart file part.
 function requireFlatObjectSchema(bodySchema, mediaType) {
   if (kindOf(bodySchema) !== "Object") {
     throw Error(`<c7e2a915> A "${mediaType}" body must be an object schema (one property per form field) - got ${kindOf(bodySchema)}`);
   }
   for (const [propName, propSchema] of Object.entries(bodySchema.properties || {})) {
-    const kind = kindOf(unwrapSchema(propSchema));
+    const resolved = unwrapSchema(propSchema);
+    const kind = kindOf(resolved);
+    if (kind === "Array") {
+      const itemKind = kindOf(unwrapSchema(resolved.items || {}));
+      if (itemKind !== "Primitive" && itemKind !== "Enum") {
+        throw Error(
+          `<f31b0d6a> Unsupported "${mediaType}" body field "${propName}": array items must be primitive ` +
+            `scalar types or enums - got ${itemKind}`
+        );
+      }
+      continue;
+    }
     if (kind !== "Primitive" && kind !== "Enum") {
       throw Error(
         `<f31b0d6a> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types ` +
-          `(including format: binary strings) or enums are supported as form fields - got ${kind}`
+          `(including format: binary strings), enums, or arrays of either are supported as form fields - got ${kind}`
       );
     }
   }
@@ -270,8 +281,17 @@ function buildRequestBody(registry, hintBase, requestBody) {
   // urlencoded/multipart need each field's own name to build one append(...) call per property
   // (see api_client.kt.j2) - Kotlin has no runtime reflection over a data class's properties to
   // lean on instead, unlike the Ruby generator's equivalent (a plain Hash walked generically at
-  // request time).
-  if (picked.encoding !== "json") result.fields = (registry.models.get(t.type) || {}).properties || [];
+  // request time). `isArray` (List<X>/Set<X> property type) picks a per-element append loop over a
+  // single append call; `isFile` (a ByteArray property - see primitiveKtType's format: binary
+  // mapping) picks the real multipart-file append(name, byteArray) overload over the plain
+  // append(name, it.toString()) every other scalar field uses.
+  if (picked.encoding !== "json") {
+    result.fields = ((registry.models.get(t.type) || {}).properties || []).map((f) => ({
+      ...f,
+      isArray: /^(?:List|Set)</.test(f.type),
+      isFile: f.type === "ByteArray",
+    }));
+  }
   return result;
 }
 
@@ -336,6 +356,7 @@ export function collectOperationsByTag(registry) {
         const pathParams = allParams.filter((p) => p.in === "path");
         const queryParams = allParams.filter((p) => p.in === "query");
         const headerParams = allParams.filter((p) => p.in === "header");
+        const cookieParams = allParams.filter((p) => p.in === "cookie");
 
         const body = buildRequestBody(registry, hintBase, op.requestBody);
         const response = buildResponse(registry, hintBase, op.responses);
@@ -355,6 +376,7 @@ export function collectOperationsByTag(registry) {
           pathParams,
           queryParams,
           headerParams,
+          cookieParams,
           body,
           response,
           returnsValue: response.type !== "Unit",

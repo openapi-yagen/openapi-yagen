@@ -34,12 +34,19 @@ import io.ktor.server.routing.put
 {% for f in p.queryFilter.fields %}            {{ f.ktName }} = call.queryParamAs({{ toStringLiteral(p.wireName + "[" + f.wireName + "]") }}, "{{ f.typeLabel }}") { {{ f.converter }} },
 {% endfor %}        ))
     } else null
-{% else %}{{ extractAndValidate(p) }}{% endif %}{% endfor %}{% for p in op.headerParams %}{{ extractAndValidate(p) }}{% endfor %}{% for p in op.authParams %}val {{ p.ktName }} = {{ p.extractExpr }}
-{% endfor %}{% if op.body %}{% if op.body.encoding == "multipart" %}val body = call.receiveMultipart()
+{% else %}{{ extractAndValidate(p) }}{% endif %}{% endfor %}{% for p in op.headerParams %}{{ extractAndValidate(p) }}{% endfor %}{% for p in op.cookieParams %}{{ extractAndValidate(p) }}{% endfor %}{% if op.authAlternatives %}{% for p in op.authParams %}var {{ p.ktName }}: String? = null
+{% endfor %}var authMatched = false
+{% for alt in op.authAlternatives %}{{ authAlternative(alt) }}
+{% endfor %}if (!authMatched) throw MissingAuthenticationException("No security requirement satisfied")
+{% else %}{% for p in op.authParams %}val {{ p.ktName }} = {{ p.extractExpr }}
+{% endfor %}{% endif %}{% if op.body %}{% if op.body.encoding == "multipart" %}val parts = call.receiveMultipart().collect()
+val body = {{ op.body.type }}(
+{% for f in op.body.fields %}    {{ f.ktName }} = {% if f.isFile %}parts.{% if f.nullable %}formFileAs{% else %}requireFormFileAs{% endif %}({{ toStringLiteral(f.wireName) }}){% else if f.isArray %}parts.{% if f.nullable %}formFieldListAs{% else %}requireFormFieldListAs{% endif %}({{ toStringLiteral(f.wireName) }}, {{ toStringLiteral(f.typeLabel) }}) { {{ f.converter }} }{% else %}parts.{% if f.nullable %}formFieldAs{% else %}requireFormFieldAs{% endif %}({{ toStringLiteral(f.wireName) }}, {{ toStringLiteral(f.typeLabel) }}) { {{ f.converter }} }{% endif %},
+{% endfor %}){% if op.body.hasValidate %}.validate(){% endif %}
 
 {% else if op.body.encoding == "urlencoded" %}val bodyParams = call.receiveParameters()
 val body = {{ op.body.type }}(
-{% for f in op.body.fields %}    {{ f.ktName }} = bodyParams.{% if f.nullable %}paramAs{% else %}requireParamAs{% endif %}({{ toStringLiteral(f.wireName) }}, {{ toStringLiteral(f.typeLabel) }}) { {{ f.converter }} },
+{% for f in op.body.fields %}    {{ f.ktName }} = {% if f.isArray %}bodyParams.{% if f.nullable %}paramListAs{% else %}requireParamListAs{% endif %}({{ toStringLiteral(f.wireName) }}, {{ toStringLiteral(f.typeLabel) }}) { {{ f.converter }} }{% else %}bodyParams.{% if f.nullable %}paramAs{% else %}requireParamAs{% endif %}({{ toStringLiteral(f.wireName) }}, {{ toStringLiteral(f.typeLabel) }}) { {{ f.converter }} }{% endif %},
 {% endfor %}){% if op.body.hasValidate %}.validate(){% endif %}
 
 {% else %}val body = call.receive<{{ op.body.type }}>(){% if op.body.hasValidate %}.validate(){% endif %}

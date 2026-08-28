@@ -50,6 +50,22 @@ class FormBodiesRoutesTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
+    // Recursive urlencoded field extraction: an array-typed form field (channels) is read as one
+    // repeated key per element (call.receiveParameters().getAll(name) - see Validation.kt's
+    // paramListAs) into a List<String>, not just a single value.
+    @Test
+    fun `subscribeToPet accepts a repeated channels form field as an array`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets/1/subscribe") {
+            setBody(FormDataContent(Parameters.build {
+                append("email", "me@example.com")
+                append("channels", "email")
+                append("channels", "sms")
+            }))
+        }
+        assertEquals(HttpStatusCode.NoContent, response.status)
+    }
+
     @Test
     fun `uploadPetPhoto accepts a multipart_form-data body`() = testApplication {
         val handler = FakePetsApiHandler()
@@ -57,6 +73,8 @@ class FormBodiesRoutesTest {
         val response = client.post("/pets/1/photo") {
             setBody(MultiPartFormDataContent(formData {
                 append("caption", "cute")
+                append("albums", "vacation")
+                append("albums", "favorites")
                 append("photo", ByteArray(4), Headers.build {
                     append(HttpHeaders.ContentDisposition, "filename=\"rex.jpg\"")
                 })
@@ -64,7 +82,19 @@ class FormBodiesRoutesTest {
         }
         assertEquals(HttpStatusCode.NoContent, response.status)
         assertEquals("cute", handler.lastUploadedCaption)
-        assertTrue(handler.lastUploadedPhotoSeen)
+        assertEquals(listOf("vacation", "favorites"), handler.lastUploadedAlbums)
+        assertEquals(4, handler.lastUploadedPhotoSize)
+    }
+
+    @Test
+    fun `uploadPetPhoto without the required photo file returns 400`() = testApplication {
+        installKitchenSinkApp()
+        val response = client.post("/pets/1/photo") {
+            setBody(MultiPartFormDataContent(formData {
+                append("caption", "cute")
+            }))
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
     @Test
