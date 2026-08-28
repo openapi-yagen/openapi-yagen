@@ -71,7 +71,7 @@ test("ratePet without an apiKey configured on ApiClientConfig throws before send
         xRequestId: "req-42",
         body: { score: 5, label: "great" },
       }),
-    /requires "apiKey" authentication/
+    /requires ApiClientConfig\.auth\.apiKey/
   );
   assert.equal(calls.length, 0);
 });
@@ -113,7 +113,7 @@ test("deletePet without a bearer token configured on ApiClientConfig throws befo
   const { fetch, calls } = createFetchStub(() => ({ status: 204 }));
   await assert.rejects(
     () => new PetsClient({ baseUrl: "https://example.test", fetch }).deletePet("1"),
-    /requires "bearer" authentication/
+    /requires ApiClientConfig\.auth\.bearer/
   );
   assert.equal(calls.length, 0);
 });

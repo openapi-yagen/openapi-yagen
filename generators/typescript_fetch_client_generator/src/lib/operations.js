@@ -162,38 +162,16 @@ function buildPathExpr(pathStr, pathParams) {
   );
 }
 
-// Turns an operation's already-resolved `security` (see collectOperations() in
-// docs/javascript-api.md) into the object literal passed as request()'s `auth` option (see
-// runtime.ts's AuthRequirement), or null if the operation needs no auth. `security` is an array of
-// alternative requirement objects (OR between entries, AND between the scheme names within one) -
-// only a single alternative with a single scheme is supported (the common case: one way to
-// authenticate) - a client-side ApiClientConfig.auth field staying simple (one bearer/apiKey
-// provider, not an array) matters more here than full spec coverage; see also the Kotlin server
-// generator's buildAuthParams, which supports AND (multiple simultaneous schemes) since a Kotlin
-// handler parameter list has no such ergonomic cost.
-function buildAuthLiteral(op) {
-  const reqs = op.security || [];
-  if (reqs.length === 0) return null;
-  if (reqs.length > 1) {
-    throw Error(
-      `<de007e6f> Operation has ${reqs.length} alternative security requirements (OR) - only a single ` +
-        `requirement is supported`
-    );
-  }
-  const schemeNames = Object.keys(reqs[0]);
-  if (schemeNames.length === 0) return null; // an empty requirement object = anonymous access is allowed
-  if (schemeNames.length > 1) {
-    throw Error(
-      `<1c503240> Operation requires ${schemeNames.length} security schemes simultaneously (AND) - only a ` +
-        `single scheme per operation is supported`
-    );
-  }
-  const schemeName = schemeNames[0];
+// Builds one securityScheme's AuthRequirement object literal (runtime.ts) - `oauth2`/
+// `openIdConnect` are treated identically to `http`/`bearer` (RFC 6750: an OAuth2/OIDC access
+// token travels as `Authorization: Bearer <token>` regardless of how it was obtained), and this
+// generator never validates a token's scopes/claims - just presence, same as every other scheme.
+function buildAuthSchemeLiteral(schemeName) {
   const scheme = ((schema.components && schema.components.securitySchemes) || {})[schemeName];
   if (!scheme) {
     throw Error(`<e9481fed> security references scheme "${schemeName}", not declared in components.securitySchemes`);
   }
-  if (scheme.type === "http" && String(scheme.scheme || "").toLowerCase() === "bearer") {
+  if ((scheme.type === "http" && String(scheme.scheme || "").toLowerCase() === "bearer") || scheme.type === "oauth2" || scheme.type === "openIdConnect") {
     return `{ kind: "bearer" }`;
   }
   if (scheme.type === "apiKey") {
@@ -207,9 +185,26 @@ function buildAuthLiteral(op) {
     return `{ kind: "apiKey", location: ${JSON.stringify(loc)}, name: ${JSON.stringify(scheme.name)} }`;
   }
   throw Error(
-    `<f5a6b7c8> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer and ` +
-      `apiKey are currently supported`
+    `<f5a6b7c8> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer, ` +
+      `apiKey, oauth2, and openIdConnect are currently supported`
   );
+}
+
+// Turns an operation's already-resolved `security` (see collectOperations() in
+// docs/javascript-api.md) into the AuthAlternative[] object literal passed as request()'s `auth`
+// option (see runtime.ts's AuthAlternative/applyAuth), or null if the operation needs no auth.
+// `security` is an array of alternative requirement objects (OR between entries, AND between the
+// scheme names within one) - both are passed straight through to the runtime, which picks
+// whichever alternative's every scheme has a configured ApiClientConfig.auth provider at request
+// time (see applyAuth). An empty requirement object (`{}`) as any one of the alternatives means
+// "anonymous access is also accepted" per the OpenAPI spec - satisfying it trivially needs no
+// credential, so the whole operation is treated as needing no auth at all.
+function buildAuthLiteral(op) {
+  const reqs = op.security || [];
+  if (reqs.length === 0) return null;
+  if (reqs.some((req) => Object.keys(req).length === 0)) return null;
+  const alternatives = reqs.map((req) => Object.keys(req).map((name) => buildAuthSchemeLiteral(name)));
+  return `[${alternatives.map((alt) => `[${alt.join(", ")}]`).join(", ")}]`;
 }
 
 const JSON_MEDIA_TYPE = "application/json";
@@ -227,19 +222,33 @@ function isTextMediaType(mediaType) {
 // already classified `Primitive` by the engine's kindOf() (same as any other string) - it needs no
 // special-casing in this check, only in buildMultipartBodyType's own type-mapping below (a JSON
 // body's `format: binary` field stays the generic `string` this generator already maps every
-// `format: binary` schema to - unaffected). Anything else (a nested object/array property) is a
-// generator error - same "handle the common case, error on the rest" policy path/header params
-// already follow.
+// `format: binary` schema to - unaffected). A property may also be an array of scalar/enum items
+// (including binary - a common real-world "multiple file upload" idiom) - runtime.ts's request()
+// sends one repeated key/part per element generically, from the array value alone, so no extra
+// per-field metadata is needed here for that. Anything else (a nested object property, or an array
+// of non-scalar items) is a generator error - same "handle the common case, error on the rest"
+// policy path/header params already follow.
 function requireFlatObjectSchema(bodySchema, mediaType) {
   if (kindOf(bodySchema) !== "Object") {
     throw Error(`<3a7c9d21> A "${mediaType}" body must be an object schema (one property per form field) - got ${kindOf(bodySchema)}`);
   }
   for (const [propName, propSchema] of Object.entries(bodySchema.properties || {})) {
-    const kind = kindOf(unwrapSchema(propSchema));
+    const resolved = unwrapSchema(propSchema);
+    const kind = kindOf(resolved);
+    if (kind === "Array") {
+      const itemKind = kindOf(unwrapSchema(resolved.items || {}));
+      if (itemKind !== "Primitive" && itemKind !== "Enum") {
+        throw Error(
+          `<6f1b8e44> Unsupported "${mediaType}" body field "${propName}": array items must be primitive ` +
+            `scalar types (including format: binary strings) or enums - got ${itemKind}`
+        );
+      }
+      continue;
+    }
     if (kind !== "Primitive" && kind !== "Enum") {
       throw Error(
         `<6f1b8e44> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types ` +
-          `(including format: binary strings) or enums are supported as form fields - got ${kind}`
+          `(including format: binary strings), enums, or arrays of either are supported as form fields - got ${kind}`
       );
     }
   }
@@ -273,14 +282,34 @@ function pickBodyContent(content) {
 // JSON body still relies on (see requireFlatObjectSchema's comment above). Every field is still
 // guaranteed scalar/enum by that same check, so a non-binary field's own type still goes through
 // the normal tsType() (correctly registering/reusing an enum's named type, for instance).
+function isBinarySchema(s) {
+  return s.type === "string" && s.format === "binary";
+}
+
+// An array-of-binary field (`type: array, items: {type: string, format: binary}`) is a common
+// real-world "multiple file upload" idiom - mapped to `(Blob | File)[]`, same reasoning as the
+// scalar binary case below. A non-binary array still needs its own tsType() call (not just
+// appending "[]" to the scalar branch's result) since its item schema, not the array schema
+// itself, is what picks the element type (and registers an enum's named type, if the items are
+// one).
+function buildMultipartFieldType(registry, hintBase, propName, propSchema) {
+  const resolved = unwrapSchema(propSchema);
+  if (isBinarySchema(resolved)) return "Blob | File";
+  if (kindOf(resolved) === "Array") {
+    const itemSchema = resolved.items || {};
+    if (isBinarySchema(unwrapSchema(itemSchema))) return "(Blob | File)[]";
+    return `${tsType(registry, itemSchema, hintBase + typeName(propName) + "Item").type}[]`;
+  }
+  return tsType(registry, propSchema, hintBase + typeName(propName)).type;
+}
+
 function buildMultipartBodyType(registry, hintBase, bodySchema) {
   const required = new Set(bodySchema.required || []);
-  const fields = Object.entries(bodySchema.properties || {}).map(([propName, propSchema]) => {
-    const resolved = unwrapSchema(propSchema);
-    const isBinary = resolved.type === "string" && resolved.format === "binary";
-    const fieldType = isBinary ? "Blob | File" : tsType(registry, propSchema, hintBase + typeName(propName)).type;
-    return { keyLiteral: propertyKeyLiteral(propName), tsType: fieldType, required: required.has(propName) };
-  });
+  const fields = Object.entries(bodySchema.properties || {}).map(([propName, propSchema]) => ({
+    keyLiteral: propertyKeyLiteral(propName),
+    tsType: buildMultipartFieldType(registry, hintBase, propName, propSchema),
+    required: required.has(propName),
+  }));
   if (fields.length === 0) return "Record<string, never>";
   return "{ " + fields.map((f) => `${f.keyLiteral}${f.required ? "" : "?"}: ${f.tsType}`).join("; ") + " }";
 }
@@ -399,6 +428,21 @@ export function collectOperationsByTag(registry, validateResponses) {
         const hintBase = tagClass + typeName(opName);
 
         const allParams = op.parameters || [];
+        // `in: cookie` isn't just unimplemented - it's browser-unreachable: the Fetch/XHR spec
+        // forbids scripts from setting a Cookie request header at all (a "forbidden header name"),
+        // so there's no correct way for generated code to ever send one. Loudly rejecting it (same
+        // "handle the common case, error on the rest" policy every other unsupported position
+        // already follows) beats the alternative this generator used to have - silently accepting
+        // the parameter into the operation's signature and then never actually sending it.
+        for (const p of allParams) {
+          if (p.in === "cookie") {
+            throw Error(
+              `<b3d9e7c1> Unsupported "in: cookie" parameter "${p.name}": a browser-first fetch client can't set ` +
+                `a Cookie request header itself (forbidden by the Fetch/XHR spec) - the browser sends its own ` +
+                `cookies automatically instead`
+            );
+          }
+        }
         const pathParams = allParams.filter((p) => p.in === "path").map((p) => buildPathParam(registry, hintBase, p));
         const queryParams = allParams.filter((p) => p.in === "query").map((p) => buildQueryParam(registry, hintBase, p));
         const headerParams = allParams.filter((p) => p.in === "header").map((p) => buildHeaderParam(registry, hintBase, p));
@@ -430,10 +474,10 @@ export function collectOperationsByTag(registry, validateResponses) {
 
         const validatorExpr = validateResponses ? buildResponseValidatorExpr(response) : null;
 
-        // An unsupported security scheme (oauth2/openIdConnect/cookie-apiKey), multiple OR
-        // alternatives, or multiple simultaneous (AND) schemes only drops the auth wiring for this
-        // one operation (non-strict mode) - not the whole operation, unlike the outer
-        // withResilience this block runs inside of.
+        // An unsupported security scheme (mutualTLS, or a cookie-located apiKey - a browser-first
+        // fetch client can't send those) only drops the auth wiring for this one operation
+        // (non-strict mode) - not the whole operation, unlike the outer withResilience this block
+        // runs inside of.
         let authLiteral = null;
         withResilience(
           `security for operation ${op.method.toUpperCase()} ${op.path}`,

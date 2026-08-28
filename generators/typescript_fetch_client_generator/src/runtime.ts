@@ -15,9 +15,13 @@ export type HeaderProvider = Record<string, string> | (() => Record<string, stri
 /** Supplies credentials for whichever operations declare a `security` requirement (see each
  * generated method's doc comment / the spec's `components.securitySchemes`) - a callback (not a
  * plain string) for the same reason as `HeaderProvider`: a token can expire and needs re-fetching.
- * Provide whichever of `bearer`/`apiKey` the spec's securitySchemes actually use; an operation
- * whose required kind isn't provided throws instead of silently sending an unauthenticated
- * request. */
+ * Provide whichever of `bearer`/`apiKey` the spec's securitySchemes actually use (an `oauth2`/
+ * `openIdConnect` scheme is treated as `bearer` too - RFC 6750: its access token travels as
+ * `Authorization: Bearer <token>` regardless of how it was obtained); an operation whose every
+ * OR-alternative needs a kind you didn't provide throws instead of silently sending an
+ * unauthenticated request. When an operation accepts more than one alternative way to
+ * authenticate, only provide the one(s) you actually have - request() picks whichever alternative
+ * is fully satisfied (see applyAuth below). */
 export type AuthProvider = {
   bearer?: () => string | Promise<string>;
   apiKey?: () => string | Promise<string>;
@@ -36,14 +40,21 @@ export interface ApiClientConfig {
   auth?: AuthProvider;
 }
 
-/** Which securityScheme an operation needs (see the spec's `security`/`components.securitySchemes`)
+/** One securityScheme an operation needs (see the spec's `security`/`components.securitySchemes`)
  * - generated per-operation from those, never written by hand. `location`/`name` are only set for
- * `kind: "apiKey"` (an `http`/`bearer` scheme always targets the Authorization header). */
+ * `kind: "apiKey"` (an `http`/`bearer` scheme, and an `oauth2`/`openIdConnect` scheme - RFC 6750:
+ * an OAuth2/OIDC access token travels as `Authorization: Bearer <token>` regardless of how it was
+ * obtained - always target the Authorization header the same way). */
 export interface AuthRequirement {
   kind: "bearer" | "apiKey";
   location?: "header" | "query";
   name?: string;
 }
+
+/** One OR-alternative of an operation's `security` (see the spec's own `security` array) - every
+ * scheme listed must be satisfied together (AND) for this alternative to count as satisfied. A
+ * single-scheme alternative is just a one-element array. */
+export type AuthAlternative = AuthRequirement[];
 
 /** How `RequestOptions.body` gets encoded on the wire. Only ever set by a generated method whose
  * requestBody declared the matching OpenAPI content-type (see the generator's operations.js):
@@ -98,9 +109,11 @@ export interface RequestOptions {
    * below). Absent (not just a no-op function) when validation is off, so that mode has zero
    * runtime cost beyond the property being `undefined`. */
   validate?: (value: unknown) => boolean;
-  /** Only present when the spec declares a non-empty `security` for this operation - see
-   * AuthRequirement/ApiClientConfig.auth. */
-  auth?: AuthRequirement;
+  /** Only present when the spec declares a non-empty `security` for this operation: every
+   * OR-alternative the operation accepts (see AuthAlternative/ApiClientConfig.auth). request()
+   * uses whichever alternative's every scheme has a configured provider, trying them in the
+   * spec's own declared order - see applyAuth below. */
+  auth?: AuthAlternative[];
 }
 
 /** Thrown by `request()` whenever the response status is not in the 2xx range. */
@@ -136,15 +149,22 @@ export class ResponseValidationError extends Error {
   }
 }
 
-/** Encodes a flat, already-scalar-only object (see `BodyEncoding`'s doc comment) as an
- * "application/x-www-form-urlencoded" body string. Simpler than buildUrl()'s query-serialization
- * loop below: a urlencoded/multipart request body's schema is restricted to scalar/enum properties
- * at generation time (see operations.js's requireFlatObjectSchema), so there's no array/deepObject
- * case to handle here the way a query parameter's value might need. */
+/** Encodes a flat, scalar-or-array-of-scalar object (see `BodyEncoding`'s doc comment) as an
+ * "application/x-www-form-urlencoded" body string - a request body's schema is restricted to
+ * scalar/enum properties or arrays of either at generation time (see operations.js's
+ * requireFlatObjectSchema), so there's no nested-object/deepObject case to handle here the way a
+ * query parameter's value might need (see buildUrl below). An array value sends one repeated key
+ * per element (OpenAPI's default `style: form, explode: true`), same convention buildUrl already
+ * applies to an array-typed query parameter. */
 function encodeFormBody(body: Record<string, unknown>): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(body)) {
-    if (value !== undefined) params.append(key, String(value));
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) params.append(key, String(item));
+    } else {
+      params.append(key, String(value));
+    }
   }
   return params.toString();
 }
@@ -195,35 +215,42 @@ async function parseBody(response: Response, encoding: ResponseEncoding): Promis
   }
 }
 
-/** Resolves `options.auth` (if the operation needs it) against `config.auth`, applying the
- * credential either as an Authorization header (bearer) or wherever the apiKey scheme's `in` says
- * (header/query - see AuthRequirement; a `cookie`-located apiKey scheme is rejected at generation
- * time, see the generator's operations.js). Mutates `headers` and returns a possibly-extended
- * `query` (an apiKey in query position can't be added to `headers`, so it's merged into the query
- * object instead, before buildUrl turns it into the URL). */
+/** Resolves `options.auth` (if the operation needs it) against `config.auth`. Picks the first
+ * OR-alternative (in the spec's own declared order) whose every scheme has a configured provider,
+ * then applies each of that alternative's credentials - either as an Authorization header (bearer)
+ * or wherever the apiKey scheme's `in` says (header/query - see AuthRequirement; a
+ * `cookie`-located apiKey scheme is rejected at generation time, see the generator's
+ * operations.js). This is a one-time credential-availability check, not a series of trial HTTP
+ * requests: exactly one request is ever sent, using whichever alternative was picked. Mutates
+ * `headers` and returns a possibly-extended `query` (an apiKey in query position can't be added to
+ * `headers`, so it's merged into the query object instead, before buildUrl turns it into the
+ * URL). */
 async function applyAuth(
   config: ApiClientConfig,
   options: RequestOptions,
   headers: Record<string, string>
 ): Promise<RequestOptions["query"]> {
-  if (!options.auth) return options.query;
-  const { kind } = options.auth;
-  const provide = config.auth?.[kind];
-  if (!provide) {
-    throw new Error(
-      `${options.method} ${options.path} requires "${kind}" authentication, but ApiClientConfig.auth.${kind} was not provided`
-    );
+  if (!options.auth || options.auth.length === 0) return options.query;
+  const alternative = options.auth.find((alt) => alt.every((req) => config.auth?.[req.kind]));
+  if (!alternative) {
+    const described = options.auth
+      .map((alt) => alt.map((req) => `ApiClientConfig.auth.${req.kind}`).join(" and "))
+      .join(", or ");
+    throw new Error(`${options.method} ${options.path} requires ${described}, but none of those were fully provided`);
   }
-  const value = await provide();
-  if (kind === "bearer") {
-    headers["Authorization"] = `Bearer ${value}`;
-    return options.query;
+  let query = options.query;
+  for (const req of alternative) {
+    const provide = config.auth![req.kind]!;
+    const value = await provide();
+    if (req.kind === "bearer") {
+      headers["Authorization"] = `Bearer ${value}`;
+    } else if (req.location === "query") {
+      query = { ...query, [req.name!]: value };
+    } else {
+      headers[req.name!] = value;
+    }
   }
-  if (options.auth.location === "query") {
-    return { ...options.query, [options.auth.name!]: value };
-  }
-  headers[options.auth.name!] = value;
-  return options.query;
+  return query;
 }
 
 /** Performs one HTTP request and returns the parsed JSON response body as `T`. Throws `ApiError`
@@ -249,9 +276,17 @@ export async function request<T>(config: ApiClientConfig, options: RequestOption
       body = encodeFormBody(options.body as Record<string, unknown>);
       headers["Content-Type"] = "application/x-www-form-urlencoded";
     } else if (encoding === "multipart") {
+      // An array value (including an array of Blob/File - a "multiple file upload" field) appends
+      // one part per element under the same key, same convention encodeFormBody's array branch
+      // uses for urlencoded - FormData has no single-call "repeated key" API of its own.
       const formData = new FormData();
       for (const [key, value] of Object.entries(options.body as Record<string, unknown>)) {
-        if (value !== undefined) formData.append(key, value as string | Blob);
+        if (value === undefined) continue;
+        if (Array.isArray(value)) {
+          for (const item of value) formData.append(key, item as string | Blob);
+        } else {
+          formData.append(key, value as string | Blob);
+        }
       }
       body = formData;
       // No Content-Type set here - fetch sets it itself (with the multipart boundary) once it

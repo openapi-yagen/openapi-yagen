@@ -1,0 +1,23 @@
+openapi: 3.0.3
+info:
+  title: Unsupported cookie parameter fixture (typescript_fetch_client_generator test fixture)
+  version: "1.0"
+  description: >-
+    A single operation with an `in: cookie` parameter - a browser-first fetch client can't set a
+    Cookie request header itself (forbidden by the Fetch/XHR spec), so this is a generator error,
+    not a silently-dropped parameter. Used to assert generation fails loudly (default strict=true)
+    or is skipped with a warning (-v strict=false).
+paths:
+  /sessions:
+    get:
+      operationId: listSessions
+      tags: [sessions]
+      parameters:
+        - name: session_id
+          in: cookie
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK

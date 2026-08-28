@@ -28,6 +28,18 @@ test("model and property descriptions land as TSDoc", () => {
   assert.match(pet, /\* The pet's display name\./, `missing property-level TSDoc:\n${pet}`);
 });
 
+// A TS interface has no constructor step to apply a schema `default` value at (see
+// types.js's registerInterface) - the honest equivalent for this architecture is surfacing it as
+// a TSDoc `@default` tag instead, right after the property's own description.
+test("an optional property's default value lands as a TSDoc @default tag", () => {
+  const newPet = readGenerated("models/NewPet.ts");
+  assert.match(
+    newPet,
+    /\* Exercises a numeric default value surfaced as a TSDoc @default tag\.\n\s*\* @default 1/,
+    `missing @default tag:\n${newPet}`
+  );
+});
+
 test("operation summary, description, and param docs land as TSDoc, and the class itself gets the tag's description", () => {
   const petsClient = readGenerated("apis/PetsClient.ts");
   assert.match(

@@ -286,6 +286,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Shape"
+  /widgets/{widgetId}/favorite:
+    post:
+      operationId: favoriteWidget
+      tags: [widgets]
+      description: >-
+        Exercises an oauth2 security scheme (treated identically to http/bearer - an OAuth2 access
+        token travels as an Authorization: Bearer header regardless of flow) combined with an
+        OR-alternative security requirement: either oauth2Auth OR apiKeyAuth satisfies the request.
+      security:
+        - oauth2Auth: [write:widgets]
+        - apiKeyAuth: []
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Favorited
+  /widgets/{widgetId}/archive:
+    post:
+      operationId: archiveWidget
+      tags: [widgets]
+      description: >-
+        Exercises an OR-alternative security requirement where one alternative itself requires two
+        schemes together (AND-within-OR): either (oauth2Auth AND apiKeyAuth together) OR bearerAuth
+        alone satisfies the request.
+      security:
+        - oauth2Auth: [write:widgets]
+          apiKeyAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Archived
 components:
   securitySchemes:
     bearerAuth:
@@ -295,6 +336,13 @@ components:
       type: apiKey
       name: X-Api-Key
       in: header
+    oauth2Auth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://example.com/oauth/token
+          scopes:
+            write:widgets: Modify widgets
   schemas:
     Pet:
       description: A pet available in the store.
@@ -328,6 +376,10 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/PetStatus"
+        priority:
+          type: integer
+          default: 1
+          description: "Exercises a numeric default value surfaced as a TSDoc @default tag."
     PetStatus:
       type: string
       enum: [available, pending, sold]
@@ -350,6 +402,11 @@ components:
       properties:
         caption:
           type: string
+        albums:
+          description: "Exercises an array-of-string multipart form field (one repeated part per element)."
+          type: array
+          items:
+            type: string
         photo:
           type: string
           format: binary
@@ -361,6 +418,11 @@ components:
           type: string
         notify:
           type: boolean
+        channels:
+          description: "Exercises an array-of-string urlencoded form field (one repeated key per element)."
+          type: array
+          items:
+            type: string
     Tag:
       type: object
       required: [id, name]

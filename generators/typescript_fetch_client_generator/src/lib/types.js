@@ -54,6 +54,13 @@ function addModel(registry, name, entry) {
   registry.order.push(name);
 }
 
+// This generator declares openApiVersion "3.2" (see generator.yml), so nullability is read from the
+// JSON Schema 2020-12 dialect OAS 3.1+ uses: a schema is nullable when its `type` is an array
+// containing "null" (there is no `nullable` boolean key in this dialect - that was 3.0-only).
+function isNullable(schema) {
+  return Array.isArray(schema.type) && schema.type.includes("null");
+}
+
 // Registers `name` as `export interface Name { ... }`. `variantOpts`, when present
 // (`{ property, literal }`), is set only for a discriminated oneOf/anyOf variant: the named
 // property's type is forced to the literal discriminator value instead of its schema-declared
@@ -79,16 +86,23 @@ function registerInterface(registry, name, schema, variantOpts) {
       const t = tsType(registry, propSchema, name + typeName(propName));
       tsTypeStr = t.type;
       descriptor = t.descriptor;
-      nullable = propSchema.nullable === true;
+      nullable = isNullable(propSchema);
       isRequired = required.has(propName);
     }
+    // A TS interface has no constructor/runtime step to apply a schema `default` value the way a
+    // nominally-typed generator's model class can - responses are parsed via a bare `JSON.parse(
+    // text) as T` (see README's "Request body content types"/runtime.ts's parseBody), never
+    // field-by-field constructed, so there's nowhere to insert a substitution even in principle.
+    // Surfacing it in the TSDoc `@default` tag (IDE tooltips, generated docs) is the honest
+    // equivalent for this architecture, not a runtime behavior.
+    const defaultDoc = !isDiscriminator && !isRequired && "default" in propSchema ? `@default ${JSON.stringify(propSchema.default)}` : null;
     props.push({
       keyLiteral: propertyKeyLiteral(propName),
       tsType: tsTypeStr,
       descriptor,
       required: isRequired,
       nullable,
-      description: propSchema.description || null,
+      description: [propSchema.description, defaultDoc].filter(Boolean).join("\n") || null,
     });
   }
   addModel(registry, name, { name, kind: "interface", description: schema.description || null, properties: props });

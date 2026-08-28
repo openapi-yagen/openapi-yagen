@@ -15,8 +15,9 @@ The generated code owns no HTTP engine, framework state, or hooks - it works unc
 Vue, Angular, Svelte, vanilla TS/JS, or Node with a `fetch` polyfill. `fetch` itself can be
 overridden per client instance (for SSR, testing, logging/retry wrappers, etc.), request headers
 can be a static object or an async callback (for a rotating/expiring bearer token), and an
-operation with a spec-declared `security` requirement (`http`/`bearer` or `apiKey`) automatically
-applies the credential from a dedicated `auth` config - see "Authentication" below.
+operation with a spec-declared `security` requirement (`http`/`bearer`, `apiKey`, `oauth2`, or
+`openIdConnect`, including multiple simultaneous or alternative schemes) automatically applies the
+credential(s) from a dedicated `auth` config - see "Authentication" below.
 
 ## Usage
 
@@ -87,16 +88,23 @@ remaining media type, sent as text or raw bytes):
 - **`application/json`** (default): `options.body` is `JSON.stringify`'d, `Content-Type:
   application/json`.
 - **`application/x-www-form-urlencoded`**: `options.body` (still a plain, generated-interface-typed
-  object - every property scalar/enum, see "Known limitations") is encoded with `URLSearchParams`,
-  `Content-Type: application/x-www-form-urlencoded`.
-- **`multipart/form-data`**: same scalar/enum-only restriction, plus a `type: string, format:
-  binary` property is allowed (a file field) and maps to `Blob | File` instead of the generic
-  `string` a JSON body's `format: binary` field gets. `options.body` is converted to a native
-  `FormData` and sent with **no** `Content-Type` set by the generated code - the browser/`fetch`
-  sets it itself, boundary included:
+  object - every property scalar/enum or an array of either, see "Known limitations") is encoded
+  with `URLSearchParams`, `Content-Type: application/x-www-form-urlencoded`. An array-typed
+  property sends one repeated key per element (OpenAPI's default `style: form, explode: true`),
+  same convention an array-typed query parameter already follows.
+- **`multipart/form-data`**: same scalar/enum-or-array-of-either restriction, plus a `type: string,
+  format: binary` property (a file field) or an array of them (a *multiple*-file field) is allowed,
+  mapping to `Blob | File` / `(Blob | File)[]` instead of the generic `string`/`string[]` a JSON
+  body's `format: binary` field gets. `options.body` is converted to a native `FormData` and sent
+  with **no** `Content-Type` set by the generated code - the browser/`fetch` sets it itself,
+  boundary included:
   ```ts
   await api.pets.uploadPetPhoto(petId, {
-    body: { caption: "Rex at the park", photo: fileInput.files[0] }, // photo: Blob | File
+    body: {
+      caption: "Rex at the park",       // string
+      photo: fileInput.files[0],        // Blob | File
+      albums: ["vacation", "favorites"], // string[] - one repeated "albums" part per element
+    },
   });
   ```
   No extra dependency needed - `FormData` is as ambient a Web API as `fetch`/`URL` already relied
@@ -117,23 +125,45 @@ remaining media type, sent as text or raw bytes):
 ### Authentication (`components.securitySchemes`)
 
 An operation with a non-empty `security` in the spec gets its credential from `auth`, not
-`headers` - the generated method already knows which scheme it needs (and, for `apiKey`, which
-header/query parameter to put it in), so `auth` only needs to supply the raw value:
+`headers` - the generated method already knows which scheme(s) it needs (and, for `apiKey`, which
+header/query parameter to put each in), so `auth` only needs to supply the raw value(s):
 
 ```ts
 const api = new ApiClient({
   baseUrl: "https://api.example.com/v1",
   auth: {
-    bearer: async () => await getFreshAccessToken(),          // http, scheme: bearer
+    bearer: async () => await getFreshAccessToken(),          // http/bearer, oauth2, or openIdConnect
     apiKey: () => process.env.API_KEY!,                       // apiKey (header or query)
   },
 });
 ```
 
-Calling a method that needs a kind of credential you didn't provide throws immediately (before any
-request is sent), naming which one (`ApiClientConfig.auth.bearer`/`.apiKey`) is missing. `oauth2`/
-`openIdConnect` schemes, an apiKey scheme located `in: cookie`, and an operation with more than one
-simultaneous or alternative `security` requirement aren't supported yet - see "Known limitations".
+`oauth2`/`openIdConnect` schemes are treated identically to `http`/`scheme: bearer` (RFC 6750: an
+OAuth2/OIDC access token travels as `Authorization: Bearer <token>` regardless of how it was
+obtained) - both draw from the same `auth.bearer` provider, since a client only ever holds one kind
+of bearer token at a time regardless of which flow issued it.
+
+An operation whose `security` lists more than one alternative (OR) or more than one scheme required
+together (AND) sends exactly one request, using whichever alternative's every scheme has a
+configured provider - tried in the spec's own declared order, first fully-satisfied one wins:
+
+```yaml
+security:
+  - oauth2Auth: [write:widgets]   # alternative 1: needs a bearer token alone
+  - apiKeyAuth: []                # alternative 2: needs an apiKey alone
+```
+
+```ts
+// Only `apiKey` provided -> alternative 1 (needs `bearer`) isn't satisfied, so alternative 2 is
+// used instead - no error, no extra request.
+await new ApiClient({ baseUrl, auth: { apiKey: () => "..." } }).widgets.favoriteWidget(id);
+```
+
+Calling a method where **no** alternative is fully configured throws immediately (before any
+request is sent), naming every alternative's required provider(s)
+(`ApiClientConfig.auth.bearer`/`.apiKey`). An apiKey scheme located `in: cookie` isn't supported (a
+browser-first fetch client can't set that header itself - the browser owns cookies) - see "Known
+limitations".
 
 Every generated method also accepts an `options.signal?: AbortSignal`, so request cancellation
 (e.g. tied to a React `AbortController` cleanup, or a Vue component's unmount) works out of the box.
@@ -245,6 +275,10 @@ npx prettier --write "out/**/*.ts"
   dropped.
 - Path/header parameters must resolve to a primitive scalar or enum (string/number/boolean) - an
   object or array in one of those positions is a generator error.
+- An `in: cookie` parameter is a generator error, not a silently-dropped one - the Fetch/XHR spec
+  forbids scripts from setting a `Cookie` request header at all (a "forbidden header name"), so
+  there's no correct way for generated code to ever send one; the browser sends its own cookies
+  automatically.
 - Query parameters may be arrays, serialized as repeated keys (`?tag=a&tag=b`, OpenAPI 3's default
   `style: form, explode: true`) - other serialization styles (`explode: false`,
   `spaceDelimited`/`pipeDelimited`) are not supported.
@@ -255,10 +289,14 @@ npx prettier --write "out/**/*.ts"
   validateResponses=true` (see "Response validation" above) - off by default.
 - `uniqueItems: true` is not enforced at the type level (still emitted as `T[]`, not `Set<T>`),
   including by the `validateResponses` guards.
-- `security` only supports a single scheme, of type `http`/`scheme: bearer` or `apiKey` (`in:
-  header` or `in: query` - not `cookie`) - `oauth2`/`openIdConnect`, multiple schemes required
-  together (AND), and multiple alternative requirements (OR) are a generator error (see
-  "Authentication" above).
+- `security` schemes are limited to `http`/`scheme: bearer`, `apiKey` (`in: header` or `in: query` -
+  not `cookie`), `oauth2`, and `openIdConnect` (the latter two treated as a bearer token, RFC 6750;
+  no scope/claim validation) - `mutualTLS`/HTTP Basic, and a `cookie`-located apiKey, are a
+  generator error (see "Authentication" above). Multiple simultaneous (AND) and alternative (OR)
+  requirements are supported by picking whichever alternative is fully configured at request time,
+  not by a single `ApiClientConfig.auth` shape per scheme kind - a spec needing two DIFFERENT
+  bearer-kind credentials in the same AND-group (e.g. two distinct oauth2 schemes together) can't be
+  expressed, since `AuthProvider` has only one `bearer` slot.
 - Generated files are not run through a formatter - see "Formatting generated sources" above.
 
 ## Try it

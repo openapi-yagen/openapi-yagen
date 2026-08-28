@@ -14,6 +14,17 @@ test("subscribeToPet sends the body as application/x-www-form-urlencoded", async
   assert.equal(params.get("notify"), "true");
 });
 
+// An array-typed urlencoded field (channels) sends one repeated key per element (OpenAPI's default
+// `style: form, explode: true`), not a single comma-joined value - see runtime.ts's encodeFormBody.
+test("subscribeToPet serializes an array-typed urlencoded field as repeated keys", async () => {
+  const { fetch, calls } = createFetchStub(() => ({ status: 204 }));
+  await new PetsClient({ baseUrl: "https://example.test", fetch }).subscribeToPet("1", {
+    body: { email: "me@example.com", channels: ["email", "sms"] },
+  });
+  const params = new URLSearchParams(calls[0]!.body as string);
+  assert.deepEqual(params.getAll("channels"), ["email", "sms"]);
+});
+
 test("uploadPetPhoto sends the body as a native FormData with no Content-Type set", async () => {
   const { fetch, calls } = createFetchStub(() => ({ status: 204 }));
   const photo = new Blob(["raw-bytes"], { type: "image/jpeg" });
@@ -33,6 +44,18 @@ test("uploadPetPhoto sends the body as a native FormData with no Content-Type se
   assert.ok(uploadedPhoto instanceof Blob);
   assert.equal(uploadedPhoto.type, "image/jpeg");
   assert.equal(uploadedPhoto.size, photo.size);
+});
+
+// An array-typed multipart field (albums) sends one repeated part per element, same convention as
+// an array-typed urlencoded field - see runtime.ts's request().
+test("uploadPetPhoto sends an array-typed field as repeated FormData parts", async () => {
+  const { fetch, calls } = createFetchStub(() => ({ status: 204 }));
+  const photo = new Blob(["raw-bytes"]);
+  await new PetsClient({ baseUrl: "https://example.test", fetch }).uploadPetPhoto("1", {
+    body: { photo, albums: ["vacation", "favorites"] },
+  });
+  const body = calls[0]!.body as FormData;
+  assert.deepEqual(body.getAll("albums"), ["vacation", "favorites"]);
 });
 
 test("setPetNotes sends and parses a text/plain body as a plain string", async () => {
