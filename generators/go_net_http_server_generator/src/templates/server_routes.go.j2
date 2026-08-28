@@ -42,13 +42,20 @@ if err != nil {
 	onError(w, r, err)
 	return
 }
-{% endfor %}{% for p in op.authParams %}{% if p.kind == "bearer" %}{{ p.goName }}, err := RequireBearerToken(r, {{ p.headerNameLiteral }})
+{% endfor %}{% for p in op.cookieParams %}{% if p.required %}{{ p.goName }}, err := requireCookieParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% else %}{{ p.goName }}, err := cookieParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% endif %}if err != nil {
+	onError(w, r, err)
+	return
+}
+{% endfor %}{% if op.authBlock %}{{ op.authBlock }}
+{% else %}{% for p in op.authParams %}{% if p.kind == "bearer" %}{{ p.goName }}, err := RequireBearerToken(r, {{ p.headerNameLiteral }})
 {% else %}{{ p.goName }}, err := RequireAPIKey(r, {{ p.locationLiteral }}, {{ p.nameLiteral }})
 {% endif %}if err != nil {
 	onError(w, r, err)
 	return
 }
-{% endfor %}{% if op.body %}{% if op.body.encoding == "json" %}{% if op.body.pointer %}body, err := decodeOptionalJSONBody[{{ op.body.type }}](r)
+{% endfor %}{% endif %}{% if op.body %}{% if op.body.encoding == "json" %}{% if op.body.pointer %}body, err := decodeOptionalJSONBody[{{ op.body.type }}](r)
 if err != nil {
 	onError(w, r, err)
 	return
@@ -68,13 +75,19 @@ if err != nil {
 	onError(w, r, err)
 	return
 }
-{% endif %}{% endif %}{% else if op.body.encoding == "urlencoded" or op.body.encoding == "multipart" %}{% for f in op.body.fields %}{% if f.pointer %}{{ f.localName }}, err := formFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
+{% endif %}{% endif %}{% else if op.body.encoding == "urlencoded" or op.body.encoding == "multipart" %}{% for f in op.body.fields %}{% if f.isFile %}{{ f.localName }}, err := formFileAs(r, {{ f.wireNameLiteral }})
+{% else if f.isArray %}{{ f.localName }}, err := formFieldListAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
+{% else if f.pointer %}{{ f.localName }}, err := formFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
 {% else %}{{ f.localName }}, err := requireFormFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
 {% endif %}if err != nil {
 	onError(w, r, err)
 	return
 }
-{% endfor %}body := {{ op.body.type }}{ {% for f in op.body.fields %}{{ f.goName }}: {{ f.localName }}, {% endfor %}}
+{% if f.required and (f.isFile or f.isArray) %}if {{ f.localName }} == nil {
+	onError(w, r, &models.ValidationError{Field: {{ f.wireNameLiteral }}, Message: "is required"})
+	return
+}
+{% endif %}{% endfor %}body := {{ op.body.type }}{ {% for f in op.body.fields %}{{ f.goName }}: {{ f.localName }}, {% endfor %}}
 {% else if op.body.encoding == "text" %}bodyBytes, err := io.ReadAll(r.Body)
 if err != nil {
 	onError(w, r, err)

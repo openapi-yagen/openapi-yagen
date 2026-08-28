@@ -141,13 +141,18 @@ function paramSig(p) {
   return `${p.goName} ${p.pointer ? "*" : ""}${p.type}`;
 }
 
-// Only `http`/`bearer` and `apiKey` security schemes are supported. A security requirement with
-// 2+ alternatives (OR) has no single combination of handler parameters that covers every
-// alternative, so it's unsupported (same restriction the Kotlin server generator this mirrors
-// applies) - one AND-combination (every scheme in a single requirement entry) is fine.
+// Only `http`/`bearer`, `apiKey`, `oauth2`, and `openIdConnect` security schemes are supported.
+// oauth2/openIdConnect are handled identically to `http`/`bearer`: per RFC 6750, an OAuth2/OIDC
+// access token travels as `Authorization: Bearer <token>` regardless of how it was obtained
+// (authorization-code, client-credentials, ...), and this generator never validates a token's
+// signature/scopes/audience for any scheme - that's left entirely to the handler implementation,
+// consistent with how bearer/apiKey are already just "is a value present" extraction. Only the Go
+// param name (derived from schemeName) differs by scheme.
 function buildAuthParamForScheme(schemeName, scheme) {
-  if (scheme.type === "http" && (scheme.scheme || "").toLowerCase() === "bearer") {
+  const isBearerLike = (scheme.type === "http" && (scheme.scheme || "").toLowerCase() === "bearer") || scheme.type === "oauth2" || scheme.type === "openIdConnect";
+  if (isBearerLike) {
     return {
+      schemeName,
       goName: paramName(schemeName + "Token"),
       type: "string",
       pointer: false,
@@ -157,6 +162,7 @@ function buildAuthParamForScheme(schemeName, scheme) {
   }
   if (scheme.type === "apiKey") {
     return {
+      schemeName,
       goName: paramName(schemeName + "Key"),
       type: "string",
       pointer: false,
@@ -166,17 +172,90 @@ function buildAuthParamForScheme(schemeName, scheme) {
     };
   }
   throw Error(
-    `<9b6a1e3f> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only "http" (bearer) and "apiKey" schemes are supported`
+    `<9b6a1e3f> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only "http" (bearer), "apiKey", "oauth2", and "openIdConnect" schemes are supported`
   );
 }
 
-function buildAuthParams(security) {
-  if (!security || security.length === 0) return [];
-  if (security.length > 1) {
-    throw Error(`<c4d8f271> Unsupported security requirement: multiple alternative (OR) security requirements are not supported`);
+// A single scheme's extraction call, as printed inside a generated `if v, err := ...; err == nil`
+// condition - shared between the single-alternative (AND-only) route template loop and the
+// OR-alternatives block built by buildAuthBlock below.
+function authExtractCall(p) {
+  return p.kind === "bearer" ? `RequireBearerToken(r, ${p.headerNameLiteral})` : `RequireAPIKey(r, ${p.locationLiteral}, ${p.nameLiteral})`;
+}
+
+// Renders the nested-if chain that attempts every scheme in one OR-alternative (an AND-combination
+// within that alternative) in turn, assigning each to its (pointer-typed) handler-signature
+// variable and setting `authMatched = true` only once every scheme in the chain has succeeded.
+// Reuses the local names "v"/"err" at each nesting level - each `if` introduces its own block
+// scope in Go, so no collision even when the same scheme appears in multiple alternatives.
+function renderAuthChain(schemes, indent) {
+  const [first, ...rest] = schemes;
+  const body =
+    rest.length === 0
+      ? [`${indent}\t${first.goName} = &v`, `${indent}\tauthMatched = true`]
+      : [`${indent}\t${first.goName} = &v`, ...renderAuthChain(rest, indent + "\t")];
+  return [`${indent}if v, err := ${authExtractCall(first)}; err == nil {`, ...body, `${indent}}`];
+}
+
+// One OR-alternative: skipped entirely once an earlier alternative already matched. An empty
+// alternative (`security: [{}, ...]`, meaning "no auth also allowed") always matches.
+function renderAuthAlternative(schemes, indent) {
+  const body = schemes.length === 0 ? [`${indent}\tauthMatched = true`] : renderAuthChain(schemes, indent + "\t");
+  return [`${indent}if !authMatched {`, ...body, `${indent}}`];
+}
+
+// Builds the full Go source block that resolves which OR-alternative security requirement a
+// request satisfies (2+ entries in the operation's `security` array): declares one `*string` var
+// per distinct scheme referenced across every alternative, tries each alternative in the spec's
+// declared order (first fully-satisfied one wins), and otherwise reports 401 via onError. Returns
+// null for the (much more common) single-alternative case, which the route template still renders
+// via its original flat per-param loop (required, non-pointer params, fail-fast per scheme).
+function buildAuthBlock(alternatives) {
+  const lines = [];
+  const seen = new Set();
+  for (const alt of alternatives) {
+    for (const p of alt) {
+      if (seen.has(p.goName)) continue;
+      seen.add(p.goName);
+      lines.push(`var ${p.goName} *string`);
+    }
   }
+  lines.push(`authMatched := false`);
+  for (const alt of alternatives) lines.push(...renderAuthAlternative(alt, ""));
+  lines.push(`if !authMatched {`);
+  lines.push(`\tonError(w, r, &MissingAuthenticationError{msg: "no security requirement satisfied"})`);
+  lines.push(`\treturn`);
+  lines.push(`}`);
+  return lines.join("\n");
+}
+
+// Returns { authParams, authBlock }. authParams is always the flat, deduplicated list of every
+// scheme referenced by the operation's `security` (used to build the handler interface signature
+// and call arguments); authBlock is non-null only for 2+ alternatives (OR) and holds the raw Go
+// code the route template prints instead of its normal per-param extraction loop - see
+// buildAuthBlock.
+function buildAuthParams(security) {
+  if (!security || security.length === 0) return { authParams: [], authBlock: null };
   const schemes = (schema.components && schema.components.securitySchemes) || {};
-  return Object.keys(security[0]).map((schemeName) => buildAuthParamForScheme(schemeName, schemes[schemeName] || {}));
+  if (security.length === 1) {
+    const authParams = Object.keys(security[0]).map((schemeName) => buildAuthParamForScheme(schemeName, schemes[schemeName] || {}));
+    return { authParams, authBlock: null };
+  }
+  // OR-alternatives: the same scheme name appearing in more than one alternative reuses the same
+  // Go variable/param (built once, on first sight). Every scheme becomes a pointer param, since
+  // whether it's populated depends on which alternative actually matched at request time.
+  const byName = new Map();
+  const alternatives = security.map((req) =>
+    Object.keys(req).map((schemeName) => {
+      if (!byName.has(schemeName)) {
+        const p = buildAuthParamForScheme(schemeName, schemes[schemeName] || {});
+        p.pointer = true;
+        byName.set(schemeName, p);
+      }
+      return byName.get(schemeName);
+    })
+  );
+  return { authParams: [...byName.values()], authBlock: buildAuthBlock(alternatives) };
 }
 
 // Go 1.22's http.ServeMux pattern syntax ("METHOD /pets/{petId}") uses the exact same "{name}"
@@ -193,18 +272,29 @@ function isTextMediaType(mediaType) {
   return mediaType.startsWith("text/");
 }
 
+// A field is also allowed to be an Array of primitive/enum items - sent as a repeated form key
+// (`tags=a&tags=b`), the same `style: form, explode: true` convention buildArrayQueryParam already
+// uses for array-typed query parameters. An object-shaped or array-of-array/object field is still
+// unsupported: multipart/urlencoded have no standard convention for either (unlike a repeated
+// scalar key, which HTML forms have used for arrays forever), so inventing one here would be an
+// arbitrary generator-specific encoding real API clients wouldn't know to produce.
 function requireFlatObjectSchema(bodySchema, mediaType) {
   if (kindOf(bodySchema) !== "Object") {
     throw Error(`<c7e2a915> A "${mediaType}" body must be an object schema (one property per form field) - got ${kindOf(bodySchema)}`);
   }
   for (const [propName, propSchema] of Object.entries(bodySchema.properties || {})) {
-    const kind = kindOf(unwrapSchema(propSchema));
-    if (kind !== "Primitive" && kind !== "Enum") {
-      throw Error(
-        `<f31b0d6a> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types ` +
-          `(including format: binary strings) or enums are supported as form fields - got ${kind}`
-      );
+    const resolved = unwrapSchema(propSchema);
+    const kind = kindOf(resolved);
+    if (kind === "Primitive" || kind === "Enum") continue;
+    if (kind === "Array") {
+      const itemKind = kindOf(unwrapSchema(resolved.items || {}));
+      if (itemKind === "Primitive" || itemKind === "Enum") continue;
     }
+    throw Error(
+      `<f31b0d6a> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types ` +
+        `(including format: binary strings, for file upload in a multipart body), enums, or arrays of ` +
+        `either (sent as a repeated form key) are supported as form fields - got ${kind}`
+    );
   }
 }
 
@@ -252,7 +342,29 @@ function buildRequestBody(registry, hintBase, requestBody) {
     for (const f of rawFields) {
       f.localName = paramName(f.wireName);
       f.wireNameLiteral = toGoStringLiteral(f.wireName);
-      f.converter = converterFor(registry, f.type);
+      // A multipart `format: binary` field is an actual uploaded file part (read via
+      // r.FormFile), not a text form value - overwrite its Go type to []byte here (mutating the
+      // SAME shared property object other model files reference, same reasoning as the comment
+      // above: this runs before finalizeModels, so it sees the final type). urlencoded has no
+      // file-part concept, so a urlencoded `format: binary` field is left as a plain string field,
+      // unchanged. []byte is itself a ref-type (see types.js's isRefType), so - like an array
+      // field - it's never pointer-wrapped; "required" is enforced with an explicit nil check in
+      // the template instead, the same way a required array query/header param already is.
+      f.isFile = picked.encoding === "multipart" && f.format === "binary";
+      if (f.isFile) {
+        f.type = "[]byte";
+        f.isArray = false;
+        f.itemType = null;
+        f.converter = null;
+      } else if (f.type.startsWith("[]")) {
+        f.isArray = true;
+        f.itemType = f.type.slice(2);
+        f.converter = converterFor(registry, f.itemType);
+      } else {
+        f.isArray = false;
+        f.itemType = null;
+        f.converter = converterFor(registry, f.type);
+      }
     }
   }
   return {
@@ -304,7 +416,7 @@ function computeHandlerImportFlags(operations) {
   };
   for (const op of operations) {
     noteType(op.response.type);
-    for (const p of [...op.pathParams, ...op.queryParams, ...op.headerParams, ...op.authParams]) noteType(p.itemType || p.type);
+    for (const p of [...op.pathParams, ...op.queryParams, ...op.headerParams, ...op.cookieParams, ...op.authParams]) noteType(p.itemType || p.type);
     if (op.body) noteType(op.body.type);
   }
   return flags;
@@ -325,7 +437,7 @@ function computeRoutesImportFlags(operations) {
     if (converter.startsWith("models.")) flags.models = true;
   };
   for (const op of operations) {
-    for (const p of [...op.pathParams, ...op.queryParams, ...op.headerParams]) noteConverter(p.converter);
+    for (const p of [...op.pathParams, ...op.queryParams, ...op.headerParams, ...op.cookieParams]) noteConverter(p.converter);
     if (op.body) {
       if (op.body.encoding === "text" || op.body.encoding === "bytes") flags.io = true;
       // decodeJSONBody[T](r)'s T is printed literally; a urlencoded/multipart body's
@@ -375,7 +487,8 @@ export function collectOperationsByTag(registry) {
         const pathParams = allParams.filter((p) => p.in === "path");
         const queryParams = allParams.filter((p) => p.in === "query");
         const headerParams = allParams.filter((p) => p.in === "header");
-        const authParams = buildAuthParams(op.security);
+        const cookieParams = allParams.filter((p) => p.in === "cookie");
+        const { authParams, authBlock } = buildAuthParams(op.security);
 
         const body = buildRequestBody(registry, hintBase, op.requestBody);
         const response = buildResponse(registry, hintBase, op.responses);
@@ -405,7 +518,9 @@ export function collectOperationsByTag(registry) {
           pathParams,
           queryParams,
           headerParams,
+          cookieParams,
           authParams,
+          authBlock,
           body,
           response,
           returnsValue: response.type !== null,

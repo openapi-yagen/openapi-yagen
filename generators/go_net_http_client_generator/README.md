@@ -90,13 +90,29 @@ A response with a 4xx/5xx status code is returned as a `*client.ResponseError` (
 ### Model types
 
 Every generated struct has a `Validate() error` method checking its own declared constraints
-(`minimum`/`maximum`/`minLength`/`maxLength`/`pattern`) - it is not called automatically; call it
-explicitly wherever validation is needed. `Validate()` does not recurse into nested model fields.
+(`minimum`/`maximum`/`minLength`/`maxLength`/`pattern`/`format: uuid`/`format: date`) - it is not
+called automatically; call it explicitly wherever validation is needed. It also recurses into any
+struct- or `oneOf`/`anyOf`-typed field (directly, a `oneOf`/`anyOf` wrapper's `Validate()` delegates
+to whichever variant is actually set, or through every element of a slice/map - including through a
+named array/map alias like a top-level `type: array` schema) by calling that field's own
+`Validate()`. A nested error's `Field` is rewritten to the full path from the outermost struct (e.g.
+`"tags[2].name"`), one path segment per struct hop.
 
 A property that is optional or nullable becomes a pointer field (`*T`) with a `,omitempty` JSON
 tag when optional; a required, non-nullable property is a plain value field. Go's `encoding/json`
 cannot distinguish an absent field from an explicit `null` for a pointer field - both decode to
-`nil`.
+`nil` - **except** for a property with a declared `default` (see below), where the two are
+distinguished on purpose.
+
+A `string`/`int`/`int32`/`int64`/`float32`/`float64`/`bool`/enum-typed property with a declared
+`default` gets it applied whenever the wire key is absent - a generated `UnmarshalJSON` on the
+struct pre-fills that field with the default before decoding over it, so an absent key leaves the
+default in place while an explicit JSON `null` still overwrites it back to `nil` (encoding/json
+always sets a destination to the zero value for an explicit `null`, even a pre-populated one - the
+same behavior `null` already gets on every other field). `default` on any other property type
+(`format: date-time`, an array/map/object/`oneOf`/`anyOf` property) has no effect - applying it
+would need real value construction, not a single Go literal, and is comparatively rare in practice
+for those types.
 
 A `oneOf`/`anyOf` schema generates a wrapper struct with one `AsX()`/`FromX()` accessor pair per
 variant and its own `MarshalJSON`/`UnmarshalJSON`:
@@ -118,7 +134,10 @@ An enum schema generates a defined string/int type with one constant per value, 
 bool` method, and `MarshalJSON`/`UnmarshalJSON` that reject an unrecognized value.
 
 `format: date-time` properties/parameters generate `time.Time`. `format: date` and `format: uuid`
-generate a plain `string` - there is no dependency-free stdlib type for either.
+generate a plain `string` - there is no dependency-free stdlib type for either - but a struct
+property (not a path/query/header/cookie parameter) with one of those formats is still shape-checked by
+`Validate()`: `format: uuid` requires the canonical 8-4-4-4-12 hyphenated hex form, `format: date`
+requires `YYYY-MM-DD`.
 
 ### Request body content types
 
@@ -130,8 +149,15 @@ same generated model struct as the `body` parameter - only how it's sent over th
 - **`application/json`** (default): `Content-Type: application/json`, JSON-encoded body.
 - **`application/x-www-form-urlencoded`**: one `url.Values` entry per property, sent as
   `Content-Type: application/x-www-form-urlencoded`. The schema must be `type: object` with only
-  scalar/enum properties (a nested object/array field is a generator error).
-- **`multipart/form-data`**: same restriction, sent via `mime/multipart` instead.
+  scalar/enum properties, or an array of either (sent as a repeated form key, e.g.
+  `tags=a&tags=b` - OpenAPI's default `style: form, explode: true`) - a nested object field, or an
+  array of arrays/objects, is a generator error.
+- **`multipart/form-data`**: same property-shape restriction (including arrays) as
+  `application/x-www-form-urlencoded`, sent via `mime/multipart` instead - **with one difference**:
+  a `type: string, format: binary` property becomes a Go `[]byte` field (not `string`) and is sent
+  as an actual uploaded file part (`multipart.Writer.CreateFormFile`), using the field's own wire
+  name as both the form field name and the file's `filename` (there's no separate place in the
+  model to carry a caller-chosen filename).
 - **any single `text/*` media type**: `body string`, sent with the exact declared media type as
   `Content-Type` (not a generic `text/plain`).
 - **any single other remaining media type**: `body []byte`, sent the same way. The declared
@@ -140,13 +166,16 @@ same generated model struct as the `body` parameter - only how it's sent over th
 A requestBody/response declaring two or more media types outside the ones above is a generator
 error.
 
-### Path/query/header parameters
+### Path/query/header/cookie parameters
 
-Must resolve to a primitive scalar type (string/integer/number/boolean), a `format: date-time`
-value, an enum, or a `oneOf`/`anyOf` whose every variant is itself primitive/enum-shaped (passed
-through as a plain, unparsed `string`) - an object or array in one of those positions is a
-generator error, except a query parameter whose schema is itself an array (repeated `?name=a&name=b`
-keys, OpenAPI's default `style: form, explode: true`).
+`in: path`/`query`/`header`/`cookie` are all supported. Must resolve to a primitive scalar type
+(string/integer/number/boolean), a `format: date-time` value, an enum, or a `oneOf`/`anyOf` whose
+every variant is itself primitive/enum-shaped (passed through as a plain, unparsed `string`) - an
+object or array in one of those positions is a generator error, except a query parameter whose
+schema is itself an array (repeated `?name=a&name=b` keys, OpenAPI's default `style: form, explode:
+true` - path/header/cookie positions have no standard "repeated value" serialization, so those stay
+scalar-only). A cookie parameter is sent via `http.Request.AddCookie`/read via `http.Request.Cookie`
+- not the raw `Cookie` header directly.
 
 ## Formatting generated sources
 
@@ -163,18 +192,29 @@ openapi-yagen g -o out -g go_net_http_client_generator openapi.yaml \
 
 - Request and response bodies support `application/json`, a single `text/*` media type (as
   `string`), and a single other media type (as `[]byte`); request bodies additionally support
-  `application/x-www-form-urlencoded` and `multipart/form-data`. A requestBody/response declaring
-  two or more media types outside those fixed ones is a generator error (aborts generation under
-  default `strict=true`; skips just that operation with a printed warning under `-v
-  strict=false`).
-- `Validate()` checks only `minimum`/`maximum`/`minLength`/`maxLength`/`pattern` and does not
-  recurse into nested model fields.
+  `application/x-www-form-urlencoded` and `multipart/form-data` (a `type: object` schema with
+  scalar/enum properties or arrays of either; `multipart/form-data` also supports a `format: binary`
+  file-upload property - see "Request body content types"). A requestBody/response declaring two or
+  more media types outside those fixed ones is a generator error (aborts generation under default
+  `strict=true`; skips just that operation with a printed warning under `-v strict=false`). A nested
+  object field (or an array of arrays/objects) in a urlencoded/multipart body is still a generator
+  error - there's no standard multipart/urlencoded convention for either, unlike a repeated scalar
+  key.
+- A multipart file-upload field always uses its own wire name as the uploaded part's `filename` -
+  no way for a caller to choose a different one.
+- `Validate()`'s own (non-recursive) checks are limited to `minimum`/`maximum`/`minLength`/
+  `maxLength`/`pattern`/`format: uuid`/`format: date` - no `multipleOf`, `minItems`/`maxItems`,
+  `uniqueItems`, `minProperties`/`maxProperties`, or `additionalProperties: false` enforcement.
 - Go's `encoding/json` cannot distinguish an absent field from an explicit JSON `null` for a
-  pointer field - both decode to `nil`.
+  pointer field - both decode to `nil` - except a property with a declared `default` (see "Model
+  types"), where the two are deliberately told apart.
+- `default` is only applied for a `string`/`int`/`int32`/`int64`/`float32`/`float64`/`bool`/enum
+  property - not `format: date-time`, an array/map/object property, or a `oneOf`/`anyOf` property.
 - `format: date` and `format: uuid` generate a plain `string`.
-- Path/query/header parameters must resolve to a primitive scalar type, an enum, a `format:
+- Path/query/header/cookie parameters must resolve to a primitive scalar type, an enum, a `format:
   date-time` value, or a oneOf/anyOf whose every variant is itself primitive/enum-shaped - an
-  object or array in one of those positions is a generator error.
+  object or array in one of those positions is a generator error (except a query array, see
+  "Path/query/header/cookie parameters").
 - Generated files are not run through a formatter by default - see "Formatting generated sources".
 
 ## Try it

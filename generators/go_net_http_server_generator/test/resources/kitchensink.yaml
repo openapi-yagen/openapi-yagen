@@ -44,6 +44,12 @@ paths:
             type: array
             items:
               type: string
+        - name: session_id
+          in: cookie
+          required: false
+          description: Exercises a cookie parameter.
+          schema:
+            type: string
       responses:
         "200":
           description: A page of pets
@@ -285,6 +291,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Shape"
+  /widgets/{widgetId}/favorite:
+    post:
+      operationId: favoriteWidget
+      tags: [widgets]
+      description: >-
+        Exercises an oauth2 security scheme (handled identically to http/bearer - an OAuth2 access
+        token travels as an Authorization: Bearer header regardless of flow) combined with an
+        OR-alternative security requirement: either oauth2Auth OR apiKeyAuth satisfies the request.
+      security:
+        - oauth2Auth: [write:widgets]
+        - apiKeyAuth: []
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Favorited
 components:
   schemas:
     Pet:
@@ -323,6 +349,23 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/PetStatus"
+        sku:
+          type: string
+          format: uuid
+          description: "Exercises format: uuid Validate() checking."
+        birthDate:
+          type: string
+          format: date
+          description: "Exercises format: date Validate() checking."
+        priority:
+          type: integer
+          default: 1
+          description: "Exercises a numeric default value applied by UnmarshalJSON when absent."
+        visibility:
+          type: string
+          enum: [public, private]
+          default: public
+          description: "Exercises an enum default value, resolved to its generated Go constant."
     PetStatus:
       description: A pet's availability status.
       type: string
@@ -357,6 +400,12 @@ components:
           type: string
         notify:
           type: boolean
+        channels:
+          description: >-
+            Exercises an array-of-scalar form field (repeated form key, e.g. channels=sms&channels=email).
+          type: array
+          items:
+            type: string
     Tag:
       type: object
       required: [id, name]
@@ -365,6 +414,7 @@ components:
           type: integer
         name:
           type: string
+          minLength: 1
     Pets:
       description: A page of pets.
       type: array
@@ -409,6 +459,7 @@ components:
           type: string
         radius:
           type: number
+          minimum: 0
     Square:
       type: object
       required: [shapeType, side]
@@ -465,3 +516,10 @@ components:
       type: apiKey
       in: header
       name: X-Api-Key
+    oauth2Auth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://example.com/oauth/token
+          scopes:
+            write:widgets: Modify widgets

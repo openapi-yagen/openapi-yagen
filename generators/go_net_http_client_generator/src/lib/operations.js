@@ -134,18 +134,29 @@ function isTextMediaType(mediaType) {
 // always `type: object` schemas with one property per form field. Anything else (a nested
 // object/array property) is a generator error - same "handle the common case, error on the rest"
 // policy path/header params already follow.
+// A field is also allowed to be an Array of primitive/enum items - sent as a repeated form key
+// (`tags=a&tags=b`), the same `style: form, explode: true` convention array-typed query parameters
+// already use. An object-shaped or array-of-array/object field is still unsupported: multipart/
+// urlencoded have no standard convention for either (unlike a repeated scalar key, which HTML
+// forms have used for arrays forever), so inventing one here would be an arbitrary
+// generator-specific encoding real API servers wouldn't know to expect.
 function requireFlatObjectSchema(registry, bodySchema, mediaType) {
   if (kindOf(bodySchema) !== "Object") {
     throw Error(`<c7e2a915> A "${mediaType}" body must be an object schema (one property per form field) - got ${kindOf(bodySchema)}`);
   }
   for (const [propName, propSchema] of Object.entries(bodySchema.properties || {})) {
-    const kind = kindOf(unwrapSchema(propSchema));
-    if (kind !== "Primitive" && kind !== "Enum") {
-      throw Error(
-        `<f31b0d6a> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types ` +
-          `(including format: binary strings) or enums are supported as form fields - got ${kind}`
-      );
+    const resolved = unwrapSchema(propSchema);
+    const kind = kindOf(resolved);
+    if (kind === "Primitive" || kind === "Enum") continue;
+    if (kind === "Array") {
+      const itemKind = kindOf(unwrapSchema(resolved.items || {}));
+      if (itemKind === "Primitive" || itemKind === "Enum") continue;
     }
+    throw Error(
+      `<f31b0d6a> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types ` +
+        `(including format: binary strings, for file upload in a multipart body), enums, or arrays of ` +
+        `either (sent as a repeated form key) are supported as form fields - got ${kind}`
+    );
   }
 }
 
@@ -191,6 +202,27 @@ function buildRequestBody(registry, hintBase, requestBody) {
   if (picked.encoding !== "json") requireFlatObjectSchema(registry, bodySchema, picked.mediaType);
   const t = goType(registry, bodySchema, hintBase + "Body");
   const fields = picked.encoding !== "json" ? (registry.models.get(t.type) || {}).properties || [] : null;
+  // Same "mutate the shared property object before finalizeModels sees it" reasoning as
+  // pointer/omitempty decisions elsewhere - a multipart `format: binary` field is an actual file
+  // part to write (via multipart.Writer.CreateFormFile), not a text field, so its Go type becomes
+  // []byte here. urlencoded has no file-part concept, so a urlencoded `format: binary` field is
+  // left as a plain string field, unchanged.
+  if (fields) {
+    for (const f of fields) {
+      f.isFile = picked.encoding === "multipart" && f.format === "binary";
+      if (f.isFile) {
+        f.type = "[]byte";
+        f.isArray = false;
+        f.itemType = null;
+      } else if (f.type.startsWith("[]")) {
+        f.isArray = true;
+        f.itemType = f.type.slice(2);
+      } else {
+        f.isArray = false;
+        f.itemType = null;
+      }
+    }
+  }
   return { type: qualifyModelType(t.type), required, pointer: !required, encoding: picked.encoding, mediaType: null, mediaTypeLiteral: null, fields };
 }
 
@@ -271,7 +303,7 @@ export function computeImportFlags(operations) {
     if (op.response.type) noteType(op.response.type);
     if (op.response.type && op.response.type !== "string" && op.response.type !== "[]byte") flags.json = true;
     if (op.queryParams.length > 0) flags.urlPkg = true;
-    for (const p of [...op.pathParams, ...op.queryParams, ...op.headerParams]) noteType(p.itemType || p.type);
+    for (const p of [...op.pathParams, ...op.queryParams, ...op.headerParams, ...op.cookieParams]) noteType(p.itemType || p.type);
     if (op.body) {
       noteType(op.body.type);
       if (op.body.encoding === "json") {
@@ -328,6 +360,7 @@ export function collectOperationsByTag(registry) {
         const pathParams = allParams.filter((p) => p.in === "path");
         const queryParams = allParams.filter((p) => p.in === "query");
         const headerParams = allParams.filter((p) => p.in === "header");
+        const cookieParams = allParams.filter((p) => p.in === "cookie");
 
         const body = buildRequestBody(registry, hintBase, op.requestBody);
         const response = buildResponse(registry, hintBase, op.responses);
@@ -347,6 +380,7 @@ export function collectOperationsByTag(registry) {
           pathParams,
           queryParams,
           headerParams,
+          cookieParams,
           body,
           response,
           returnsValue: response.type !== null,

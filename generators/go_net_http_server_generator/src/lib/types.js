@@ -35,6 +35,7 @@
 import { typeName, fieldName, paramName, enumConstantName } from "./naming.js";
 import { withResilience } from "./strict.js";
 import { attachValidationCalls } from "./validation.js";
+import { toGoStringLiteral } from "./keywords.js";
 
 function newRegistry(reservedNames) {
   return { models: new Map(), order: [], reservedNames };
@@ -87,6 +88,15 @@ function registerStruct(registry, name, schema, variantOpts) {
       nullable: isNullable(propSchema),
       description: propSchema.description || null,
       constraints: constraintsOf(propSchema),
+      // Only meaningful (and only ever set) for a plain `string` property - format: date-time
+      // already maps to time.Time via primitiveGoType, so a string-typed property's format here
+      // is always uuid/date/byte/binary/... (Validate()'s format-check codegen only recognizes
+      // uuid/date - see attachValidationCalls).
+      format: t.type === "string" ? propSchema.format || null : null,
+      // Raw (not yet Go-literal-converted) `default` value, deferred to finalizeModels -
+      // buildDefaultLiteral there needs the registry to resolve an enum default to its generated
+      // constant name, and is skipped entirely for a required property (see finalizeModels).
+      rawDefault: "default" in propSchema ? propSchema.default : undefined,
     });
   }
   addModel(registry, name, {
@@ -325,6 +335,38 @@ function isRefType(registry, typeStr) {
   return !!model && model.kind === "alias" && isRefType(registry, model.targetType);
 }
 
+// Every "object" and "union" model kind always gets a generated Validate() method (an object with
+// zero constraints, or a union with zero struct/union-typed variants, just returns nil) - "enum"
+// (already self-validating at UnmarshalJSON: an unrecognized value is rejected there) and "alias"
+// (a defined type over a builtin/container, nothing of its own to check) never do. Used both to
+// decide whether a struct property recursing into this type needs a Validate() call at all (see
+// validation.js's attachValidationCalls) and, for a union model itself, which of its variants its
+// own generated Validate() should recurse into (see the "union" branch below).
+function modelHasValidate(model) {
+  return !!model && (model.kind === "object" || model.kind === "union");
+}
+
+// Converts a schema's raw `default` value into a Go literal expression matching a property's Go
+// type - null if `value` is absent, or the type isn't one of the (deliberately limited) supported
+// kinds: string/int/int32/int64/float32/float64/bool, or an enum (resolved to its generated
+// constant name, e.g. "PetStatusAvailable", not the raw wire value). time.Time (format: date-time),
+// slice/map/struct/union-typed properties never get a default applied - a Go literal for those
+// would need real construction, not a single expression, and `default` is comparatively rare on
+// them in practice; see model_struct.go.j2's UnmarshalJSON for how this literal gets applied.
+function buildDefaultLiteral(registry, type, value) {
+  if (value === undefined) return null;
+  if (type === "string") return toGoStringLiteral(String(value));
+  if (["int", "int32", "int64", "float32", "float64"].includes(type)) return String(value);
+  if (type === "bool") return value ? "true" : "false";
+  const model = registry.models.get(type);
+  if (model && model.kind === "enum") {
+    const wireValue = model.isInt ? Number(value) : String(value);
+    const entry = model.entries.find((e) => e.wireValue === wireValue);
+    return entry ? entry.goName : null;
+  }
+  return null;
+}
+
 // Resolves each object model's per-property pointer/omitempty decision, deferred until the whole
 // registry is built since a property's referenced type may not have been visited yet at the point
 // it was registered (a forward $ref). Scalar/enum/struct/union-typed properties become *T when
@@ -342,18 +384,37 @@ export function finalizeModels(registry) {
   for (const model of registry.models.values()) {
     if (model.kind === "object") {
       model.needsTime = false;
+      // A Validate() that recurses into a slice/map-typed field's elements builds its error
+      // context via fmt.Sprintf (see validation.js's nestedValidateCall) - the scalar/pointer
+      // case doesn't need it, so this stays false unless at least one property actually needs it.
+      model.needsFmt = false;
+      // A struct with 1+ defaulted property gets a generated UnmarshalJSON (see
+      // model_struct.go.j2) - needs "encoding/json", unlike a plain struct relying entirely on
+      // field tags for decoding.
+      model.needsDefaults = false;
       for (const p of model.properties) {
         const ref = isRefType(registry, p.type);
         p.isRef = ref;
         p.pointer = !ref && (p.nullable || !p.required);
         p.omitempty = !p.required;
-        attachValidationCalls(p);
+        attachValidationCalls(registry, p);
         if (p.type.includes("time.Time")) model.needsTime = true;
+        if (p.validationCalls.some((c) => c.includes("fmt.Sprintf"))) model.needsFmt = true;
+        // A required property is always present in valid JSON, so `default` has nothing to do -
+        // only ever applied to an (already pointer-typed) optional/nullable property.
+        p.defaultLiteral = p.pointer ? buildDefaultLiteral(registry, p.type, p.rawDefault) : null;
+        if (p.defaultLiteral) model.needsDefaults = true;
       }
     } else if (model.kind === "alias") {
       model.needsTime = model.targetType.includes("time.Time");
     } else if (model.kind === "union") {
       model.needsTime = model.variants.some((v) => v.valueType.includes("time.Time"));
+      // Deferred to finalizeModels, same reason as the object branch above: a variant's valueType
+      // may be a forward $ref not yet registered at the point registerUnion/
+      // registerDiscriminatedUnion ran. Only .kind is needed here (set immediately by addModel),
+      // not the target model's own .pointer/.validationCalls/etc, so this is safe even for a
+      // variant type that hasn't itself been finalized yet.
+      for (const v of model.variants) v.hasValidate = modelHasValidate(registry.models.get(v.valueType));
     }
   }
 }

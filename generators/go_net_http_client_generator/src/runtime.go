@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"mime/multipart"
 	"net/url"
 	"time"
 )
@@ -31,6 +32,23 @@ func addQueryParamList[T any](q url.Values, name string, values []T) {
 	for _, v := range values {
 		q.Add(name, formatParam(v))
 	}
+}
+
+// writeMultipartFile writes a multipart `format: binary` field as an actual file part (via
+// CreateFormFile) rather than a text field - name doubles as both the form field name and the
+// part's filename, since the generated model only carries the file's bytes, not a separate
+// filename. A nil data (an absent optional file field - []byte is never pointer-wrapped, see
+// types.js's isRefType) writes nothing.
+func writeMultipartFile(w *multipart.Writer, name string, data []byte) error {
+	if data == nil {
+		return nil
+	}
+	part, err := w.CreateFormFile(name, name)
+	if err != nil {
+		return err
+	}
+	_, err = part.Write(data)
+	return err
 }
 
 // ResponseError is returned when a request completes but the server responded with an

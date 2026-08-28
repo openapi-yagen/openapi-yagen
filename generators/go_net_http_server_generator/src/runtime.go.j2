@@ -108,6 +108,27 @@ func requireHeaderParamAs[T any](r *http.Request, name string, convert func(stri
 	return convertParam(values[0], name, convert)
 }
 
+func cookieParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (*T, error) {
+	c, err := r.Cookie(name)
+	if err != nil {
+		return nil, nil
+	}
+	v, err := convertParam(c.Value, name, convert)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func requireCookieParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (T, error) {
+	var zero T
+	c, err := r.Cookie(name)
+	if err != nil {
+		return zero, &models.ValidationError{Field: name, Message: "is required"}
+	}
+	return convertParam(c.Value, name, convert)
+}
+
 // formFieldAs/requireFormFieldAs read a urlencoded or multipart request body field - Go's
 // net/http parses either the same way once ParseMultipartForm has been called (it falls back to
 // ParseForm for a non-multipart body), so one code path covers both request body encodings.
@@ -134,6 +155,52 @@ func requireFormFieldAs[T any](r *http.Request, name string, convert func(string
 		return zero, &models.ValidationError{Field: name, Message: "is required"}
 	}
 	return convertParam(r.PostForm.Get(name), name, convert)
+}
+
+// formFieldListAs reads a urlencoded or multipart body field declared as an array of
+// primitive/enum items, sent as a repeated form key (e.g. `tags=a&tags=b` - OpenAPI's default
+// `style: form, explode: true`, same convention queryParamListAs uses for array query parameters).
+// nil, nil (not an error) if the key is entirely absent - "required" is enforced by the caller with
+// the same explicit nil-check a required array query/header param already uses.
+func formFieldListAs[T any](r *http.Request, name string, convert func(string) (T, error)) ([]T, error) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil && err != http.ErrNotMultipart {
+		return nil, &models.ValidationError{Field: name, Message: fmt.Sprintf("invalid form body: %v", err)}
+	}
+	raws := r.PostForm[name]
+	if raws == nil {
+		return nil, nil
+	}
+	result := make([]T, 0, len(raws))
+	for _, raw := range raws {
+		v, err := convertParam(raw, name, convert)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, v)
+	}
+	return result, nil
+}
+
+// formFileAs reads an uploaded file part (a multipart `format: binary` field) as raw bytes - nil,
+// nil if the part is absent, the same "nil represents absent" convention every other slice/map-typed
+// field already uses (see types.js's isRefType) rather than a separate pointer wrapper.
+func formFileAs(r *http.Request, name string) ([]byte, error) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil && err != http.ErrNotMultipart {
+		return nil, &models.ValidationError{Field: name, Message: fmt.Sprintf("invalid form body: %v", err)}
+	}
+	file, _, err := r.FormFile(name)
+	if err != nil {
+		if errors.Is(err, http.ErrMissingFile) {
+			return nil, nil
+		}
+		return nil, &models.ValidationError{Field: name, Message: fmt.Sprintf("invalid file: %v", err)}
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, &models.ValidationError{Field: name, Message: fmt.Sprintf("invalid file: %v", err)}
+	}
+	return data, nil
 }
 
 func decodeJSONBody[T any](r *http.Request) (T, error) {

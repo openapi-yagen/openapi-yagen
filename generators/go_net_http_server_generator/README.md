@@ -13,9 +13,9 @@ tag a handler interface and a `RegisterXRoutes` function in a `server` package.
 
 The generated code never creates its own `*http.ServeMux` - `RegisterXRoutes` takes a
 caller-supplied `*http.ServeMux` (or anything satisfying its `Handle`/`HandleFunc` method set) and
-an implementation of the handler interface. Incoming requests (path/query/header parameters and,
-where constrained, the request body) are parsed and validated before the handler is called, using
-shared helper functions in `server/runtime.go` instead of duplicating checks per operation.
+an implementation of the handler interface. Incoming requests (path/query/header/cookie parameters
+and, where constrained, the request body) are parsed and validated before the handler is called,
+using shared helper functions in `server/runtime.go` instead of duplicating checks per operation.
 
 ## Usage
 
@@ -77,19 +77,35 @@ correlation.
 
 ### Authentication
 
-Only `http`/`bearer` and `apiKey` security schemes are supported. A secured operation's handler
-method gets one extra `string` parameter per required scheme, already extracted and validated
-before the handler runs:
+`http`/`bearer`, `apiKey`, `oauth2`, and `openIdConnect` security schemes are supported.
+`oauth2`/`openIdConnect` are handled identically to `http`/`bearer`: per RFC 6750, an access token
+travels as `Authorization: Bearer <token>` regardless of how it was obtained (authorization-code,
+client-credentials, an OIDC provider, ...), and - same as `bearer`/`apiKey` - this generator never
+validates a token's signature/scopes/audience itself; that's left entirely to the handler
+implementation.
+
+A secured operation's handler method gets one extra parameter per scheme referenced by its
+`security`. For a single security requirement (`security: [{a: [], b: []}]`, meaning every scheme
+in it is required together), each is a plain `string`, already extracted and validated before the
+handler runs:
 
 ```go
 func (h *petsHandler) DeletePet(ctx context.Context, petId string, bearerAuthToken string) error
 ```
 
-A missing credential returns a `*server.MissingAuthenticationError` from `RegisterXRoutes`'s
-wrapper before the handler is ever called, mapped to 401 by `DefaultErrorHandler`. A security
-requirement with two or more OR-alternatives (`security: [{a: []}, {b: []}]`) is a generator error
-- only a single combination of schemes (`security: [{a: [], b: []}]`, meaning both required
-together) is supported. `oauth2`/`openIdConnect` schemes are also a generator error.
+A security requirement with two or more OR-alternatives (`security: [{a: []}, {b: []}]`, meaning
+*either* combination satisfies the request) is also supported: every scheme referenced by any
+alternative becomes a `*string` parameter instead (nil unless the alternative it belongs to is the
+one that matched), and the generated route wrapper tries each alternative in the spec's declared
+order, using the first one whose every scheme is present:
+
+```go
+func (h *widgetsHandler) FavoriteWidget(ctx context.Context, widgetId string, oauth2AuthToken *string, apiKeyAuthKey *string) error
+```
+
+A missing credential (single requirement) or no satisfied alternative (OR-alternatives) returns a
+`*server.MissingAuthenticationError` from `RegisterXRoutes`'s wrapper before the handler is ever
+called, mapped to 401 by `DefaultErrorHandler`.
 
 ### Model types
 
@@ -102,14 +118,16 @@ share the same `models` output.
 Same priority order and restrictions as the client generator - see its README "Request body
 content types" section. Server-side, a `application/x-www-form-urlencoded` and a
 `multipart/form-data` body are decoded through the same code path (Go's `net/http` parses either
-one the same way once `ParseMultipartForm` has been called).
+one the same way once `ParseMultipartForm` has been called) - except a multipart `format: binary`
+field, read via `r.FormFile` (an actual uploaded file part) rather than `r.PostForm` (a text form
+value), since `application/x-www-form-urlencoded` has no file-part equivalent to parse that way.
 
-### Path/query/header parameters
+### Path/query/header/cookie parameters
 
-Same supported shapes as the client generator - see its README "Path/query/header parameters"
-section. A required parameter that's absent, or any parameter that fails to parse into its
-declared type, returns a `*models.ValidationError` before the handler is called, mapped to 400 by
-`DefaultErrorHandler`.
+Same supported shapes as the client generator - see its README "Path/query/header/cookie
+parameters" section. A required parameter that's absent, or any parameter that fails to parse into
+its declared type, returns a `*models.ValidationError` before the handler is called, mapped to 400
+by `DefaultErrorHandler`.
 
 ## Formatting generated sources
 
@@ -126,17 +144,24 @@ openapi-yagen g -o out -g go_net_http_server_generator openapi.yaml \
 
 - Request and response bodies support `application/json`, a single `text/*` media type (as
   `string`), and a single other media type (as `[]byte`); request bodies additionally support
-  `application/x-www-form-urlencoded` and `multipart/form-data`. A requestBody/response declaring
-  two or more media types outside those fixed ones is a generator error.
-- `Validate()` (called automatically on a JSON request body before the handler runs) checks only
-  `minimum`/`maximum`/`minLength`/`maxLength`/`pattern` and does not recurse into nested model
-  fields.
-- Only `http`/`bearer` and `apiKey` security schemes are supported; a security requirement with
-  two or more OR-alternatives is a generator error.
+  `application/x-www-form-urlencoded` and `multipart/form-data` (a `type: object` schema with
+  scalar/enum properties or arrays of either; `multipart/form-data` also supports a `format: binary`
+  file-upload property, read via `r.FormFile` - see "Request body content types"). A requestBody/
+  response declaring two or more media types outside those fixed ones is a generator error. A nested
+  object field (or an array of arrays/objects) in a urlencoded/multipart body is still a generator
+  error.
+- `Validate()` (called automatically on a JSON request body before the handler runs; recurses into
+  nested struct/`oneOf`/`anyOf`-typed fields - see the client generator README's "Model types"
+  section) has non-recursive checks limited to `minimum`/`maximum`/`minLength`/`maxLength`/
+  `pattern`/`format: uuid`/`format: date` - no `multipleOf`, `minItems`/`maxItems`, `uniqueItems`,
+  `minProperties`/`maxProperties`, or `additionalProperties: false` enforcement.
+- Only `http`/`bearer`, `apiKey`, `oauth2`, and `openIdConnect` security schemes are supported (a
+  `mutualTLS`/HTTP Basic scheme is a generator error); no token/scope validation is generated for
+  any of them - just presence extraction, left to the handler implementation.
 - `format: date` and `format: uuid` generate a plain `string`.
-- Path/query/header parameters must resolve to a primitive scalar type, an enum, a `format:
+- Path/query/header/cookie parameters must resolve to a primitive scalar type, an enum, a `format:
   date-time` value, or a oneOf/anyOf whose every variant is itself primitive/enum-shaped - an
-  object or array in one of those positions is a generator error.
+  object or array in one of those positions is a generator error (except a query array).
 - Generated files are not run through a formatter by default - see "Formatting generated sources".
 
 ## Try it

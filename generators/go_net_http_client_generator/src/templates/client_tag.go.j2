@@ -58,14 +58,25 @@ func New{{ tagType }}(httpClient *http.Client, baseURL string) *{{ tagType }} {
 	}
 	yagenBodyReader := bytes.NewReader(yagenEncoded)
 {% endif %}{% else if op.body.encoding == "urlencoded" %}	yagenForm := url.Values{}
-{% for f in op.body.fields %}{% if f.pointer %}	if body.{{ f.goName }} != nil {
+{% for f in op.body.fields %}{% if f.isArray %}	for _, yagenItem := range body.{{ f.goName }} {
+		yagenForm.Add({{ toStringLiteral(f.wireName) }}, formatParam(yagenItem))
+	}
+{% else if f.pointer %}	if body.{{ f.goName }} != nil {
 		yagenForm.Set({{ toStringLiteral(f.wireName) }}, formatParam(*body.{{ f.goName }}))
 	}
 {% else %}	yagenForm.Set({{ toStringLiteral(f.wireName) }}, formatParam(body.{{ f.goName }}))
 {% endif %}{% endfor %}	yagenBodyReader := strings.NewReader(yagenForm.Encode())
 {% else if op.body.encoding == "multipart" %}	var yagenMultipartBuf bytes.Buffer
 	yagenMultipartWriter := multipart.NewWriter(&yagenMultipartBuf)
-{% for f in op.body.fields %}{% if f.pointer %}	if body.{{ f.goName }} != nil {
+{% for f in op.body.fields %}{% if f.isFile %}	if err := writeMultipartFile(yagenMultipartWriter, {{ toStringLiteral(f.wireName) }}, body.{{ f.goName }}); err != nil {
+		return {% if op.returnsValue %}yagenZero, {% endif %}err
+	}
+{% else if f.isArray %}	for _, yagenItem := range body.{{ f.goName }} {
+		if err := yagenMultipartWriter.WriteField({{ toStringLiteral(f.wireName) }}, formatParam(yagenItem)); err != nil {
+			return {% if op.returnsValue %}yagenZero, {% endif %}err
+		}
+	}
+{% else if f.pointer %}	if body.{{ f.goName }} != nil {
 		if err := yagenMultipartWriter.WriteField({{ toStringLiteral(f.wireName) }}, formatParam(*body.{{ f.goName }})); err != nil {
 			return {% if op.returnsValue %}yagenZero, {% endif %}err
 		}
@@ -105,6 +116,10 @@ func New{{ tagType }}(httpClient *http.Client, baseURL string) *{{ tagType }} {
 		yagenHTTPReq.Header.Set({{ p.wireNameLiteral }}, formatParam(*{{ p.goName }}))
 	}
 {% else %}	yagenHTTPReq.Header.Set({{ p.wireNameLiteral }}, formatParam({{ p.goName }}))
+{% endif %}{% endfor %}{% for p in op.cookieParams %}{% if p.pointer %}	if {{ p.goName }} != nil {
+		yagenHTTPReq.AddCookie(&http.Cookie{Name: {{ p.wireNameLiteral }}, Value: formatParam(*{{ p.goName }})})
+	}
+{% else %}	yagenHTTPReq.AddCookie(&http.Cookie{Name: {{ p.wireNameLiteral }}, Value: formatParam({{ p.goName }})})
 {% endif %}{% endfor %}
 	yagenResp, err := c.httpClient.Do(yagenHTTPReq)
 	if err != nil {

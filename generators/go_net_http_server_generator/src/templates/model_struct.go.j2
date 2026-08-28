@@ -1,6 +1,10 @@
 package models
 
-{% if model.needsTime %}import "time"
+{% if model.needsTime or model.needsFmt or model.needsDefaults %}import (
+{% if model.needsDefaults %}	"encoding/json"
+{% endif %}{% if model.needsFmt %}	"fmt"
+{% endif %}{% if model.needsTime %}	"time"
+{% endif %})
 
 {% endif %}{% if model.description %}{{ buildDocComment(model.name + " - " + model.description, null, [], "//") }}
 {% endif %}type {{ model.name }} struct {
@@ -9,8 +13,28 @@ package models
 {% endfor %}{% endfilter %}}
 
 // Validate checks {{ model.name }}'s own declared constraints (minimum/maximum/minLength/
-// maxLength/pattern). It does not recurse into nested model fields.
+// maxLength/pattern/format: uuid/format: date), and recurses into any struct- or oneOf/anyOf-typed
+// field (directly, or through every element of a slice/map) by calling that field's own Validate().
 func (v *{{ model.name }}) Validate() error {
 {% filter indent("\t", true) %}{% for p in model.properties %}{% for call in p.validationCalls %}{{ call }}
 {% endfor %}{% endfor %}return nil{% endfilter %}
 }
+{% if model.needsDefaults %}
+// UnmarshalJSON fills every field with a declared `default` first, then decodes over it - a field
+// whose wire key is absent keeps its default; one explicitly sent as JSON null overwrites it back
+// to nil (encoding/json always sets a destination to the zero value for an explicit null, even a
+// pre-populated one), the same "explicit null wins" distinction UnmarshalJSON gives every other
+// field for free.
+func (v *{{ model.name }}) UnmarshalJSON(data []byte) error {
+	type {{ model.name }}Alias {{ model.name }}
+{% for p in model.properties %}{% if p.defaultLiteral %}	yagenDefault{{ p.goName }} := {{ p.defaultLiteral }}
+{% endif %}{% endfor %}	aux := {{ model.name }}Alias{
+{% for p in model.properties %}{% if p.defaultLiteral %}		{{ p.goName }}: &yagenDefault{{ p.goName }},
+{% endif %}{% endfor %}	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*v = {{ model.name }}(aux)
+	return nil
+}
+{% endif %}

@@ -119,3 +119,18 @@ func (v *{{ model.name }}) UnmarshalJSON(data []byte) error {
 	return nil
 {% else %}	return fmt.Errorf("{{ model.name }}: unrecognized JSON shape")
 {% endif %}{% endif %}}
+
+// Validate delegates to whichever variant is actually set, if that variant's own type has a
+// Validate() method (a plain-scalar variant, e.g. a bare string/int, has nothing to check).
+func (v *{{ model.name }}) Validate() error {
+{% if model.discriminant %}	switch v.discriminant {
+{% for variant in model.variants %}{% if variant.hasValidate %}	case {{ toStringLiteral(variant.literal) }}:
+		if v.{{ variant.fieldName }} != nil {
+			return v.{{ variant.fieldName }}.Validate()
+		}
+{% endif %}{% endfor %}	}
+{% else %}{% for variant in model.variants %}{% if variant.hasValidate %}	if v.{{ variant.fieldName }} != nil {
+		return v.{{ variant.fieldName }}.Validate()
+	}
+{% endif %}{% endfor %}{% endif %}	return nil
+}

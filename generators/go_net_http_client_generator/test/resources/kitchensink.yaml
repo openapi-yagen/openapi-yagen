@@ -43,6 +43,12 @@ paths:
             type: array
             items:
               type: string
+        - name: session_id
+          in: cookie
+          required: false
+          description: Exercises a cookie parameter.
+          schema:
+            type: string
       responses:
         "200":
           description: A page of pets
@@ -318,6 +324,23 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/PetStatus"
+        sku:
+          type: string
+          format: uuid
+          description: "Exercises format: uuid Validate() checking."
+        birthDate:
+          type: string
+          format: date
+          description: "Exercises format: date Validate() checking."
+        priority:
+          type: integer
+          default: 1
+          description: "Exercises a numeric default value applied by UnmarshalJSON when absent."
+        visibility:
+          type: string
+          enum: [public, private]
+          default: public
+          description: "Exercises an enum default value, resolved to its generated Go constant."
     PetStatus:
       description: A pet's availability status.
       type: string
@@ -352,6 +375,12 @@ components:
           type: string
         notify:
           type: boolean
+        channels:
+          description: >-
+            Exercises an array-of-scalar form field (repeated form key, e.g. channels=sms&channels=email).
+          type: array
+          items:
+            type: string
     Tag:
       type: object
       required: [id, name]
@@ -360,6 +389,7 @@ components:
           type: integer
         name:
           type: string
+          minLength: 1
     Pets:
       description: A page of pets.
       type: array
@@ -404,6 +434,7 @@ components:
           type: string
         radius:
           type: number
+          minimum: 0
     Square:
       type: object
       required: [shapeType, side]
