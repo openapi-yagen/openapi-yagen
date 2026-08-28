@@ -12,7 +12,7 @@ building - this is a discovery log, not a committed backlog; triage happens once
 feature work (oauth2/OR-security, format validation, recursive `Validate()`, multipart nesting,
 oneOf-discrimination flexibility, cookie params, `default` support) is done.
 
-## 1. No template-level recursion/macro-with-arbitrary-nesting forces raw-Go-string building in JS
+## 1. Auth-alternative resolution is hand-built as a raw Go string in JS, not an Inja macro
 
 **Where**: `go_net_http_server_generator/src/lib/operations.js`, `buildAuthBlock`/
 `renderAuthChain`/`renderAuthAlternative` (added for OR-alternative `security` requirement
@@ -20,21 +20,33 @@ support).
 
 Resolving which of 2+ alternative security requirements a request satisfies needs an
 arbitrarily-deep nested-if chain (one level per scheme in an AND-combination *within* one
-alternative, one attempt per alternative). Since Inja's `{% macro %}` (per
-`generator-simplification.md`'s already-implemented recommendations) doesn't support a macro
-calling itself, this couldn't be expressed as a template macro recursing over "the rest of the
-schemes in this alternative" - it had to be hand-built as a fully-formed multi-line Go source
-string in JS (manual `"\t".repeat`-style indent bookkeeping via a `indent` string parameter threaded
-through the recursion), then interpolated into the template with a single `{{ op.authBlock }}` and
-relying on the template's own surrounding `{% filter indent(...) %}` to place it correctly.
+alternative, one attempt per alternative). At the time this was written it wasn't known whether
+Inja's `{% macro %}` (per `generator-simplification.md`'s already-implemented recommendations)
+supported a macro calling itself, so instead of risking it, this was hand-built as a fully-formed
+multi-line Go source string in JS (manual `"\t".repeat`-style indent bookkeeping via an `indent`
+string parameter threaded through the recursion), then interpolated into the template with a
+single `{{ op.authBlock }}` and relying on the template's own surrounding `{% filter indent(...) %}`
+to place it correctly.
+
+**Update**: macro self-recursion does in fact work end to end (`{% macro down(n) %}{% if n > 0
+%}{{ n }},{{ down(n - 1) }}{% endif %}{% endmacro %}{{ down(3) }}` renders `"3,2,1,"` - see
+`docs/templating.md`'s "Macros" section) and always has, since the renderer re-walks a macro's body
+on every call rather than inlining it at parse time. What was actually missing was a recursion
+depth guard: a macro without a base case didn't throw `inja::RenderError`, it crashed the whole
+process (SIGSEGV from exhausting the C++ call stack) with no diagnosable error. That's now fixed
+in the vendored fork (`RenderConfig::max_macro_recursion_depth`, default 200, throws
+`inja::RenderError` naming the offending macro) - see `lib/3rdparty/inja/NOTICE.md` for the pinned
+commit.
 
 This works, but it's exactly the kind of thing the templating layer's `indent` filter already
 solves for pure-template content - a generator author has to re-solve indent bookkeeping by hand
-the moment the logic needs recursion. If Inja macros supported self-recursion (or the engine
-exposed a small JS-side "code writer" helper - push/pop indent level, append line - so at least the
-indent bookkeeping isn't hand-rolled per call site), this class of "arbitrarily-nested generated
-control flow" would be cheaper to write correctly across any generator that needs it (not just
-Go's security-alternative resolution - anywhere a spec construct's cardinality varies).
+the moment the logic needs recursion. Now that self-recursion is confirmed safe (throws instead of
+crashing on a mistake), rewriting `buildAuthBlock`/`renderAuthChain` as a real recursive Inja macro
+would be a more natural fit than the current hand-rolled JS - but the JS version is already
+written, tested, and working, so that rewrite is a separate, lower-priority follow-up, not bundled
+with the engine fix. Either way, a small JS-side "code writer" helper (push/pop indent level,
+append line) would still make hand-rolled cases like this cheaper to write correctly anywhere a
+spec construct's cardinality varies.
 
 ## 2. `toCamelCase`/`toPascalCase` mishandle a digit-to-letter transition as a word-internal position
 

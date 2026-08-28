@@ -804,10 +804,14 @@ class MacroCallNode : public ExpressionNode {
 public:
   const std::string name;
   std::vector<std::shared_ptr<ExpressionNode>> arguments;
-  std::shared_ptr<MacroStatementNode> macro;
+  // Weak: the macro's owning Template (its macro_storage / root BlockNode) already keeps the
+  // MacroStatementNode alive for as long as it can be called. A shared_ptr here would create a
+  // reference cycle for a (self- or mutually-) recursive macro, since its own body contains this
+  // MacroCallNode, which would then keep the MacroStatementNode that owns that body alive forever.
+  std::weak_ptr<MacroStatementNode> macro;
 
-  explicit MacroCallNode(const std::string& name, std::shared_ptr<MacroStatementNode> macro, size_t pos)
-      : ExpressionNode(pos), name(name), macro(std::move(macro)) {}
+  explicit MacroCallNode(const std::string& name, const std::shared_ptr<MacroStatementNode>& macro, size_t pos)
+      : ExpressionNode(pos), name(name), macro(macro) {}
 
   void accept(NodeVisitor& v) const override {
     v.visit(*this);
@@ -1030,6 +1034,10 @@ struct ParserConfig {
 struct RenderConfig {
   bool throw_at_missing_includes {true};
   bool html_autoescape {false};
+  // Maximum nesting depth of macro calls (a macro calling itself, mutually recursive macros, or
+  // a macro invoked as a default-parameter/argument expression of another macro call all count).
+  // Exceeding it throws inja::RenderError instead of exhausting the C++ call stack.
+  size_t max_macro_recursion_depth {200};
 };
 
 } // namespace inja
@@ -2547,6 +2555,10 @@ class Renderer : public NodeVisitor {
   const json* data_input;
   std::ostream* output_stream;
 
+  // Nesting depth of in-flight macro calls; guards against runaway recursion (missing base case,
+  // inverted condition, etc.) blowing the C++ call stack. See visit(const MacroCallNode&).
+  size_t macro_call_depth {0};
+
   json additional_data;
   json* current_loop_data = &additional_data["loop"];
 
@@ -3219,7 +3231,23 @@ class Renderer : public NodeVisitor {
   }
 
   void visit(const MacroCallNode& node) override {
-    const auto& macro = *node.macro;
+    if (macro_call_depth >= config.max_macro_recursion_depth) {
+      throw_renderer_error("macro recursion depth exceeded " + std::to_string(config.max_macro_recursion_depth) + " while calling macro '" + node.name + "'", node);
+    }
+
+    const auto macro_ptr = node.macro.lock();
+    if (!macro_ptr) {
+      throw_renderer_error("macro '" + node.name + "' is no longer available", node);
+    }
+    const auto& macro = *macro_ptr;
+
+    // Counts for the whole body of this function, including argument/default-value evaluation
+    // below (which may itself contain nested macro calls), not just the macro.body.accept() call.
+    ++macro_call_depth;
+    struct DepthGuard {
+      size_t& depth;
+      ~DepthGuard() { --depth; }
+    } depth_guard {macro_call_depth};
 
     // 1. Evaluate arguments in the caller's scope and copy values out so that
     //    swapping additional_data below cannot invalidate pointers.
@@ -3421,6 +3449,11 @@ public:
   /// Sets whether we'll automatically perform HTML escape
   void set_html_autoescape(bool will_escape) {
     render_config.html_autoescape = will_escape;
+  }
+
+  /// Sets the maximum nesting depth of macro calls before an inja::RenderError is thrown
+  void set_max_macro_recursion_depth(size_t max_depth) {
+    render_config.max_macro_recursion_depth = max_depth;
   }
 
   Template parse(std::string_view input) {

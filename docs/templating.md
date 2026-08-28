@@ -309,6 +309,11 @@ Macros can call themselves or other macros (recursion works):
 {{ down(3) }}   {# "3,2,1," #}
 ```
 
+Nesting more than 200 macro calls deep (a runaway recursive macro missing its base case, most
+commonly) throws `inja::RenderError` naming the offending macro, instead of crashing the whole
+generation process - so a template author's mistake surfaces as a normal generation failure, not a
+segfault.
+
 A macro defined in an `{% include %}`d file becomes callable in the including template afterward
 ([see below](#including-other-templates)) - a natural way to share one macro (e.g. a doc-comment
 or field-rendering helper) across several templates in a generator, by defining it once in a small
