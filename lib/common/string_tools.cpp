@@ -62,6 +62,14 @@ vector<string> splitToWords(const string& s)
         if (islower(prevCh) && !islower(ch)) {
             splitNeeded = true;
         }
+        // A digit doesn't itself force or block a split (`2` in "ipv4" / "oauth2" stays put either
+        // way), but an uppercase letter right after one still signals an intentional new word the
+        // same way it does after a lowercase letter above (`oauth2Auth` -> "oauth"/"2"/"auth", not
+        // "oauth"/"2auth" losing Auth's capitalization) - `isdigit(prevCh)` is neither islower nor
+        // isupper, so the rule above never fires for this transition on its own.
+        if (isdigit(static_cast<unsigned char>(prevCh)) && isupper(static_cast<unsigned char>(ch))) {
+            splitNeeded = true;
+        }
 
         while (isDelimiter(ch)) {
             splitNeeded = true;

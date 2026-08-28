@@ -371,6 +371,12 @@ files:
 ## include "includes.h.j2"
 ```
 
+A template including/extending itself, directly or through a chain of other templates, throws
+`inja::ParserError` naming the full cycle instead of crashing - the same protection
+[macro recursion](#macros) gets, since neither is meant to be possible (`{% include %}`/
+`{% extends %}` have no per-call arguments or base case the way a macro does, so any cycle is
+always a mistake, never intentional recursion).
+
 ## Whitespace control
 
 A `-` next to a tag delimiter (`{%- ... -%}`, `{{- ... -}}`) trims adjacent whitespace/newlines -

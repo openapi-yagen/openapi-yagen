@@ -43,11 +43,19 @@ TEST_CASE("Change case", "[common]")
         REQUIRE((splitToWords("x-next") | joinToString("-")) == "x-next");
         REQUIRE((splitToWords("pet/status") | joinToString("-")) == "pet-status");
         REQUIRE((splitToWords("foo@bar#baz") | joinToString("-")) == "foo-bar-baz");
+        REQUIRE((splitToWords("oauth2Auth") | joinToString("-")) == "oauth-2-auth");
+        REQUIRE((splitToWords("ipv4Address") | joinToString("-")) == "ipv-4-address");
+        REQUIRE((splitToWords("http2Something") | joinToString("-")) == "http-2-something");
     }
     SECTION("To snake_case") { REQUIRE((toSnakeCase("firstSecond__ Third")) == "first_second_third"); }
     SECTION("To SCREAMING_SNAKE_CASE") { REQUIRE((toScreamingSnakeCase("firstSecondThird")) == "FIRST_SECOND_THIRD"); }
     SECTION("To PascalCase") { REQUIRE((toPascalCase("first_second_third")) == "FirstSecondThird"); }
     SECTION("To camelCase") { REQUIRE((toCamelCase("first_second_third")) == "firstSecondThird"); }
+    SECTION("To camelCase across a digit-to-letter boundary")
+    {
+        REQUIRE((toCamelCase("oauth2AuthToken")) == "oauth2AuthToken");
+        REQUIRE((toCamelCase("ipv4Address")) == "ipv4Address");
+    }
 }
 
 TEST_CASE("Identifier sanitization", "[common]")

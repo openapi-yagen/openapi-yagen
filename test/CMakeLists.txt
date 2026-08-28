@@ -12,6 +12,7 @@ set(SOURCES
     external_ref_resolver_test.cpp
     filter_test.cpp
     generator_test.cpp
+    inja_include_test.cpp
     inja_macro_test.cpp
     openapi_js_test.cpp
     openapi_test.cpp

@@ -617,22 +617,141 @@ optional<string> findUniqueDistinguishingField(JSContext* ctx, JSValueConst vari
     return nullopt;
 }
 
+// Coerces a scalar (string/number/boolean) JS value into a canonical string form for comparing
+// distinctness across variants - this is a dispatch KEY, not a wire-format serialization, so
+// there's no need to preserve the original JSON type, only to give each distinct literal value a
+// stable, comparable string. Returns nullopt for anything else (object/array/null/undefined) -
+// only a scalar can be a `const`/single-`enum`-entry literal in the first place.
+optional<string> jsScalarToCanonicalString(JSContext* ctx, JSValueConst v)
+{
+    if (JS_IsString(v))
+        return jsValueToString(ctx, v);
+    if (JS_IsNumber(v) || JS_IsBool(v)) {
+        auto cstr = JS_ToCString(ctx, v);
+        string s(cstr);
+        JS_FreeCString(ctx, cstr);
+        return s;
+    }
+    return nullopt;
+}
+
+// If `propSchema` constrains its value to exactly one literal - a `const`, or a single-entry
+// `enum` (after dropping any `null` entry, the same "not a real member" treatment the Go/Kotlin/
+// TypeScript/... generators' own enum-registration JS already gives a nullable enum's `null`
+// entry) - returns its canonical string form (see jsScalarToCanonicalString). Used by
+// findFieldValueDispatch below to find a "field-value" discriminator: a property name every
+// candidate variant declares, each pinning it to a different literal (e.g. `kind: {enum:
+// [circle]}` vs `kind: {enum: [square]}`), without a formal `discriminator` keyword.
+optional<string> singleLiteralValueOf(JSContext* ctx, JSValueConst propSchema)
+{
+    auto constVal = JS_GetPropertyStr(ctx, propSchema, "const");
+    bool hasConst = !JS_IsUndefined(constVal);
+    optional<string> result;
+    if (hasConst)
+        result = jsScalarToCanonicalString(ctx, constVal);
+    JS_FreeValue(ctx, constVal);
+    if (hasConst)
+        return result;
+
+    auto enumVal = JS_GetPropertyStr(ctx, propSchema, "enum");
+    if (JS_IsArray(ctx, enumVal)) {
+        vector<string> nonNullEntries;
+        bool sawNonScalar = false;
+        auto len = jsArrayLength(ctx, enumVal);
+        for (int32_t i = 0; i < len && !sawNonScalar; i++) {
+            auto item = JS_GetPropertyUint32(ctx, enumVal, (uint32_t)i);
+            if (!JS_IsNull(item)) {
+                auto canon = jsScalarToCanonicalString(ctx, item);
+                if (canon)
+                    nonNullEntries.push_back(*canon);
+                else
+                    sawNonScalar = true;
+            }
+            JS_FreeValue(ctx, item);
+        }
+        JS_FreeValue(ctx, enumVal);
+        if (!sawNonScalar && nonNullEntries.size() == 1)
+            return nonNullEntries[0];
+        return nullopt;
+    }
+    JS_FreeValue(ctx, enumVal);
+    return nullopt;
+}
+
+// A "field-value" resolution for the subset of object variants findUniqueDistinguishingField
+// couldn't tell apart by property *presence* alone (every property they declare is also declared
+// by some sibling). `field` is shared by every one of `unresolvedVariants` bar at most one (the
+// same "at most one may be left as the trailing shape-based fallback" rule
+// resolveUnionDispatchBuiltin's presence-based pass already follows); `values[i]` is that
+// variant's own literal for `field`, or nullopt for the (at most one) fallback variant.
+struct FieldValueDispatch {
+    string field;
+    vector<optional<string>> values;
+};
+
+// AllOf-shaped variants are deliberately not flattened here the way declaredFieldsOf flattens them
+// for presence-based matching - out of scope for this pass; such a variant just won't match any
+// candidate property (JS_GetPropertyStr(variant, "properties") finds nothing on an AllOf node, its
+// properties live on its allOf branches instead) and falls through to the pre-existing error below
+// exactly as if this pass didn't exist, so it's a missed opportunity, not an incorrect result.
+optional<FieldValueDispatch> findFieldValueDispatch(JSContext* ctx, const vector<JSValueConst>& unresolvedVariants)
+{
+    if (unresolvedVariants.size() < 2)
+        return nullopt;
+
+    // Candidate property names come from the first unresolved variant, in its own declaration
+    // order (for a deterministic pick) - any property common to enough of the set must appear
+    // there too, so nothing is missed by not also scanning every other variant's own property list.
+    auto firstFields = declaredFieldsOf(ctx, unresolvedVariants[0]);
+    for (const auto& candidate : firstFields.propertyNames) {
+        vector<optional<string>> values;
+        set<string> seenLiterals;
+        int32_t withoutLiteralCount = 0;
+        bool duplicateLiteral = false;
+        for (auto variant : unresolvedVariants) {
+            auto propsVal = JS_GetPropertyStr(ctx, variant, "properties");
+            auto propSchema = JS_GetPropertyStr(ctx, propsVal, candidate.c_str());
+            optional<string> literal;
+            if (JS_IsObject(propSchema))
+                literal = singleLiteralValueOf(ctx, propSchema);
+            JS_FreeValue(ctx, propSchema);
+            JS_FreeValue(ctx, propsVal);
+            if (!literal) {
+                withoutLiteralCount++;
+                values.push_back(nullopt);
+                continue;
+            }
+            if (seenLiterals.count(*literal)) {
+                duplicateLiteral = true;
+                break;
+            }
+            seenLiterals.insert(*literal);
+            values.push_back(literal);
+        }
+        if (!duplicateLiteral && withoutLiteralCount <= 1)
+            return FieldValueDispatch { candidate, values };
+    }
+    return nullopt;
+}
+
 // Resolves the dispatch classification for every variant of an undiscriminated oneOf/anyOf -
 // sibling to resolveDiscriminator() below, for the case a spec's oneOf/anyOf has no discriminator
 // at all. What a generator targeting a language with algebraic/discriminated-union support but no
 // native support for OpenAPI's undiscriminated unions (e.g. Kotlin's sealed interfaces) needs to
 // build a runtime deserializer: classify each variant's wire shape as object/array/string/number/
 // boolean/any (see classifyVariantDispatch above), and - for 2+ object-shaped variants - find each
-// one a property no sibling object-variant also declares, allowing at most one property-less
-// variant as a trailing shape-only fallback. Throws a descriptive error (left for the caller's own
-// strict/permissive handling - see withResilience in generator JS) if a variant's shape can't be
-// classified at all, if more than one variant shares a non-object dispatch kind, or if 2+ object
-// variants have no distinguishing field between them. Returns variants in the SAME order as
-// `schema.oneOf`/`schema.anyOf` - no reordering: a caller wanting the "field-less fallback sorts
-// last" order (see model_union.kt.j2) does that itself, since only it knows how to re-zip the
-// result against other per-variant data (e.g. a generated wrapper type name) already computed
-// alongside it. Returns null (not every schema is a oneOf/anyOf at all) rather than throwing, same
-// as resolveDiscriminator.
+// one either a property no sibling object-variant also declares ("field-name" dispatch - see
+// findUniqueDistinguishingField), or, failing that, a property every one of them shares but pins
+// to a different literal value each ("field-value" dispatch - see findFieldValueDispatch),
+// allowing at most one property-less/value-less variant as a trailing shape-only fallback either
+// way. Throws a descriptive error (left for the caller's own strict/permissive handling - see
+// withResilience in generator JS) if a variant's shape can't be classified at all, if more than one
+// variant shares a non-object dispatch kind, or if 2+ object variants still can't be told apart
+// after both passes. Returns variants in the SAME order as `schema.oneOf`/`schema.anyOf` - no
+// reordering: a caller wanting the "field-less fallback sorts last" order (see model_union.kt.j2)
+// does that itself, since only it knows how to re-zip the result against other per-variant data
+// (e.g. a generated wrapper type name) already computed alongside it. Returns null (not every
+// schema is a oneOf/anyOf at all) rather than throwing, same as resolveDiscriminator.
 JSValue resolveUnionDispatchBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv)
 {
     return runAndCatchExceptions(ctx, [&] {
@@ -674,24 +793,43 @@ JSValue resolveUnionDispatchBuiltin(JSContext* ctx, JSValueConst thisVal, int ar
                 objectIndices.push_back(i);
 
         vector<optional<string>> dispatchFields(len);
+        vector<optional<string>> dispatchValues(len);
         if (objectIndices.size() > 1) {
             vector<JSValueConst> objectVariants;
             for (auto i : objectIndices)
                 objectVariants.push_back(*variants[i]);
-            int32_t withoutFieldCount = 0;
+            vector<int32_t> unresolvedIndices;
             for (auto i : objectIndices) {
                 auto field = findUniqueDistinguishingField(ctx, *variants[i], objectVariants);
                 if (field)
                     dispatchFields[i] = field;
                 else
-                    withoutFieldCount++;
+                    unresolvedIndices.push_back(i);
             }
-            if (withoutFieldCount > 1)
+            // Presence alone couldn't tell 2+ variants apart - try "field-value" dispatch among
+            // exactly those before giving up: a property every one of them declares, but each
+            // pins to a different literal value (see findFieldValueDispatch).
+            if (unresolvedIndices.size() > 1) {
+                vector<JSValueConst> unresolvedVariants;
+                for (auto i : unresolvedIndices)
+                    unresolvedVariants.push_back(*variants[i]);
+                if (auto fieldValueDispatch = findFieldValueDispatch(ctx, unresolvedVariants)) {
+                    for (size_t k = 0; k < unresolvedIndices.size(); k++) {
+                        if (fieldValueDispatch->values[k]) {
+                            dispatchFields[unresolvedIndices[k]] = fieldValueDispatch->field;
+                            dispatchValues[unresolvedIndices[k]] = fieldValueDispatch->values[k];
+                        }
+                    }
+                    unresolvedIndices.clear();
+                }
+            }
+            if (unresolvedIndices.size() > 1)
                 throw runtime_error(
                     format("<9b149efe> Cannot disambiguate object-shaped oneOf/anyOf variants: {} variants have no "
-                           "property (required or not) that no other object variant also declares - at most one "
-                           "object variant may lack one (it becomes the shape-based fallback, tried last)",
-                           withoutFieldCount));
+                           "property (required or not) that no other object variant also declares, and no shared "
+                           "property pins each of them to a distinct literal value either - at most one object "
+                           "variant may be left undistinguished (it becomes the shape-based fallback, tried last)",
+                           unresolvedIndices.size()));
         }
 
         map<string, int32_t> countByKind;
@@ -719,6 +857,12 @@ JSValue resolveUnionDispatchBuiltin(JSContext* ctx, JSValueConst thisVal, int ar
             setObjProperty(ctx, obj, "dispatchKind", JS_NewStringLen(ctx, dispatchKinds[i].data(), dispatchKinds[i].size()));
             setObjProperty(ctx, obj, "dispatchField",
                            dispatchFields[i] ? JS_NewStringLen(ctx, dispatchFields[i]->data(), dispatchFields[i]->size())
+                                              : JS_NULL);
+            // Only ever set together with dispatchField, and only for "field-value" dispatch (see
+            // findFieldValueDispatch) - null for "field-name" dispatch (presence alone was enough)
+            // and for the shape-only fallback variant either pass may still leave undistinguished.
+            setObjProperty(ctx, obj, "dispatchValue",
+                           dispatchValues[i] ? JS_NewStringLen(ctx, dispatchValues[i]->data(), dispatchValues[i]->size())
                                               : JS_NULL);
             JS_DefinePropertyValueUint32(ctx, variantsArr, (uint32_t)i, obj, JS_PROP_C_W_E);
         }

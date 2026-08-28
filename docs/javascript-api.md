@@ -301,21 +301,36 @@ What a generator targeting a language with algebraic/discriminated-union support
 support for OpenAPI's undiscriminated unions (e.g. Kotlin's sealed interfaces) needs to build a
 runtime deserializer: classifies each variant's wire shape as `"object"`/`"array"`/`"string"`/
 `"number"`/`"boolean"`/`"any"` (an unconstrained schema matching every possible JSON value, e.g. a
-bare `{}`), and - for 2+ object-shaped variants - finds each one a property no sibling
-object-variant also declares (`dispatchField`), allowing at most one property-less variant as a
-trailing shape-only fallback (`dispatchField: null`). Returns variants in the *same* order as
-`schema.oneOf`/`schema.anyOf` - reorder them yourself (e.g. move the field-less fallback last) if
-your template needs a specific dispatch order. Returns `null` if `schema` isn't a `oneOf`/`anyOf`
-at all. Throws if a variant's shape can't be classified (e.g. a nested `oneOf`/`anyOf` variant), if
-2+ variants share a non-object dispatch kind, or if 2+ object variants have no distinguishing field
-between them - not every `oneOf`/`anyOf` can be dispatched on shape alone.
+bare `{}`), and - for 2+ object-shaped variants - tries to tell them apart two ways, in order:
+
+1. **field-name dispatch**: a property no sibling object-variant also declares (`dispatchField`,
+   `dispatchValue: null`) - "is this key present in the JSON object".
+2. **field-value dispatch**, only among whichever variants step 1 couldn't resolve: a property
+   every one of them declares, but each pins to a different literal (a `const`, or a single-entry
+   `enum`) - `dispatchField` names the shared property, `dispatchValue` is *this* variant's own
+   literal (as a string, regardless of the underlying JSON type) - "does this key's value equal
+   `dispatchValue`". This is the common `kind`/`type`-style tag real-world specs use without a
+   formal `discriminator` keyword.
+
+Either way, at most one object-shaped variant may be left with neither (`dispatchField: null`,
+`dispatchValue: null`) - it becomes a trailing shape-only fallback ("is this a JSON object at
+all", tried last). Returns variants in the *same* order as `schema.oneOf`/`schema.anyOf` - reorder
+them yourself (e.g. move the field-less fallback last) if your template needs a specific dispatch
+order. Returns `null` if `schema` isn't a `oneOf`/`anyOf` at all. Throws if a variant's shape can't
+be classified (e.g. a nested `oneOf`/`anyOf` variant), if 2+ variants share a non-object dispatch
+kind, or if 2+ object variants still can't be told apart after both passes - not every `oneOf`/
+`anyOf` can be dispatched this way.
 
 ```typescript
-resolveUnionDispatch(schema: object): { variants: Array<{ dispatchKind: string, dispatchField: string | null }> } | null
+resolveUnionDispatch(schema: object): { variants: Array<{ dispatchKind: string, dispatchField: string | null, dispatchValue: string | null }> } | null
 ```
 ```js
 const dispatch = resolveUnionDispatch(schema.components.schemas.PaymentMethod);
-// -> { variants: [{ dispatchKind: "object", dispatchField: "card_number" }, { dispatchKind: "object", dispatchField: null }] }
+// -> { variants: [{ dispatchKind: "object", dispatchField: "card_number", dispatchValue: null }, { dispatchKind: "object", dispatchField: null, dispatchValue: null }] }
+
+// A "kind" field pinned to a different literal per variant, no unique property name otherwise:
+const shapeDispatch = resolveUnionDispatch(schema.components.schemas.Shape);
+// -> { variants: [{ dispatchKind: "object", dispatchField: "kind", dispatchValue: "circle" }, { dispatchKind: "object", dispatchField: "kind", dispatchValue: "square" }] }
 ```
 
 `kindOf`/`unwrapSchema`/`constraintsOf`/`nameOf`/`firstSuccessResponse`/`flattenAllOf`/

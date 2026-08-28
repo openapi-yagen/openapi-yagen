@@ -176,76 +176,24 @@ function buildAuthParamForScheme(schemeName, scheme) {
   );
 }
 
-// A single scheme's extraction call, as printed inside a generated `if v, err := ...; err == nil`
-// condition - shared between the single-alternative (AND-only) route template loop and the
-// OR-alternatives block built by buildAuthBlock below.
-function authExtractCall(p) {
-  return p.kind === "bearer" ? `RequireBearerToken(r, ${p.headerNameLiteral})` : `RequireAPIKey(r, ${p.locationLiteral}, ${p.nameLiteral})`;
-}
-
-// Renders the nested-if chain that attempts every scheme in one OR-alternative (an AND-combination
-// within that alternative) in turn, assigning each to its (pointer-typed) handler-signature
-// variable and setting `authMatched = true` only once every scheme in the chain has succeeded.
-// Reuses the local names "v"/"err" at each nesting level - each `if` introduces its own block
-// scope in Go, so no collision even when the same scheme appears in multiple alternatives.
-function renderAuthChain(schemes, indent) {
-  const [first, ...rest] = schemes;
-  const body =
-    rest.length === 0
-      ? [`${indent}\t${first.goName} = &v`, `${indent}\tauthMatched = true`]
-      : [`${indent}\t${first.goName} = &v`, ...renderAuthChain(rest, indent + "\t")];
-  return [`${indent}if v, err := ${authExtractCall(first)}; err == nil {`, ...body, `${indent}}`];
-}
-
-// One OR-alternative: skipped entirely once an earlier alternative already matched. An empty
-// alternative (`security: [{}, ...]`, meaning "no auth also allowed") always matches.
-function renderAuthAlternative(schemes, indent) {
-  const body = schemes.length === 0 ? [`${indent}\tauthMatched = true`] : renderAuthChain(schemes, indent + "\t");
-  return [`${indent}if !authMatched {`, ...body, `${indent}}`];
-}
-
-// Builds the full Go source block that resolves which OR-alternative security requirement a
-// request satisfies (2+ entries in the operation's `security` array): declares one `*string` var
-// per distinct scheme referenced across every alternative, tries each alternative in the spec's
-// declared order (first fully-satisfied one wins), and otherwise reports 401 via onError. Returns
-// null for the (much more common) single-alternative case, which the route template still renders
-// via its original flat per-param loop (required, non-pointer params, fail-fast per scheme).
-function buildAuthBlock(alternatives) {
-  const lines = [];
-  const seen = new Set();
-  for (const alt of alternatives) {
-    for (const p of alt) {
-      if (seen.has(p.goName)) continue;
-      seen.add(p.goName);
-      lines.push(`var ${p.goName} *string`);
-    }
-  }
-  lines.push(`authMatched := false`);
-  for (const alt of alternatives) lines.push(...renderAuthAlternative(alt, ""));
-  lines.push(`if !authMatched {`);
-  lines.push(`\tonError(w, r, &MissingAuthenticationError{msg: "no security requirement satisfied"})`);
-  lines.push(`\treturn`);
-  lines.push(`}`);
-  return lines.join("\n");
-}
-
-// Returns { authParams, authBlock }. authParams is always the flat, deduplicated list of every
-// scheme referenced by the operation's `security` (used to build the handler interface signature
-// and call arguments); authBlock is non-null only for 2+ alternatives (OR) and holds the raw Go
-// code the route template prints instead of its normal per-param extraction loop - see
-// buildAuthBlock.
+// Returns { authParams, authAlternatives }. authParams is always the flat, deduplicated list of
+// every scheme referenced by the operation's `security` (used to build the handler interface
+// signature and call arguments); authAlternatives is non-null only for 2+ alternatives (OR) -
+// server_routes.go.j2's authTry/authAlternative macros recurse over it directly to render the
+// nested-if resolution chain (tries each alternative in the spec's declared order, first
+// fully-satisfied one wins), rather than this JS building that Go source as a raw string itself.
 function buildAuthParams(security) {
-  if (!security || security.length === 0) return { authParams: [], authBlock: null };
+  if (!security || security.length === 0) return { authParams: [], authAlternatives: null };
   const schemes = (schema.components && schema.components.securitySchemes) || {};
   if (security.length === 1) {
     const authParams = Object.keys(security[0]).map((schemeName) => buildAuthParamForScheme(schemeName, schemes[schemeName] || {}));
-    return { authParams, authBlock: null };
+    return { authParams, authAlternatives: null };
   }
   // OR-alternatives: the same scheme name appearing in more than one alternative reuses the same
   // Go variable/param (built once, on first sight). Every scheme becomes a pointer param, since
   // whether it's populated depends on which alternative actually matched at request time.
   const byName = new Map();
-  const alternatives = security.map((req) =>
+  const authAlternatives = security.map((req) =>
     Object.keys(req).map((schemeName) => {
       if (!byName.has(schemeName)) {
         const p = buildAuthParamForScheme(schemeName, schemes[schemeName] || {});
@@ -255,7 +203,7 @@ function buildAuthParams(security) {
       return byName.get(schemeName);
     })
   );
-  return { authParams: [...byName.values()], authBlock: buildAuthBlock(alternatives) };
+  return { authParams: [...byName.values()], authAlternatives };
 }
 
 // Go 1.22's http.ServeMux pattern syntax ("METHOD /pets/{petId}") uses the exact same "{name}"
@@ -488,7 +436,7 @@ export function collectOperationsByTag(registry) {
         const queryParams = allParams.filter((p) => p.in === "query");
         const headerParams = allParams.filter((p) => p.in === "header");
         const cookieParams = allParams.filter((p) => p.in === "cookie");
-        const { authParams, authBlock } = buildAuthParams(op.security);
+        const { authParams, authAlternatives } = buildAuthParams(op.security);
 
         const body = buildRequestBody(registry, hintBase, op.requestBody);
         const response = buildResponse(registry, hintBase, op.responses);
@@ -520,7 +468,7 @@ export function collectOperationsByTag(registry) {
           headerParams,
           cookieParams,
           authParams,
-          authBlock,
+          authAlternatives,
           body,
           response,
           returnsValue: response.type !== null,

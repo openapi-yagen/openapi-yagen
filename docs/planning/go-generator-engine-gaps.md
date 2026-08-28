@@ -12,43 +12,44 @@ building - this is a discovery log, not a committed backlog; triage happens once
 feature work (oauth2/OR-security, format validation, recursive `Validate()`, multipart nesting,
 oneOf-discrimination flexibility, cookie params, `default` support) is done.
 
-## 1. Auth-alternative resolution is hand-built as a raw Go string in JS, not an Inja macro
+## 1. ~~Auth-alternative resolution was hand-built as a raw Go string in JS, not an Inja macro~~ (fixed)
 
-**Where**: `go_net_http_server_generator/src/lib/operations.js`, `buildAuthBlock`/
-`renderAuthChain`/`renderAuthAlternative` (added for OR-alternative `security` requirement
-support).
+**Where**: `go_net_http_server_generator/src/lib/operations.js`'s `buildAuthParams`,
+`go_net_http_server_generator/src/templates/server_routes.go.j2`'s `authTry`/`authAlternative`
+macros (OR-alternative `security` requirement support).
 
 Resolving which of 2+ alternative security requirements a request satisfies needs an
 arbitrarily-deep nested-if chain (one level per scheme in an AND-combination *within* one
-alternative, one attempt per alternative). At the time this was written it wasn't known whether
-Inja's `{% macro %}` (per `generator-simplification.md`'s already-implemented recommendations)
-supported a macro calling itself, so instead of risking it, this was hand-built as a fully-formed
-multi-line Go source string in JS (manual `"\t".repeat`-style indent bookkeeping via an `indent`
-string parameter threaded through the recursion), then interpolated into the template with a
-single `{{ op.authBlock }}` and relying on the template's own surrounding `{% filter indent(...) %}`
-to place it correctly.
+alternative, one attempt per alternative). At the time this was first written it wasn't known
+whether Inja's `{% macro %}` (per `generator-simplification.md`'s already-implemented
+recommendations) supported a macro calling itself, so instead of risking it, this was hand-built as
+a fully-formed multi-line Go source string in JS (`buildAuthBlock`/`renderAuthChain`/
+`renderAuthAlternative`, manual `"\t".repeat`-style indent bookkeeping via an `indent` string
+parameter threaded through the recursion), then interpolated into the template with a single
+`{{ op.authBlock }}`.
 
 **Update**: macro self-recursion does in fact work end to end (`{% macro down(n) %}{% if n > 0
 %}{{ n }},{{ down(n - 1) }}{% endif %}{% endmacro %}{{ down(3) }}` renders `"3,2,1,"` - see
 `docs/templating.md`'s "Macros" section) and always has, since the renderer re-walks a macro's body
 on every call rather than inlining it at parse time. What was actually missing was a recursion
 depth guard: a macro without a base case didn't throw `inja::RenderError`, it crashed the whole
-process (SIGSEGV from exhausting the C++ call stack) with no diagnosable error. That's now fixed
-in the vendored fork (`RenderConfig::max_macro_recursion_depth`, default 200, throws
-`inja::RenderError` naming the offending macro) - see `lib/3rdparty/inja/NOTICE.md` for the pinned
-commit.
+process (SIGSEGV from exhausting the C++ call stack) with no diagnosable error. That's now fixed in
+the vendored fork (`RenderConfig::max_macro_recursion_depth`, default 200, throws
+`inja::RenderError` naming the offending macro).
 
-This works, but it's exactly the kind of thing the templating layer's `indent` filter already
-solves for pure-template content - a generator author has to re-solve indent bookkeeping by hand
-the moment the logic needs recursion. Now that self-recursion is confirmed safe (throws instead of
-crashing on a mistake), rewriting `buildAuthBlock`/`renderAuthChain` as a real recursive Inja macro
-would be a more natural fit than the current hand-rolled JS - but the JS version is already
-written, tested, and working, so that rewrite is a separate, lower-priority follow-up, not bundled
-with the engine fix. Either way, a small JS-side "code writer" helper (push/pop indent level,
-append line) would still make hand-rolled cases like this cheaper to write correctly anywhere a
-spec construct's cardinality varies.
+**Follow-up done**: `buildAuthBlock`/`renderAuthChain`/`renderAuthAlternative` are gone - JS now
+only builds the plain data (`authAlternatives`, an array of arrays of scheme objects) and
+`server_routes.go.j2` recurses over it directly via two macros (`authTry(schemes, i)` for the
+AND-chain within one alternative, `authAlternative(schemes)` for one OR-alternative), relying on
+the template's own `indent` filter (piped over each recursive call's own output) instead of a
+hand-threaded indent parameter - exactly the "engine already solves this" simplification this entry
+originally called for. Verified byte-identical generated output against the old JS-built version
+for a single-scheme-per-alternative case, plus new coverage
+(`TestArchiveWidgetANDWithinORSecurityAlternatives` in `go_net_http_server_generator/test/
+server_test.go`) for a multi-scheme AND-within-OR alternative, which the existing kitchensink
+fixture didn't previously exercise at all.
 
-## 2. `toCamelCase`/`toPascalCase` mishandle a digit-to-letter transition as a word-internal position
+## 2. ~~`toCamelCase`/`toPascalCase` mishandle a digit-to-letter transition as a word-internal position~~ (fixed)
 
 **Where**: `lib/common/string_tools.cpp`'s `splitToWords` (`islower(prevCh) && !islower(ch)` is the
 only split rule), consumed via `paramName()`/`typeName()` in every generator.
@@ -67,13 +68,17 @@ generator's `kitchensink.yaml` fixture (`oauth2Auth` security scheme -> generate
 Not a correctness bug (the identifier is still valid, unique, and compiles) - just less idiomatic
 casing than a human would write, for any OpenAPI name containing a digit adjacent to an intentional
 capital (scheme names like `oauth2Auth`/`http2Something`, or a spec author's own
-`ipv4Address`-style names that happen to end up split oddly elsewhere too). Worth a `splitToWords`
-fix (treat a digit as neither forcing nor blocking a split on its *own*, but still allow the
-following letter to start a new word if it's uppercase) if another instance of this turns up during
-the rest of this work - logging now rather than fixing, since it's shared code affecting every
-generator and deserves its own dedicated test pass, not a fix bundled into a Go-generator commit.
+`ipv4Address`-style names that happen to end up split oddly elsewhere too).
 
-## 3. `resolveUnionDispatch` only supports shape + property-*presence* dispatch, not property-*value*/-*type* dispatch
+**Fixed**: `splitToWords` now also splits on a digit immediately followed by an uppercase letter
+(`isdigit(prevCh) && isupper(ch)`), on top of (not replacing) the existing lowercase-to-non-lowercase
+rule - `oauth2Auth` + `Token` now produces `oauth2AuthToken`, and `ipv4Address`/`http2Something`
+split the same way a human would expect. New coverage in `test/common_test.cpp` ("Split words" and
+"To camelCase across a digit-to-letter boundary" sections). Checked the other four generators'
+kitchensink fixtures for any digit-adjacent-letter identifier that might shift naming under this
+fix - none found, so no other generator's expected test output needed updating.
+
+## 3. `resolveUnionDispatch` only supports shape + property-*presence* dispatch, not property-*value*/-*type* dispatch (field-value fixed; field-type still open)
 
 **Where**: `lib/generator/openapi_generator.cpp:517-731` (`classifyVariantDispatch`,
 `declaredFieldsOf`/`findUniqueDistinguishingField`, `resolveUnionDispatchBuiltin` - the C++ behind
@@ -106,3 +111,17 @@ and returning a `dispatchValue` (or similar) field on the affected variants for 
 generator's template to consume. Moderate, contained effort - the main risk is scope creep in the
 ambiguity-detection edge cases (partial enum overlap, mixed value/type dispatch on the same
 property), not architectural risk.
+
+**Field-value dispatch fixed**: `resolveUnionDispatch` now runs a second pass
+(`findFieldValueDispatch`, alongside the existing `findUniqueDistinguishingField`) among whichever
+object variants presence-based dispatch couldn't resolve - a property every one of them declares,
+each pinning it to a distinct `const`/single-entry-`enum` literal (`singleLiteralValueOf`), returned
+as a new `dispatchValue` field per variant (`null` for field-name dispatch or the shape-only
+fallback). Purely additive (existing consumers ignore the new field, still get identical results for
+specs that already resolved via presence) - new coverage in `test/generator_test.cpp` ("resolveUnionDispatch
+falls back to field-value dispatch..."), `docs/javascript-api.md` updated. AllOf-shaped variants are
+deliberately out of scope for this pass (documented in `findFieldValueDispatch`'s own comment) - they
+just don't match any candidate property and fall through to the pre-existing error, same as before
+this fix, not a new incorrect result. **Field-type dispatch** (`status: string` in one variant vs.
+`status: integer` in another, with no shared literal) is still unimplemented - nobody's hit a real
+spec needing it yet, so it stays logged here rather than spec-built.

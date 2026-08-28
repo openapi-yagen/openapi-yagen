@@ -551,6 +551,93 @@ renderTemplate("test_template", {
     REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("mixedField2=null"));
 }
 
+TEST_CASE("resolveUnionDispatch falls back to field-value dispatch when field-presence alone can't disambiguate",
+          "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js", R"JS(
+// Both variants declare the exact same property NAMES ("kind" and "radius") - field-presence
+// dispatch can't tell them apart (findUniqueDistinguishingField would fail: neither property name
+// is unique to one variant) - but each pins "kind" to a different single-entry enum, so
+// field-value dispatch should resolve it instead.
+const shape = { oneOf: [
+  { type: "object", properties: { kind: { type: "string", enum: ["circle"] }, radius: { type: "number" } } },
+  { type: "object", properties: { kind: { type: "string", enum: ["square"] }, radius: { type: "number" } } },
+] };
+const dispatch = resolveUnionDispatch(shape);
+
+// Same idea via "const" instead of a single-entry "enum", again with identical property names
+// ("kind" and "sound") on both variants so presence-based dispatch can't shortcut it.
+const constShape = { oneOf: [
+  { type: "object", properties: { kind: { const: "cat" }, sound: { type: "string" } } },
+  { type: "object", properties: { kind: { const: "dog" }, sound: { type: "string" } } },
+] };
+const constDispatch = resolveUnionDispatch(constShape);
+
+// Three variants: two share a value-pinned "kind", the third has nothing distinguishing at all -
+// it becomes the trailing shape-based fallback (same "at most one may be left" rule field-name
+// dispatch already follows), not a disambiguation failure.
+const withFallback = { oneOf: [
+  { type: "object", properties: { kind: { enum: ["a"] } } },
+  { type: "object", properties: { kind: { enum: ["b"] } } },
+  { type: "object", properties: { kind: { type: "string" } } },
+] };
+const fallbackDispatch = resolveUnionDispatch(withFallback);
+
+renderTemplate("test_template", {
+  kind0: dispatch.variants[0].dispatchKind, field0: dispatch.variants[0].dispatchField, value0: dispatch.variants[0].dispatchValue,
+  kind1: dispatch.variants[1].dispatchKind, field1: dispatch.variants[1].dispatchField, value1: dispatch.variants[1].dispatchValue,
+  cfield0: constDispatch.variants[0].dispatchField, cvalue0: constDispatch.variants[0].dispatchValue,
+  cfield1: constDispatch.variants[1].dispatchField, cvalue1: constDispatch.variants[1].dispatchValue,
+  ffield0: fallbackDispatch.variants[0].dispatchField, fvalue0: fallbackDispatch.variants[0].dispatchValue,
+  ffield1: fallbackDispatch.variants[1].dispatchField, fvalue1: fallbackDispatch.variants[1].dispatchValue,
+  ffield2: fallbackDispatch.variants[2].dispatchField, fvalue2: fallbackDispatch.variants[2].dispatchValue,
+}, "outfile");
+)JS" },
+        { "generator.yml", readResource("generator.yml") },
+    };
+
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { make_shared<MockedFileReaderBackend>(files) },
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { },
+        .tags = {},
+    });
+
+    gen.generate(getResourcePath("petstore.yaml"));
+
+    auto& out = fileWriter->files["outfile"];
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("kind0=object"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("field0=kind"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("value0=circle"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("kind1=object"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("field1=kind"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("value1=square"));
+
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("cfield0=kind"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("cvalue0=cat"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("cfield1=kind"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("cvalue1=dog"));
+
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("ffield0=kind"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("fvalue0=a"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("ffield1=kind"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("fvalue1=b"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("ffield2=null"));
+    REQUIRE_THAT(out, Catch::Matchers::ContainsSubstring("fvalue2=null"));
+}
+
 TEST_CASE("resolveUnionDispatch rejects unresolvable/ambiguous oneOf shapes", "[generator]")
 {
     auto makeGen = [](const string& mainJs, const shared_ptr<MockedFileWriter>& fileWriter,

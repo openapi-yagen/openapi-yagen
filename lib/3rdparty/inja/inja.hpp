@@ -1038,6 +1038,11 @@ struct RenderConfig {
   // a macro invoked as a default-parameter/argument expression of another macro call all count).
   // Exceeding it throws inja::RenderError instead of exhausting the C++ call stack.
   size_t max_macro_recursion_depth {200};
+  // Maximum nesting depth of {% include %}/{% extends %} (a template including/extending itself,
+  // directly or through a cycle of several templates, all count). Exceeding it throws
+  // inja::RenderError instead of exhausting the C++ call stack - the same failure mode
+  // max_macro_recursion_depth guards against, for the other kind of template-level recursion.
+  size_t max_template_recursion_depth {200};
 };
 
 } // namespace inja
@@ -1633,6 +1638,24 @@ class Parser {
   std::stack<MacroStatementNode*> macro_statement_stack;
   std::stack<FilterStatementNode*> filter_statement_stack;
 
+  // Names of templates currently mid-resolution via add_to_template_storage, innermost last -
+  // detects a {% include %}/{% extends %} cycle (a template including/extending itself, directly
+  // or through a chain of others) so it fails with a clear ParserError instead of recursing
+  // forever. Needed as an explicit stack rather than just checking template_storage for an
+  // already-present entry: the include_callback-based resolution path (used by
+  // Templates::InjaTemplateRenderer, see lib/templates/inja_template_renderer.cpp) only adds a
+  // template to template_storage *after* its own nested parse fully completes, so a cycle through
+  // that path never hits template_storage's "already resolved" fast path either - it would
+  // otherwise recurse until the C++ call stack overflows.
+  //
+  // A *reference* to the owning Environment's own member, not a Parser-local vector: the
+  // include_callback path resolves a nested include by calling back into Environment::parse(),
+  // which constructs a brand-new Parser for every recursive step (see Environment::parse below) -
+  // a Parser-local stack would reset to empty on each of those and never actually detect a cycle
+  // that crosses an include_callback boundary. template_storage is threaded through the exact same
+  // way, for the exact same reason.
+  std::vector<std::string>& include_resolution_stack;
+
   void throw_parser_error(const std::string& message) const {
     INJA_THROW(ParserError(message, lexer.current_position()));
   }
@@ -1679,6 +1702,19 @@ class Parser {
     }
 
     const std::string original_name = template_name;
+
+    if (std::find(include_resolution_stack.begin(), include_resolution_stack.end(), original_name) != include_resolution_stack.end()) {
+      std::string chain;
+      for (const auto& name : include_resolution_stack) {
+        chain += name + " -> ";
+      }
+      throw_parser_error("include/extends cycle detected: " + chain + original_name);
+    }
+    include_resolution_stack.push_back(original_name);
+    struct StackGuard {
+      std::vector<std::string>& stack;
+      ~StackGuard() { stack.pop_back(); }
+    } stack_guard {include_resolution_stack};
 
     if (config.search_included_templates_in_files) {
       // Build the relative path
@@ -2453,8 +2489,9 @@ class Parser {
 
 public:
   explicit Parser(const ParserConfig& parser_config, const LexerConfig& lexer_config, TemplateStorage& template_storage,
-                  const FunctionStorage& function_storage)
-      : config(parser_config), lexer(lexer_config), template_storage(template_storage), function_storage(function_storage) {}
+                  const FunctionStorage& function_storage, std::vector<std::string>& include_resolution_stack)
+      : config(parser_config), lexer(lexer_config), template_storage(template_storage), function_storage(function_storage),
+        include_resolution_stack(include_resolution_stack) {}
 
   Template parse(std::string_view input, const std::filesystem::path& path) {
     auto result = Template(std::string(input));
@@ -2463,7 +2500,7 @@ public:
   }
 
   void parse_into_template(Template& tmpl, const std::filesystem::path& filename) {
-    auto sub_parser = Parser(config, lexer.get_config(), template_storage, function_storage);
+    auto sub_parser = Parser(config, lexer.get_config(), template_storage, function_storage, include_resolution_stack);
     sub_parser.parse_into(tmpl, filename.parent_path());
   }
 
@@ -2558,6 +2595,15 @@ class Renderer : public NodeVisitor {
   // Nesting depth of in-flight macro calls; guards against runaway recursion (missing base case,
   // inverted condition, etc.) blowing the C++ call stack. See visit(const MacroCallNode&).
   size_t macro_call_depth {0};
+
+  // Nesting depth of in-flight {% include %}/{% extends %}; guards against a template cycle
+  // (directly or indirectly including/extending itself) the same way macro_call_depth guards
+  // against runaway macro recursion. An {% include %} renders through a brand-new Renderer
+  // instance (see visit(const IncludeStatementNode&)), so this - unlike most other Renderer state
+  // - is threaded through the constructor rather than left to reset to 0 for each nested include;
+  // {% extends %} stays within the same Renderer instance (visit(const ExtendsStatementNode&)
+  // increments/decrements it directly around its own render_to() call).
+  size_t template_recursion_depth {0};
 
   json additional_data;
   json* current_loop_data = &additional_data["loop"];
@@ -3185,7 +3231,15 @@ class Renderer : public NodeVisitor {
   }
 
   void visit(const IncludeStatementNode& node) override {
-    auto sub_renderer = Renderer(config, template_storage, function_storage);
+    // The parser already rejects an actual include/extends *cycle* at parse time (see
+    // Parser::add_to_template_storage's include_resolution_stack) - this only guards a
+    // legitimately deep but acyclic chain (template A includes B includes C includes ...) from
+    // exhausting the C++ call stack, the same backstop role max_macro_recursion_depth plays for
+    // macro calls.
+    if (template_recursion_depth >= config.max_template_recursion_depth) {
+      throw_renderer_error("include recursion depth exceeded " + std::to_string(config.max_template_recursion_depth) + " including '" + node.file + "'", node);
+    }
+    auto sub_renderer = Renderer(config, template_storage, function_storage, macro_call_depth, template_recursion_depth + 1);
     const auto included_template_it = template_storage.find(node.file);
     if (included_template_it != template_storage.end()) {
       sub_renderer.render_to(*output_stream, included_template_it->second, *data_input, &additional_data);
@@ -3195,10 +3249,15 @@ class Renderer : public NodeVisitor {
   }
 
   void visit(const ExtendsStatementNode& node) override {
+    if (template_recursion_depth >= config.max_template_recursion_depth) {
+      throw_renderer_error("extends recursion depth exceeded " + std::to_string(config.max_template_recursion_depth) + " extending '" + node.file + "'", node);
+    }
     const auto included_template_it = template_storage.find(node.file);
     if (included_template_it != template_storage.end()) {
       const Template* parent_template = &included_template_it->second;
+      ++template_recursion_depth;
       render_to(*output_stream, *parent_template, *data_input, &additional_data);
+      --template_recursion_depth;
       break_rendering = true;
     } else if (config.throw_at_missing_includes) {
       throw_renderer_error("extends '" + node.file + "' not found", node);
@@ -3341,8 +3400,16 @@ class Renderer : public NodeVisitor {
   }
 
 public:
-  explicit Renderer(const RenderConfig& config, const TemplateStorage& template_storage, const FunctionStorage& function_storage)
-      : config(config), template_storage(template_storage), function_storage(function_storage) {}
+  // initial_template_recursion_depth carries the caller's own {% include %}/{% extends %} nesting
+  // depth into a sub-renderer created for a nested {% include %} (see
+  // visit(const IncludeStatementNode&)) - defaults to 0 for a top-level render. Likewise
+  // initial_macro_call_depth, so a macro call chain that crosses an {% include %} boundary is
+  // still guarded (a macro defined in an included file calling back into a macro from the
+  // including template, or vice versa).
+  explicit Renderer(const RenderConfig& config, const TemplateStorage& template_storage, const FunctionStorage& function_storage,
+                     size_t initial_macro_call_depth = 0, size_t initial_template_recursion_depth = 0)
+      : config(config), template_storage(template_storage), function_storage(function_storage),
+        macro_call_depth(initial_macro_call_depth), template_recursion_depth(initial_template_recursion_depth) {}
 
   void render_to(std::ostream& os, const Template& tmpl, const json& data, json* loop_data = nullptr) {
     output_stream = &os;
@@ -3378,6 +3445,10 @@ namespace inja {
 class Environment {
   FunctionStorage function_storage;
   TemplateStorage template_storage;
+  // Shared (by reference) with every Parser this Environment constructs, including the ones
+  // created recursively via an include_callback's own env.parse() call - see Parser's own
+  // include_resolution_stack member for why this can't just live on Parser itself.
+  std::vector<std::string> include_resolution_stack;
 
 protected:
   LexerConfig lexer_config;
@@ -3456,13 +3527,20 @@ public:
     render_config.max_macro_recursion_depth = max_depth;
   }
 
+  /// Sets the maximum nesting depth of {% include %}/{% extends %} before an inja::RenderError is
+  /// thrown - a backstop for a legitimately deep (but acyclic) chain; an actual include/extends
+  /// cycle is already rejected at parse time with a inja::ParserError, regardless of this setting.
+  void set_max_template_recursion_depth(size_t max_depth) {
+    render_config.max_template_recursion_depth = max_depth;
+  }
+
   Template parse(std::string_view input) {
-    Parser parser(parser_config, lexer_config, template_storage, function_storage);
+    Parser parser(parser_config, lexer_config, template_storage, function_storage, include_resolution_stack);
     return parser.parse(input, input_path);
   }
 
   Template parse_template(const std::filesystem::path& filename) {
-    Parser parser(parser_config, lexer_config, template_storage, function_storage);
+    Parser parser(parser_config, lexer_config, template_storage, function_storage, include_resolution_stack);
     auto result = Template(Parser::load_file(input_path / filename));
     parser.parse_into_template(result, (input_path / filename).string());
     return result;
@@ -3523,7 +3601,7 @@ public:
   }
 
   std::string load_file(const std::string& filename) {
-    const Parser parser(parser_config, lexer_config, template_storage, function_storage);
+    const Parser parser(parser_config, lexer_config, template_storage, function_storage, include_resolution_stack);
     return Parser::load_file(input_path / filename);
   }
 

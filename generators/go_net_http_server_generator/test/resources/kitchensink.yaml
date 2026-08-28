@@ -311,6 +311,27 @@ paths:
       responses:
         "204":
           description: Favorited
+  /widgets/{widgetId}/archive:
+    post:
+      operationId: archiveWidget
+      tags: [widgets]
+      description: >-
+        Exercises an OR-alternative security requirement where one alternative itself requires
+        two schemes together (AND-within-OR): either (oauth2Auth AND apiKeyAuth together) OR
+        bearerAuth alone satisfies the request.
+      security:
+        - oauth2Auth: [write:widgets]
+          apiKeyAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Archived
 components:
   schemas:
     Pet:

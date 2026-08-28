@@ -81,7 +81,11 @@ func (fakeWidgetsHandler) GetShape(ctx context.Context, shapeId string) (models.
 	return shape, nil
 }
 
-func (fakeWidgetsHandler) FavoriteWidget(ctx context.Context, widgetId string, oauth2authToken *string, apiKeyAuthKey *string) error {
+func (fakeWidgetsHandler) FavoriteWidget(ctx context.Context, widgetId string, oauth2AuthToken *string, apiKeyAuthKey *string) error {
+	return nil
+}
+
+func (fakeWidgetsHandler) ArchiveWidget(ctx context.Context, widgetId string, apiKeyAuthKey *string, oauth2AuthToken *string, bearerAuthToken *string) error {
 	return nil
 }
 
@@ -474,6 +478,64 @@ func TestFavoriteWidgetORSecurityAlternatives(t *testing.T) {
 	defer resp3.Body.Close()
 	if resp3.StatusCode != http.StatusNoContent {
 		t.Fatalf("expected 204 with an X-Api-Key header present, got %d", resp3.StatusCode)
+	}
+}
+
+// TestArchiveWidgetANDWithinORSecurityAlternatives exercises an OR-alternative where one
+// alternative itself requires two schemes together (security: [{oauth2Auth, apiKeyAuth}, {bearerAuth}]):
+// the generated route wrapper recurses through a chained Inja macro (authTry/authAlternative in
+// server_routes.go.j2), not hand-built JS, to require every scheme in the first alternative before
+// setting authMatched.
+func TestArchiveWidgetANDWithinORSecurityAlternatives(t *testing.T) {
+	s := newTestServer(t)
+
+	// Neither alternative present.
+	req, _ := http.NewRequest(http.MethodPost, s.URL+"/widgets/w1/archive", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 with neither alternative present, got %d", resp.StatusCode)
+	}
+
+	// Only one of the two schemes the first alternative requires (X-Api-Key, no Authorization) -
+	// not enough on its own, and the second alternative (bearerAuth) isn't satisfied either.
+	req2, _ := http.NewRequest(http.MethodPost, s.URL+"/widgets/w1/archive", nil)
+	req2.Header.Set("X-Api-Key", "secret")
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 with only one of the two AND-combined schemes present, got %d", resp2.StatusCode)
+	}
+
+	// Both schemes the first alternative requires together.
+	req3, _ := http.NewRequest(http.MethodPost, s.URL+"/widgets/w1/archive", nil)
+	req3.Header.Set("X-Api-Key", "secret")
+	req3.Header.Set("Authorization", "Bearer sometoken")
+	resp3, err := http.DefaultClient.Do(req3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 with both AND-combined schemes present, got %d", resp3.StatusCode)
+	}
+
+	// Second alternative (bearerAuth alone) also satisfies the request on its own.
+	req4, _ := http.NewRequest(http.MethodPost, s.URL+"/widgets/w1/archive", nil)
+	req4.Header.Set("Authorization", "Bearer sometoken")
+	resp4, err := http.DefaultClient.Do(req4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp4.Body.Close()
+	if resp4.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204 with bearerAuth alone present, got %d", resp4.StatusCode)
 	}
 }
 
