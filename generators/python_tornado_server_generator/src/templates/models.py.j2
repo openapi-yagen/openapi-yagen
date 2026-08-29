@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass
 {% if needsEnum %}from enum import Enum
 {% endif %}from typing import Any, Dict, List, Optional, cast
@@ -13,8 +14,9 @@ from .runtime import ValidationError
 {% for model in models %}{% if model.kind == "class" %}{{ docstring(model.description) }}@dataclass
 class {{ model.name }}:
 {% for p in model.properties %}{% if p.description %}    """{{ p.description | indent(4) }}"""
-{% endif %}{% if p.optional %}    {{ p.pyName }}: Optional[{{ p.label }}] = None
-{% else %}    {{ p.pyName }}: {{ p.label }}
+{% endif %}{% if p.optional %}{% if p.defaultLiteral %}    {{ p.pyName }}: Optional[{{ p.label }}] = {{ p.defaultLiteral }}
+{% else %}    {{ p.pyName }}: Optional[{{ p.label }}] = None
+{% endif %}{% else %}    {{ p.pyName }}: {{ p.label }}
 {% endif %}{% endfor %}
     @staticmethod
     def from_wire(d: Optional[Dict[str, Any]]) -> Optional["{{ model.name }}"]:

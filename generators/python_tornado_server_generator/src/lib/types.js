@@ -46,7 +46,27 @@ function baseType(schema) {
 
 function primitiveDescriptor(s) {
   const t = baseType(s);
-  if (t === "string") return { kind: "primitive", pyType: "str" };
+  if (t === "string") {
+    // `format: date`/`date-time` get a real datetime.date/datetime.datetime type (not a plain
+    // str) - the parse IS the validation (see serialization.js's buildFromWireExpr, which routes
+    // through runtime.parse_date/parse_datetime), same design as this project's Kotlin server
+    // generator. Fully module-qualified ("datetime.date", not a bare "date") so every generated
+    // file needs only a plain `import datetime`, never `from datetime import date` (which would
+    // otherwise collide with a property named "date" and, for "datetime", awkwardly shadow the
+    // module name with the class name of the same spelling).
+    if (s.format === "date") return { kind: "primitive", pyType: "datetime.date" };
+    if (s.format === "date-time") return { kind: "primitive", pyType: "datetime.datetime" };
+    // `format: binary` means "arbitrary file/binary content" (OpenAPI's convention for a
+    // multipart file field) - mapped to a real `bytes` instead of the generic `str` every other
+    // string format falls back to, so a multipart form field can be received as actual bytes (see
+    // operations.js's buildRequestBody, which routes a `bytes`-typed multipart field through
+    // `self.request.files` instead of `self.get_body_argument`). A JSON body's own `format:
+    // binary` property is a separate, unsupported edge case this doesn't attempt to fix (json.
+    // dumps can't serialize `bytes` at all) - the same scope this project's Go/Kotlin server
+    // generators accept for the identical schema shape.
+    if (s.format === "binary") return { kind: "primitive", pyType: "bytes" };
+    return { kind: "primitive", pyType: "str" };
+  }
   if (t === "integer") return { kind: "primitive", pyType: "int" };
   if (t === "number") return { kind: "primitive", pyType: "float" };
   if (t === "boolean") return { kind: "primitive", pyType: "bool" };
@@ -79,6 +99,30 @@ function buildFromWireExprTyped(t, expr, optional) {
   return `cast(${castType}, ${raw})`;
 }
 
+// Turns a property's `default` schema keyword into a Python literal - used both as the dataclass
+// field's own `= <literal>` default (instead of always `= None`) and, via fromWireExpr below, as
+// what from_wire falls back to when the JSON key is absent. Returns null for any shape not
+// recognized (e.g. an object/array default, or an enum value that doesn't match one of its own
+// entries) - the property then falls back to its ordinary `None` default, same as if `default`
+// were absent.
+function buildDefaultLiteral(registry, descriptor, value) {
+  if (value === undefined) return null;
+  if (descriptor.kind === "primitive") {
+    if (descriptor.pyType === "str") return escapePythonString(String(value));
+    if (descriptor.pyType === "int" || descriptor.pyType === "float") return String(value);
+    if (descriptor.pyType === "bool") return value ? "True" : "False";
+    return null; // datetime.date/datetime.datetime: no literal syntax worth generating for this
+  }
+  if (descriptor.kind === "ref") {
+    const model = registry.models.get(descriptor.refName);
+    if (!model || model.kind !== "enum") return null;
+    const literal = model.isInt ? String(value) : escapePythonString(String(value));
+    const entry = model.entries.find((e) => e.wireValueLiteral === literal);
+    return entry ? `${descriptor.refName}.${entry.constantName}` : null;
+  }
+  return null;
+}
+
 function registerClass(registry, name, schema) {
   if (registry.models.has(name)) return;
   const required = new Set(schema.required || []);
@@ -92,6 +136,9 @@ function registerClass(registry, name, schema) {
     if (isRequired && !nullable) {
       validateStatements.unshift(`if self.${pyName} is None: raise ValidationError('"${propName}" is required')`);
     }
+    // Only an optional property gets a default literal - a `default` alongside a required
+    // property is unusual (the property is never actually absent) and not worth special-casing.
+    const defaultLiteral = !isRequired && "default" in propSchema ? buildDefaultLiteral(registry, t.descriptor, propSchema.default) : null;
     allProps.push({
       pyName,
       wireName: propName,
@@ -118,7 +165,18 @@ function registerClass(registry, name, schema) {
       // expected to call validate() before trusting a from_wire()'d instance - cast() only tells
       // mypy to trust that contract at the type level, same as at every other codegen boundary
       // between "untyped JSON" and "the type this schema promises".
-      fromWireExpr: buildFromWireExprTyped(t, `runtime.field(d, ${escapePythonString(propName)})`, !isRequired || nullable),
+      // An absent key uses the default; an explicit JSON null (key present, value None) still
+      // goes through the normal from_wire conversion below, which is None-safe and correctly
+      // yields None, not the default - the same "absent vs. explicit null" distinction the
+      // Go/Kotlin generators' own default handling preserves. Built as a plain ternary (not
+      // routed through the from_wire conversion the way a present key's value is) so an enum
+      // default doesn't get redundantly re-passed through that enum's own from_wire - the literal
+      // is already the correctly-typed final value. Python's `key in d` is what makes this cheap
+      // to express directly, unlike Go (which needs a custom UnmarshalJSON).
+      defaultLiteral,
+      fromWireExpr: defaultLiteral
+        ? `(${buildFromWireExprTyped(t, `d[${escapePythonString(propName)}]`, !isRequired || nullable)} if ${escapePythonString(propName)} in d else ${defaultLiteral})`
+        : buildFromWireExprTyped(t, `runtime.field(d, ${escapePythonString(propName)})`, !isRequired || nullable),
       toWireExpr: buildToWireExpr(t.descriptor, `value.${pyName}`),
       validateStatements,
     });
@@ -223,6 +281,11 @@ function valueGuard(descriptor) {
       if (descriptor.pyType === "int") return "isinstance(value, int) and not isinstance(value, bool)";
       if (descriptor.pyType === "float") return "isinstance(value, (int, float)) and not isinstance(value, bool)";
       if (descriptor.pyType === "bool") return "isinstance(value, bool)";
+      if (descriptor.pyType === "bytes") return "isinstance(value, bytes)";
+      // datetime.datetime is a SUBCLASS of datetime.date, so the date check excludes it explicitly
+      // - otherwise a datetime.datetime value would also match a sibling "date" union variant.
+      if (descriptor.pyType === "datetime.date") return "isinstance(value, datetime.date) and not isinstance(value, datetime.datetime)";
+      if (descriptor.pyType === "datetime.datetime") return "isinstance(value, datetime.datetime)";
       return null;
     case "unknown":
     default:

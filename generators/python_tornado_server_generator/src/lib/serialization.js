@@ -45,6 +45,18 @@ function indentAll(statements, prefix) {
     .join("\n");
 }
 
+// A `format: date`/`date-time` primitive is the one primitive-kind shape that isn't already the
+// right Python type once JSON has decoded it (a JSON string still needs parsing into a real
+// datetime.date/datetime.datetime - the parse doubles as validation, see runtime.parse_date/
+// parse_datetime) - every other primitive (str/int/float/bool) round-trips as-is through
+// json.loads/json.dumps, so buildFromWireExpr/buildToWireExpr's "primitive" case is identity for
+// those, but not for these two.
+function dateTimeParseCall(pyType, expr) {
+  if (pyType === "datetime.date") return `(runtime.parse_date(${expr}) if ${expr} is not None else None)`;
+  if (pyType === "datetime.datetime") return `(runtime.parse_datetime(${expr}) if ${expr} is not None else None)`;
+  return null;
+}
+
 export function buildFromWireExpr(descriptor, expr, depth = 0) {
   switch (descriptor.kind) {
     case "ref":
@@ -62,6 +74,7 @@ export function buildFromWireExpr(descriptor, expr, depth = 0) {
       return `({${k}: ${inner} for ${k}, ${v} in ${expr}.items()} if ${expr} is not None else None)`;
     }
     case "primitive":
+      return dateTimeParseCall(descriptor.pyType, expr) || expr;
     case "unknown":
     default:
       return expr;
@@ -85,6 +98,10 @@ export function buildToWireExpr(descriptor, expr, depth = 0) {
       return `({${k}: ${inner} for ${k}, ${v} in ${expr}.items()} if ${expr} is not None else None)`;
     }
     case "primitive":
+      if (descriptor.pyType === "datetime.date" || descriptor.pyType === "datetime.datetime") {
+        return `(${expr}.isoformat() if ${expr} is not None else None)`;
+      }
+      return expr;
     case "unknown":
     default:
       return expr;
@@ -107,10 +124,17 @@ export function buildValidateStatements(descriptor, schema, expr, fieldLabel, de
   // unconditionally for every primitive-kind position, same as the Ruby generator's own
   // require_type/require_boolean.
   if (descriptor.kind === "primitive") {
-    if (resolved.type === "string") statements.push(`runtime.require_str(${expr}, ${field})`);
+    if (descriptor.pyType === "datetime.date") statements.push(`runtime.require_date(${expr}, ${field})`);
+    else if (descriptor.pyType === "datetime.datetime") statements.push(`runtime.require_datetime(${expr}, ${field})`);
+    else if (descriptor.pyType === "bytes") statements.push(`runtime.require_bytes(${expr}, ${field})`);
+    else if (resolved.type === "string") statements.push(`runtime.require_str(${expr}, ${field})`);
     else if (resolved.type === "integer") statements.push(`runtime.require_int(${expr}, ${field})`);
     else if (resolved.type === "number") statements.push(`runtime.require_float(${expr}, ${field})`);
     else if (resolved.type === "boolean") statements.push(`runtime.require_bool(${expr}, ${field})`);
+    // format: uuid is shape-checked on top of the basic str type check above - the canonical
+    // 8-4-4-4-12 hyphenated hex form (RFC 4122 section 3), same scope as this project's Go/Kotlin
+    // server generators' own requireUUID/requireUuid (version/variant bits aren't checked either).
+    if (descriptor.pyType === "str" && resolved.format === "uuid") statements.push(`runtime.require_uuid(${expr}, ${field})`);
   }
 
   if (resolved.const !== undefined) statements.push(`runtime.require_const(${expr}, ${JSON.stringify(resolved.const)}, ${field})`);

@@ -12,7 +12,7 @@ per object schema (`from_wire`/`to_wire`/`validate` included - Python has no com
 wrong-shaped value the way a statically-typed target does), and per OpenAPI tag a handler interface
 you implement plus one `tornado.web.RequestHandler` subclass per path.
 
-Incoming requests are parsed and validated - path/query/header parameters and, for bodies whose
+Incoming requests are parsed and validated - path/query/header/cookie parameters and, for bodies whose
 schema has constraints, the deserialized body - **before** the handler is called, so handler
 implementations only ever see clean, typed, already-valid Python values. All constraint-checking
 logic lives once in the generated `runtime.py` and is called from every operation/model instead of
@@ -129,23 +129,59 @@ Shape.to_wire(shape)
 Generation fails if an undiscriminated union's variants can't be unambiguously told apart from the
 raw JSON alone (e.g. two object variants with no property that distinguishes them).
 
+A `type: string` property/parameter with `format: date`/`date-time` gets a real `datetime.date`/
+`datetime.datetime` type instead of a plain `str` - `from_wire`/query-and-path-parameter parsing
+routes through `datetime.date.fromisoformat`/`datetime.datetime.fromisoformat` (normalizing a
+trailing `Z` UTC designator first, for correctness on any supported Python version, not just
+3.11+, which is the first to accept `Z` natively), and `to_wire` calls `.isoformat()` back - the
+parse doubles as the validation, so a malformed date/date-time value is rejected at the point it's
+first read, not deferred to a separate check. `format: uuid` stays a plain `str` (no
+dependency-free stdlib UUID type this generator reaches for) - a struct property or parameter with
+it is shape-checked by `validate()`/parameter parsing: the canonical 8-4-4-4-12 hyphenated hex
+form.
+
+An optional property's `default` schema keyword becomes the real literal default for both entry
+points into a model: the dataclass field's own default (`NewWidget(name="Gizmo", owner="carol")`
+gets `priority=1` without you passing it) and `from_wire`'s absent-key handling
+(`NewWidget.from_wire({"name": "Gizmo", "owner": "carol"})` too). An **explicit** JSON `null` still
+wins over the default - `NewWidget.from_wire({..., "priority": None}).priority` is `None`, not `1`
+- Python's `key in d` is what makes this "absent vs. explicit null" distinction cheap to generate
+directly, unlike a language needing a custom (de)serializer for it. A `default` on a required
+property, or one whose value doesn't map to a recognized literal shape (an object/array default, or
+a `format: date`/`date-time` default), is ignored - the property keeps its ordinary
+required/`None`-default handling.
+
 ### Authentication
 
-Only `http`/`bearer` and `apiKey` security schemes are supported. A secured operation's handler
-method gets one extra keyword-only `str` parameter per required scheme, already extracted and
-validated before the handler runs:
+`http`/`bearer`, `apiKey`, `oauth2`, and `openIdConnect` security schemes are supported - the
+latter two treated identically to `http`/`bearer` (RFC 6750: an OAuth2/OIDC access token travels as
+`Authorization: Bearer <token>` regardless of how it was obtained), with no scope/claim validation
+of the token itself (just presence, same as every other scheme).
+
+A `security` requirement naming a single scheme, or several required together (AND -
+`security: [{a: [], b: []}]`), gives the handler method one extra keyword-only, required `str`
+parameter per scheme, already extracted and validated before the handler runs:
 
 ```python
 def delete_pet(self, *, pet_id: str, bearer_auth_token: str) -> None: ...
 ```
 
-A missing credential raises the generator's own `runtime.MissingAuthenticationError` - deliberately
-not a `ValidationError` (or a subclass of it) - immediately caught by the generated
-`RequestHandler` method and re-raised as `tornado.web.HTTPError(401, reason=str(exc))`, alongside
-the existing `ValidationError` -> 422 mapping. A security requirement with two or more
-OR-alternatives (`security: [{a: []}, {b: []}]`) is a generator error - only a single combination of
-schemes (`security: [{a: [], b: []}]`, meaning both required together) is supported.
-`oauth2`/`openIdConnect` schemes are also a generator error.
+A `security` with two or more OR-alternatives (`security: [{a: []}, {b: []}]`, optionally with an
+AND-combination inside one or more alternatives) instead gives the handler one `Optional[str]`
+parameter per *unique* scheme name across every alternative, all extracted the same way but never
+individually required - the generated method body tries each alternative in the spec's own
+declared order, first one whose every scheme is non-`None` wins:
+
+```python
+def favorite_widget(self, *, widget_id: int, oauth_2_auth_token: Optional[str], api_key_auth_key: Optional[str]) -> None: ...
+```
+
+Either way, a missing credential (no scheme populated for a single-scheme/AND operation, or no
+alternative fully satisfied for an OR one) raises the generator's own
+`runtime.MissingAuthenticationError` - deliberately not a `ValidationError` (or a subclass of it) -
+immediately caught by the generated `RequestHandler` method and re-raised as
+`tornado.web.HTTPError(401, reason=str(exc))`, alongside the existing `ValidationError` -> 422
+mapping.
 
 ### Request/response body content types
 
@@ -159,11 +195,17 @@ otherwise):
   constraint walk for a Map/array/primitive schema) before the handler is called - the handler
   method's `body:` parameter is the generated type.
 - **`multipart/form-data`/`application/x-www-form-urlencoded`**: Tornado parses either into the
-  same `self.get_body_argument()` API, so one generated code path covers both. The schema must be
-  `type: object` with only primitive/enum-typed properties (a nested object/array field is a
-  generator error) - each field is extracted individually, then the constructed object's own
-  `validate()` is called once for required-ness and every declared constraint, same as the JSON
-  encoding's whole-body validation.
+  same `self.get_body_argument()`/`self.get_body_arguments()` API, so one generated code path
+  covers both. The schema must be `type: object` with only primitive/enum-typed properties, or
+  arrays of either (`self.get_body_arguments`, the plural sibling of `self.get_body_argument` -
+  one repeated key per element, OpenAPI's default `style: form, explode: true`); a nested object
+  property, or an array of non-scalar items, is a generator error - each field is extracted
+  individually, then the constructed object's own `validate()` is called once for required-ness and
+  every declared constraint, same as the JSON encoding's whole-body validation. A `type: string,
+  format: binary` property (a file field) maps to a real `bytes`, and - **multipart only** - is read
+  from Tornado's own `self.request.files` (a real uploaded file part, not a plain form field) rather
+  than `self.get_body_argument`; the same property in a urlencoded body is a generator error (a
+  urlencoded body has no file-part concept to read one from).
 - **a single `text/*` media type** (`text/plain`, `text/csv`, `text/html`, ...): the handler
   method's `body:`/return type is a plain `str` - `self.request.body.decode("utf-8")` /
   `self.write(result)`, no JSON involved.
@@ -175,12 +217,15 @@ otherwise):
   (which one would the generated handler actually expect?) and is a generator error, same as any
   other unsupported content-type - see "Known limitations".
 
-### Path/query/header parameters
+### Path/query/header/cookie parameters
 
 Must resolve to a primitive scalar type (string/integer/number/boolean), an enum, or (query
 parameters only) an array of one of those, serialized as repeated `?name=a&name=b` keys (OpenAPI's
-default `style: form, explode: true`) - path/header parameters stay scalar-only. An object,
-nested array, or `oneOf`/`anyOf` in one of these positions is a generator error.
+default `style: form, explode: true`) - path/header/cookie parameters stay scalar-only. An object,
+nested array, or `oneOf`/`anyOf` in one of these positions is a generator error. A cookie parameter
+is read via `self.get_cookie(name)` - not to be confused with a cookie-*located* `apiKey` security
+scheme (`in: cookie` on the scheme itself, see "Authentication" below), which is a separate,
+already-correct code path.
 
 ## Known limitations (v1)
 
@@ -190,11 +235,13 @@ nested array, or `oneOf`/`anyOf` in one of these positions is a generator error.
   declaring two or more media types outside those fixed ones is a generator error (aborts
   generation under default `strict=true`; skips just that operation with a printed warning under
   `-v strict=false`).
-- Only `http`/`bearer` and `apiKey` security schemes are supported; a security requirement with two
-  or more OR-alternatives is a generator error - see "Authentication" above.
+- `security` schemes are limited to `http`/`bearer`, `apiKey`, `oauth2`, and `openIdConnect` -
+  `mutualTLS`/HTTP Basic is a generator error - see "Authentication" above.
 - Body/model validation covers `minLength`/`maxLength`/`pattern`/`minimum`/`maximum`/
   `exclusiveMinimum`/`exclusiveMaximum`/`multipleOf`/`minItems`/`maxItems`/`uniqueItems`/
-  `minProperties`/`maxProperties`/`const`, and recurses into nested object properties (via their own
+  `minProperties`/`maxProperties`/`const`/`format: uuid` (a shape check) and `format: date`/
+  `date-time` (typed as real `datetime.date`/`datetime.datetime`, parse-as-validation - see "Model
+  types" above), and recurses into nested object properties (via their own
   generated `validate()`), array elements, and Map (`additionalProperties`) values - but only for a
   property/parameter whose own declared type is directly one of those shapes, not through a `$ref`
   to a Map/array/primitive-kind schema (a `$ref` to an **object**, **enum**, or **union** schema is

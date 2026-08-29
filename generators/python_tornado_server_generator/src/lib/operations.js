@@ -43,7 +43,13 @@ function indentLines(lines, prefix) {
 // only used for a primitive's own error message (an enum's from_wire names itself already).
 function scalarParamType(registry, t, fieldLabel) {
   if (t.descriptor.kind === "primitive") {
-    const fns = { int: "runtime.parse_int", float: "runtime.parse_float", bool: "runtime.parse_bool" };
+    const fns = {
+      int: "runtime.parse_int",
+      float: "runtime.parse_float",
+      bool: "runtime.parse_bool",
+      "datetime.date": "runtime.parse_date_param",
+      "datetime.datetime": "runtime.parse_datetime_param",
+    };
     const fn = fns[t.descriptor.pyType];
     return { pyType: t.descriptor.pyType, parseCall: fn ? (expr) => `${fn}(${expr}, ${escapePythonString(fieldLabel)})` : null };
   }
@@ -111,6 +117,7 @@ function buildParam(registry, hintBase, p) {
     lines.push(item.parseCall ? `${pyName} = ${item.parseCall(rawVar)}` : `${pyName} = ${rawVar}`);
   } else {
     if (p.in === "header") lines.push(`${rawVar} = self.request.headers.get(${escapePythonString(p.name)})`);
+    else if (p.in === "cookie") lines.push(`${rawVar} = self.get_cookie(${escapePythonString(p.name)})`);
     else lines.push(`${rawVar} = self.get_query_argument(${escapePythonString(p.name)}, default=None)`);
     if (required) lines.push(`if ${rawVar} is None: raise ValidationError('"${p.name}" is required')`);
     lines.push(
@@ -155,19 +162,32 @@ function pickBodyContent(content) {
 }
 
 // application/x-www-form-urlencoded and multipart/form-data bodies are, by OpenAPI convention,
-// always `type: object` schemas with one property per form field. Anything else (a nested
-// object/array property) is a generator error - same "handle the common case, error on the rest"
-// policy path/header params already follow.
+// always `type: object` schemas with one property per form field. A property may also be an array
+// of scalar/enum items (one repeated key/part per element - see buildRequestBody's `self.
+// get_body_arguments` branch below, the plural sibling of the scalar `self.get_body_argument`).
+// Anything else (a nested object property, or an array of non-scalar items) is a generator error -
+// same "handle the common case, error on the rest" policy path/header params already follow.
 function requireFlatObjectSchema(bodySchema, mediaType) {
   if (kindOf(bodySchema) !== "Object") {
     throw Error(`<c7e2a915> A "${mediaType}" body must be an object schema (one property per form field) - got ${kindOf(bodySchema)}`);
   }
   for (const [propName, propSchema] of Object.entries(bodySchema.properties || {})) {
-    const kind = kindOf(unwrapSchema(propSchema));
+    const resolved = unwrapSchema(propSchema);
+    const kind = kindOf(resolved);
+    if (kind === "Array") {
+      const itemKind = kindOf(unwrapSchema(resolved.items || {}));
+      if (itemKind !== "Primitive" && itemKind !== "Enum") {
+        throw Error(
+          `<f31b0d6a> Unsupported "${mediaType}" body field "${propName}": array items must be primitive scalar ` +
+            `types or enums - got ${itemKind}`
+        );
+      }
+      continue;
+    }
     if (kind !== "Primitive" && kind !== "Enum") {
       throw Error(
-        `<f31b0d6a> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types or enums ` +
-          `are supported as form fields - got ${kind}`
+        `<f31b0d6a> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types (including ` +
+          `format: binary strings), enums, or arrays of either are supported as form fields - got ${kind}`
       );
     }
   }
@@ -211,13 +231,40 @@ function buildRequestBody(registry, hintBase, requestBody) {
     const t = pyType(registry, bodySchema, hintBase + "Body");
     type = t.label;
     const model = registry.models.get(t.label);
+    const isMultipart = picked.mediaType === MULTIPART_MEDIA_TYPE;
     for (const p of model.properties) {
-      const item = scalarParamType(registry, { label: p.label, descriptor: p.descriptor }, p.wireName);
       const rawVar = `_${p.pyName}_raw`;
-      setupLines.push(`${rawVar} = self.get_body_argument(${p.wireLiteral}, default=None)`);
-      setupLines.push(
-        item.parseCall ? `_${p.pyName} = ${item.parseCall(rawVar)} if ${rawVar} is not None else None` : `_${p.pyName} = ${rawVar}`
-      );
+      const isFile = p.descriptor.kind === "primitive" && p.descriptor.pyType === "bytes";
+      if (isFile && !isMultipart) {
+        throw Error(
+          `<f31b0d6a> Unsupported "${picked.mediaType}" body field "${p.wireName}": format: binary is only ` +
+            `supported in multipart/form-data bodies`
+        );
+      }
+      const resolved = unwrapSchema(bodySchema.properties[p.wireName]);
+      if (isFile) {
+        // Tornado routes a real file part (one with a filename, sent via a real
+        // multipart-file-upload API on the client side) into self.request.files, NOT
+        // self.get_body_argument (which only ever sees non-file form fields) - a single-file
+        // field (no array support here, matching every sibling generator's own scope for this
+        // shape) takes the first uploaded file's raw bytes, or None if the field wasn't sent.
+        setupLines.push(`${rawVar} = self.request.files.get(${p.wireLiteral})`);
+        setupLines.push(`_${p.pyName} = ${rawVar}[0].body if ${rawVar} else None`);
+      } else if (kindOf(resolved) === "Array") {
+        const itemT = pyType(registry, resolved.items || { type: "string" }, hintBase + className(p.wireName) + "Item");
+        const item = scalarParamType(registry, itemT, p.wireName);
+        // self.get_body_arguments (plural) - the repeated-key sibling of self.get_body_argument,
+        // same "style: form, explode: true" convention buildArrayQueryParam already applies to an
+        // array-typed query parameter.
+        setupLines.push(`${rawVar} = self.get_body_arguments(${p.wireLiteral})`);
+        setupLines.push(item.parseCall ? `_${p.pyName} = [${item.parseCall("_item")} for _item in ${rawVar}]` : `_${p.pyName} = ${rawVar}`);
+      } else {
+        const item = scalarParamType(registry, { label: p.label, descriptor: p.descriptor }, p.wireName);
+        setupLines.push(`${rawVar} = self.get_body_argument(${p.wireLiteral}, default=None)`);
+        setupLines.push(
+          item.parseCall ? `_${p.pyName} = ${item.parseCall(rawVar)} if ${rawVar} is not None else None` : `_${p.pyName} = ${rawVar}`
+        );
+      }
     }
     // Each raw extraction above is typed Optional (get_body_argument/parseCall's from_wire both
     // always allow None) - correctly so for an optional field, but a required field's constructor
@@ -317,28 +364,43 @@ function pathHandlerName(pathStr) {
   return "_" + className(hint) + "Handler";
 }
 
-// Only `http`/`bearer` and `apiKey` security schemes are supported - same restriction every
-// sibling generator's own auth codegen has. Returns a param-shaped object (pyName/typeAnnotation/
-// setupLines/description) that slots directly into the same otherParams list a path/query/header
-// parameter does (see buildAuthParams below), reusing buildSignatures/buildMethodBodyLines/
-// buildDocstring unchanged.
-function buildAuthParamForScheme(schemeName, scheme) {
-  const isBearer = scheme.type === "http" && (scheme.scheme || "").toLowerCase() === "bearer";
-  const pyName = fieldName(schemeName + (isBearer ? "_token" : "_key"));
-  if (isBearer) {
+// `oauth2`/`openIdConnect` are treated identically to `http`/`bearer` (RFC 6750: an OAuth2/OIDC
+// access token travels as `Authorization: Bearer <token>` regardless of how it was obtained), and
+// this generator never validates a token's scopes/claims - just presence, same as every other
+// scheme. Returns a param-shaped object (pyName/typeAnnotation/setupLines/description) that slots
+// directly into the same otherParams list a path/query/header parameter does (see buildAuthParams
+// below), reusing buildSignatures/buildMethodBodyLines/buildDocstring unchanged.
+//
+// `required` controls which of two extraction shapes is generated: `true` (a single-alternative
+// operation - the common case) raises MissingAuthenticationError immediately if the credential is
+// absent, and the param's own type stays a bare `str`. `false` (one scheme within a multi-
+// alternative OR security requirement - see buildAuthParams) extracts the same way but never
+// raises on its own - absence just means this particular scheme wasn't the one satisfied, so the
+// type becomes `Optional[str]`, and buildAuthResolutionParam below is what actually decides
+// whether *some* alternative matched.
+function buildAuthParamForScheme(schemeName, scheme, required) {
+  const isBearerLike = (scheme.type === "http" && (scheme.scheme || "").toLowerCase() === "bearer") || scheme.type === "oauth2" || scheme.type === "openIdConnect";
+  const pyName = fieldName(schemeName + (isBearerLike ? "_token" : "_key"));
+  if (isBearerLike) {
+    const lines = [`${pyName}_raw = self.request.headers.get("Authorization")`];
+    if (required) {
+      lines.push(`if ${pyName}_raw is None: raise MissingAuthenticationError('missing required "Authorization" header')`);
+      lines.push(`${pyName} = ${pyName}_raw[7:] if ${pyName}_raw.lower().startswith("bearer ") else ${pyName}_raw`);
+    } else {
+      lines.push(
+        `${pyName} = (${pyName}_raw[7:] if ${pyName}_raw.lower().startswith("bearer ") else ${pyName}_raw) if ${pyName}_raw is not None else None`
+      );
+    }
     return {
       pyName,
       wireName: null,
       in: null,
-      typeAnnotation: "str",
-      required: true,
+      typeAnnotation: required ? "str" : "Optional[str]",
+      required,
       isPath: false,
       description: null,
-      setupLines: [
-        `${pyName}_raw = self.request.headers.get("Authorization")`,
-        `if ${pyName}_raw is None: raise MissingAuthenticationError('missing required "Authorization" header')`,
-        `${pyName} = ${pyName}_raw[7:] if ${pyName}_raw.lower().startswith("bearer ") else ${pyName}_raw`,
-      ],
+      signatureParam: true,
+      setupLines: lines,
     };
   }
   if (scheme.type === "apiKey") {
@@ -347,37 +409,78 @@ function buildAuthParamForScheme(schemeName, scheme) {
     else if (scheme.in === "query") getExpr = `self.get_query_argument(${escapePythonString(scheme.name)}, default=None)`;
     else if (scheme.in === "cookie") getExpr = `self.get_cookie(${escapePythonString(scheme.name)})`;
     else throw Error(`<9b6a1e3f> Unsupported apiKey location "${scheme.in}" for security scheme "${schemeName}"`);
+    const lines = [`${pyName} = ${getExpr}`];
+    if (required) {
+      lines.push(
+        `if ${pyName} is None: raise MissingAuthenticationError('missing required apiKey {} (in: {})'.format(` +
+          `${escapePythonString(scheme.name)}, ${escapePythonString(scheme.in)}))`
+      );
+    }
     return {
       pyName,
       wireName: null,
       in: null,
-      typeAnnotation: "str",
-      required: true,
+      typeAnnotation: required ? "str" : "Optional[str]",
+      required,
       isPath: false,
       description: null,
-      setupLines: [
-        `${pyName} = ${getExpr}`,
-        `if ${pyName} is None: raise MissingAuthenticationError('missing required apiKey {} (in: {})'.format(` +
-          `${escapePythonString(scheme.name)}, ${escapePythonString(scheme.in)}))`,
-      ],
+      signatureParam: true,
+      setupLines: lines,
     };
   }
   throw Error(
-    `<9b6a1e3f> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only "http" (bearer) and "apiKey" schemes are supported`
+    `<9b6a1e3f> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only "http" (bearer), "apiKey", ` +
+      `"oauth2", and "openIdConnect" schemes are supported`
   );
 }
 
-// A security requirement with 2+ alternatives (OR) has no single combination of handler parameters
-// that covers every alternative, so it's unsupported (same restriction every sibling generator's
-// own auth codegen applies) - one AND-combination (every scheme in a single requirement entry) is
-// fine.
+// A non-signature marker "param": excluded from the handler's own signature/call-args (see
+// buildSignatures' signatureParam filter) - only its setupLines matter, injected into the method
+// body after every real auth-scheme param above has been optionally extracted. Builds a flat
+// nested-if chain trying each OR-alternative in the spec's own declared order (`alternatives` is
+// an array of AND-groups, each an array of that group's scheme pyNames): the first alternative
+// whose every scheme var is non-None wins, setting `_auth_matched = True`; if none do, raises
+// MissingAuthenticationError - same "try each alternative in turn" logic as the Go/Kotlin server
+// generators' authTry/authAlternative Inja macros, just built directly as JS-generated statement
+// lines here (this generator has no macro system in its own templates to reuse instead).
+function buildAuthResolutionParam(alternatives) {
+  const lines = ["_auth_matched = False"];
+  for (const altPyNames of alternatives) {
+    const cond = altPyNames.map((n) => `${n} is not None`).join(" and ");
+    lines.push(`if not _auth_matched and ${cond}:`);
+    lines.push(`    _auth_matched = True`);
+  }
+  lines.push(`if not _auth_matched: raise MissingAuthenticationError("no security requirement satisfied")`);
+  return {
+    pyName: null,
+    wireName: null,
+    in: null,
+    typeAnnotation: null,
+    required: false,
+    isPath: false,
+    description: null,
+    signatureParam: false,
+    setupLines: lines,
+  };
+}
+
+// `security` is an array of alternative requirement objects (OR between entries, AND between the
+// scheme names within one). A single alternative (the common case) keeps the simple, direct
+// extraction shape buildAuthParamForScheme's `required: true` path generates - straight-line code,
+// no bookkeeping. Two or more alternatives get one Optional-typed param per UNIQUE scheme name
+// across every alternative (a scheme repeated in more than one alternative - unusual but legal -
+// only gets extracted once) plus the synthetic resolution param above.
 function buildAuthParams(security) {
   if (!security || security.length === 0) return [];
-  if (security.length > 1) {
-    throw Error(`<c4d8f271> Unsupported security requirement: multiple alternative (OR) security requirements are not supported`);
-  }
   const schemes = (schema.components && schema.components.securitySchemes) || {};
-  return Object.keys(security[0]).map((schemeName) => buildAuthParamForScheme(schemeName, schemes[schemeName] || {}));
+  if (security.length === 1) {
+    return Object.keys(security[0]).map((schemeName) => buildAuthParamForScheme(schemeName, schemes[schemeName] || {}, true));
+  }
+  const uniqueNames = [...new Set(security.flatMap((req) => Object.keys(req)))];
+  const schemeParams = uniqueNames.map((schemeName) => buildAuthParamForScheme(schemeName, schemes[schemeName] || {}, false));
+  const pyNameByScheme = new Map(uniqueNames.map((n, i) => [n, schemeParams[i].pyName]));
+  const alternatives = security.map((req) => Object.keys(req).map((n) => pyNameByScheme.get(n)));
+  return [...schemeParams, buildAuthResolutionParam(alternatives)];
 }
 
 function tagDescription(tagName) {
@@ -391,7 +494,10 @@ function tagDescription(tagName) {
 // site's keyword arguments string, shared between the abstract method declaration and the
 // RequestHandler method that calls it.
 function buildSignatures(pathParams, otherParams, body) {
-  const allParams = [...pathParams, ...otherParams];
+  // buildAuthResolutionParam's synthetic "param" carries setupLines only - it isn't a real
+  // parameter, so it's excluded here (still included wherever setupLines get flattened, e.g.
+  // buildMethodBodyLines).
+  const allParams = [...pathParams, ...otherParams].filter((p) => p.signatureParam !== false);
   const sigParts = allParams.map((p) => `${p.pyName}: ${p.typeAnnotation}`);
   const callParts = allParams.map((p) => `${p.pyName}=${p.pyName}`);
   if (body) {

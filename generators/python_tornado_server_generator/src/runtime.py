@@ -10,6 +10,7 @@ out-of-spec value the way the Kotlin/TypeScript generators' static types do for 
 
 from __future__ import annotations
 
+import datetime
 from typing import Any, Dict
 
 
@@ -59,6 +60,37 @@ def require_float(value: Any, field: str) -> None:
 def require_bool(value: Any, field: str) -> None:
     if value is not None and not isinstance(value, bool):
         raise ValidationError('"{}" has the wrong type: expected bool, got {}'.format(field, type(value).__name__))
+
+
+def require_bytes(value: Any, field: str) -> None:
+    if value is not None and not isinstance(value, bytes):
+        raise ValidationError('"{}" has the wrong type: expected bytes, got {}'.format(field, type(value).__name__))
+
+
+def require_date(value: Any, field: str) -> None:
+    if value is not None and not isinstance(value, datetime.date):
+        raise ValidationError('"{}" has the wrong type: expected date, got {}'.format(field, type(value).__name__))
+
+
+def require_datetime(value: Any, field: str) -> None:
+    if value is not None and not isinstance(value, datetime.datetime):
+        raise ValidationError('"{}" has the wrong type: expected datetime, got {}'.format(field, type(value).__name__))
+
+
+# Canonical 8-4-4-4-12 hyphenated hex form (RFC 4122 section 3) - version/variant bits aren't
+# checked, matching how require_max/require_max_length/require_pattern above are also shape checks
+# only, not full semantic validation. `format: date`/`date-time` need no analogous check here:
+# they're already typed as datetime.date/datetime.datetime (see primitiveDescriptor in types.js),
+# so parse_date/parse_datetime below already reject a malformed value at from_wire time - a plain
+# str property/parameter never happens for format: date/date-time the way it still does for
+# format: uuid.
+def require_uuid(value: Any, field: str) -> None:
+    import re
+
+    if value is not None and re.match(
+        r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", value
+    ) is None:
+        raise ValidationError('"{}" must be a valid UUID'.format(field))
 
 
 def require_const(value: Any, expected: Any, field: str) -> None:
@@ -157,3 +189,43 @@ def parse_bool(value: str, field: str) -> bool:
     if value.lower() in ("false", "0"):
         return False
     raise ValidationError('"{}" must be a boolean, got {!r}'.format(field, value))
+
+
+def _normalize_z_suffix(value: str) -> str:
+    # datetime.fromisoformat() only started accepting a bare "Z" UTC designator in Python 3.11 -
+    # normalizing it to "+00:00" ourselves keeps format: date-time parsing correct on any
+    # supported Python version, not just 3.11+, since a real-world API's date-time values
+    # virtually always use "Z" (RFC 3339's preferred form), not "+00:00".
+    return value[:-1] + "+00:00" if value.endswith("Z") else value
+
+
+# `field` is omitted here (unlike parse_date_param/parse_datetime_param below) to match the
+# generated enum from_wire's own unlabeled "invalid <Name> value" message (see models.py.j2) -
+# buildFromWireExpr (serialization.js) has no per-field label to thread through at body-property
+# position, only scalarParamType (operations.js) does, for a path/query/header parameter.
+def parse_date(value: str) -> datetime.date:
+    try:
+        return datetime.date.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise ValidationError("invalid date value: {!r}".format(value))
+
+
+def parse_datetime(value: str) -> datetime.datetime:
+    try:
+        return datetime.datetime.fromisoformat(_normalize_z_suffix(value))
+    except (TypeError, ValueError):
+        raise ValidationError("invalid date-time value: {!r}".format(value))
+
+
+def parse_date_param(value: str, field: str) -> datetime.date:
+    try:
+        return datetime.date.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise ValidationError('"{}" must be a valid date (YYYY-MM-DD), got {!r}'.format(field, value))
+
+
+def parse_datetime_param(value: str, field: str) -> datetime.datetime:
+    try:
+        return datetime.datetime.fromisoformat(_normalize_z_suffix(value))
+    except (TypeError, ValueError):
+        raise ValidationError('"{}" must be a valid date-time (ISO 8601), got {!r}'.format(field, value))

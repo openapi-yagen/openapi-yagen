@@ -42,6 +42,12 @@ paths:
             type: array
             items:
               type: string
+        - name: session_id
+          in: cookie
+          required: false
+          description: "Exercises a cookie parameter."
+          schema:
+            type: string
       responses:
         "200":
           description: A list of widgets.
@@ -200,6 +206,53 @@ paths:
         "204":
           description: Subscribed.
 
+  /widgets/{widgetId}/favorite:
+    post:
+      operationId: favoriteWidget
+      tags: [Widgets]
+      summary: Mark a widget as a favorite.
+      description: >-
+        Exercises an oauth2 security scheme (treated identically to http/bearer - an OAuth2 access
+        token travels as an Authorization: Bearer header regardless of flow) combined with an
+        OR-alternative security requirement: either oauth2Auth OR apiKeyAuth satisfies the request.
+      security:
+        - oauth2Auth: [write:widgets]
+        - apiKeyAuth: []
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          description: Identifier of the widget to favorite.
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Favorited.
+
+  /widgets/{widgetId}/archive:
+    post:
+      operationId: archiveWidget
+      tags: [Widgets]
+      summary: Archive a widget.
+      description: >-
+        Exercises an OR-alternative security requirement where one alternative itself requires two
+        schemes together (AND-within-OR): either (oauth2Auth AND apiKeyAuth together) OR bearerAuth
+        alone satisfies the request.
+      security:
+        - oauth2Auth: [write:widgets]
+          apiKeyAuth: []
+        - bearerAuth: []
+      parameters:
+        - name: widgetId
+          in: path
+          required: true
+          description: Identifier of the widget to archive.
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Archived.
+
   /widgets/shapes/{shapeId}:
     get:
       operationId: getShapeById
@@ -282,6 +335,27 @@ components:
           allOf:
             - $ref: "#/components/schemas/WidgetVariant"
           description: Free-form variant payload.
+        sku:
+          type: string
+          format: uuid
+          description: "Exercises format: uuid validation."
+        manufacturedOn:
+          type: string
+          format: date
+          description: "Exercises format: date - a real datetime.date type, parse-as-validation."
+        scheduledFor:
+          type: string
+          format: date-time
+          description: "Exercises format: date-time - a real datetime.datetime type, parse-as-validation."
+        priority:
+          type: integer
+          default: 1
+          description: "Exercises a numeric default value applied by from_wire when the key is absent."
+        visibility:
+          type: string
+          enum: [public, private]
+          default: public
+          description: "Exercises an enum default value, resolved to its generated Python constant."
 
     Widget:
       type: object
@@ -411,6 +485,11 @@ components:
         notify:
           type: boolean
           description: Whether to send notifications immediately.
+        channels:
+          description: "Exercises an array-of-string urlencoded form field (one repeated key per element)."
+          type: array
+          items:
+            type: string
 
   securitySchemes:
     bearerAuth:
@@ -422,3 +501,10 @@ components:
       in: header
       name: X-Api-Key
       description: An API key in the X-Api-Key header.
+    oauth2Auth:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://example.com/oauth/token
+          scopes:
+            write:widgets: Modify widgets

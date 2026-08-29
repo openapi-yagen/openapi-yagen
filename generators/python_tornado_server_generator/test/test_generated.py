@@ -69,6 +69,7 @@ from kitchensink_api.models import (  # noqa: E402
     Circle,
     ErrorResponse,
     NewWidget,
+    NewWidgetVisibility,
     Shape,
     Square,
     Widget,
@@ -82,15 +83,24 @@ from kitchensink_api.models import (  # noqa: E402
 from kitchensink_api.runtime import MissingAuthenticationError, ValidationError  # noqa: E402
 
 
-def _multipart_body(fields: Dict[str, str]) -> tuple[str, bytes]:
+def _multipart_body(fields: Dict[str, str], files: Optional[Dict[str, bytes]] = None) -> tuple[str, bytes]:
     """Hand-rolls a minimal multipart/form-data body - no mocking library, same "stub the wire
-    format by hand" convention this project's other generators' test suites use."""
+    format by hand" convention this project's other generators' test suites use. A `files` entry
+    gets a `filename=` in its Content-Disposition - what actually makes Tornado route it into
+    self.request.files instead of self.request.body_arguments (see runtime.py/operations.js's
+    buildRequestBody), unlike a plain `fields` entry."""
     boundary = uuid.uuid4().hex
     parts = []
     for name, value in fields.items():
-        parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n")
-    parts.append(f"--{boundary}--\r\n")
-    return f"multipart/form-data; boundary={boundary}", "".join(parts).encode("utf-8")
+        parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode("utf-8"))
+    for name, content in (files or {}).items():
+        header = (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="upload.bin"\r\n'
+            f"Content-Type: application/octet-stream\r\n\r\n"
+        )
+        parts.append(header.encode("utf-8") + content + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return f"multipart/form-data; boundary={boundary}", b"".join(parts)
 
 
 class FakeWidgetsHandler(WidgetsHandler):
@@ -102,8 +112,12 @@ class FakeWidgetsHandler(WidgetsHandler):
         self._next_id = 3
         self.uploaded_photos: Dict[int, WidgetPhotoUpload] = {}
         self.subscriptions: Dict[int, WidgetSubscription] = {}
+        self.last_seen_session_id: Optional[str] = None
 
-    def list_widgets(self, *, owner: Optional[str], status: Optional[WidgetStatus], tags: List[str]) -> List[Widget]:
+    def list_widgets(
+        self, *, owner: Optional[str], status: Optional[WidgetStatus], tags: List[str], session_id: Optional[str]
+    ) -> List[Widget]:
+        self.last_seen_session_id = session_id
         result = list(self.widgets.values())
         if owner is not None:
             result = [w for w in result if w.owner == owner]
@@ -127,6 +141,14 @@ class FakeWidgetsHandler(WidgetsHandler):
 
     def delete_widget(self, *, widget_id: int, bearer_auth_token: str) -> None:
         self.widgets.pop(widget_id, None)
+
+    def favorite_widget(self, *, widget_id: int, oauth_2_auth_token: Optional[str], api_key_auth_key: Optional[str]) -> None:
+        pass
+
+    def archive_widget(
+        self, *, widget_id: int, api_key_auth_key: Optional[str], oauth_2_auth_token: Optional[str], bearer_auth_token: Optional[str]
+    ) -> None:
+        pass
 
     def upload_widget_photo(self, *, widget_id: int, body: WidgetPhotoUpload) -> None:
         self.uploaded_photos[widget_id] = body
@@ -186,6 +208,19 @@ class GeneratedTornadoAppTest(AsyncHTTPTestCase):
         assert response.code == 200
         assert len(json.loads(response.body)) == 2
 
+    # Wired from the spec's `in: cookie` session_id parameter - proves buildParam's cookie branch
+    # actually reads self.get_cookie(name), not the query string it used to be silently misrouted
+    # into (a confirmed bug - see operations.js's buildParam).
+    def test_list_widgets_reads_the_session_id_cookie_parameter(self) -> None:
+        response = self.fetch("/widgets", headers={"Cookie": "session_id=abc123"})
+        assert response.code == 200
+        assert self.handler_impl.last_seen_session_id == "abc123"
+
+    def test_list_widgets_without_the_session_id_cookie_leaves_it_none(self) -> None:
+        response = self.fetch("/widgets")
+        assert response.code == 200
+        assert self.handler_impl.last_seen_session_id is None
+
     def test_create_widget_success(self) -> None:
         payload = json.dumps({"name": "Gamma", "owner": "carol", "labels": {}, "status": "available"}).encode("utf-8")
         response = self.fetch("/widgets", method="POST", body=payload, headers={"X-Request-ID": "abc123"})
@@ -209,6 +244,43 @@ class GeneratedTornadoAppTest(AsyncHTTPTestCase):
         payload = json.dumps({"name": "Gamma", "owner": "carol"}).encode("utf-8")
         response = self.fetch("/widgets", method="POST", body=payload)
         assert response.code == 422
+
+    # format: uuid validation - runtime.require_uuid (see serialization.js's buildValidateStatements).
+    def test_create_widget_with_an_invalid_sku_uuid_is_422(self) -> None:
+        payload = json.dumps({"name": "Gamma", "owner": "carol", "sku": "not-a-uuid"}).encode("utf-8")
+        response = self.fetch("/widgets", method="POST", body=payload, headers={"X-Request-ID": "abc123"})
+        assert response.code == 422
+
+    def test_create_widget_with_a_valid_sku_uuid_returns_201(self) -> None:
+        payload = json.dumps({"name": "Gamma", "owner": "carol", "sku": str(uuid.uuid4())}).encode("utf-8")
+        response = self.fetch("/widgets", method="POST", body=payload, headers={"X-Request-ID": "abc123"})
+        assert response.code == 201
+
+    # format: date/date-time - a real datetime.date/datetime.datetime type; the parse from_wire
+    # does IS the validation (see runtime.parse_date/parse_datetime), same design as this project's
+    # Kotlin server generator.
+    def test_create_widget_with_an_invalid_manufactured_on_date_is_422(self) -> None:
+        payload = json.dumps({"name": "Gamma", "owner": "carol", "manufacturedOn": "not-a-date"}).encode("utf-8")
+        response = self.fetch("/widgets", method="POST", body=payload, headers={"X-Request-ID": "abc123"})
+        assert response.code == 422
+
+    def test_create_widget_with_a_valid_manufactured_on_date_returns_201(self) -> None:
+        payload = json.dumps({"name": "Gamma", "owner": "carol", "manufacturedOn": "2024-01-15"}).encode("utf-8")
+        response = self.fetch("/widgets", method="POST", body=payload, headers={"X-Request-ID": "abc123"})
+        assert response.code == 201
+
+    def test_create_widget_with_an_invalid_scheduled_for_datetime_is_422(self) -> None:
+        payload = json.dumps({"name": "Gamma", "owner": "carol", "scheduledFor": "not-a-datetime"}).encode("utf-8")
+        response = self.fetch("/widgets", method="POST", body=payload, headers={"X-Request-ID": "abc123"})
+        assert response.code == 422
+
+    # A "Z" UTC designator (RFC 3339's preferred form) needs its own normalization -
+    # datetime.fromisoformat() only started accepting a bare "Z" in Python 3.11 (see runtime.py's
+    # _normalize_z_suffix).
+    def test_create_widget_with_a_valid_scheduled_for_datetime_using_z_suffix_returns_201(self) -> None:
+        payload = json.dumps({"name": "Gamma", "owner": "carol", "scheduledFor": "2024-01-15T10:30:00Z"}).encode("utf-8")
+        response = self.fetch("/widgets", method="POST", body=payload, headers={"X-Request-ID": "abc123"})
+        assert response.code == 201
 
     def test_create_widget_body_violates_min_length_is_422(self) -> None:
         payload = json.dumps({"name": "", "owner": "carol"}).encode("utf-8")
@@ -238,12 +310,48 @@ class GeneratedTornadoAppTest(AsyncHTTPTestCase):
         assert response.code == 204
         assert 1 not in self.handler_impl.widgets
 
+    # Wired from the spec's `security: [{oauth2Auth: [...]}, {apiKeyAuth: []}]` on this operation -
+    # an OR-alternative requirement where oauth2Auth is treated identically to a plain bearer token
+    # (RFC 6750), and the generated _auth_matched chain picks whichever alternative is satisfied.
+    def test_favorite_widget_succeeds_with_only_a_bearer_token(self) -> None:
+        response = self.fetch("/widgets/1/favorite", method="POST", body=b"", headers={"Authorization": "Bearer oauth2-token"})
+        assert response.code == 204
+
+    def test_favorite_widget_succeeds_with_only_an_api_key(self) -> None:
+        response = self.fetch("/widgets/1/favorite", method="POST", body=b"", headers={"X-Api-Key": "my-api-key"})
+        assert response.code == 204
+
+    def test_favorite_widget_fails_when_neither_alternative_is_satisfied(self) -> None:
+        response = self.fetch("/widgets/1/favorite", method="POST", body=b"")
+        assert response.code == 401
+
+    # Wired from `security: [{oauth2Auth: [...], apiKeyAuth: []}, {bearerAuth: []}]` - an
+    # AND-within-OR requirement: either (oauth2Auth AND apiKeyAuth together) OR bearerAuth alone.
+    def test_archive_widget_succeeds_with_bearer_alone(self) -> None:
+        response = self.fetch("/widgets/1/archive", method="POST", body=b"", headers={"Authorization": "Bearer secret-token"})
+        assert response.code == 204
+
+    def test_archive_widget_succeeds_with_oauth2_and_api_key_together(self) -> None:
+        response = self.fetch(
+            "/widgets/1/archive",
+            method="POST",
+            body=b"",
+            headers={"Authorization": "Bearer oauth2-token", "X-Api-Key": "my-api-key"},
+        )
+        assert response.code == 204
+
+    def test_archive_widget_fails_with_only_an_api_key(self) -> None:
+        response = self.fetch("/widgets/1/archive", method="POST", body=b"", headers={"X-Api-Key": "my-api-key"})
+        assert response.code == 401
+
+    # `photo` is a real uploaded file part (with filename=), routed through self.request.files -
+    # not a plain form field - see operations.js's buildRequestBody isFile branch.
     def test_upload_widget_photo_multipart(self) -> None:
-        content_type, body = _multipart_body({"caption": "Nice widget", "photo": "binarydata"})
+        content_type, body = _multipart_body({"caption": "Nice widget"}, files={"photo": b"binarydata"})
         response = self.fetch("/widgets/1/photo", method="POST", body=body, headers={"Content-Type": content_type})
         assert response.code == 204
         assert self.handler_impl.uploaded_photos[1].caption == "Nice widget"
-        assert self.handler_impl.uploaded_photos[1].photo == "binarydata"
+        assert self.handler_impl.uploaded_photos[1].photo == b"binarydata"
 
     def test_upload_widget_photo_missing_required_field_is_422(self) -> None:
         content_type, body = _multipart_body({"caption": "Nice widget"})
@@ -258,6 +366,17 @@ class GeneratedTornadoAppTest(AsyncHTTPTestCase):
         assert response.code == 204
         assert self.handler_impl.subscriptions[1].email == "a@example.com"
         assert self.handler_impl.subscriptions[1].notify is True
+
+    # An array-typed urlencoded field (channels) sends one repeated key per element - read back via
+    # self.get_body_arguments (plural), not self.get_body_argument - see operations.js's
+    # buildRequestBody.
+    def test_subscribe_to_widget_serializes_an_array_typed_urlencoded_field_as_repeated_keys(self) -> None:
+        body = urlencode([("email", "a@example.com"), ("channels", "sms"), ("channels", "email")]).encode("utf-8")
+        response = self.fetch(
+            "/widgets/1/subscribe", method="POST", body=body, headers={"Content-Type": "application/x-www-form-urlencoded"}
+        )
+        assert response.code == 204
+        assert self.handler_impl.subscriptions[1].channels == ["sms", "email"]
 
     def test_get_shape_by_id_returns_discriminated_union(self) -> None:
         response = self.fetch("/widgets/shapes/s1")
@@ -353,3 +472,26 @@ def test_widget_variant_undiscriminated_union_rejects_unrecognized_shape() -> No
 def test_missing_authentication_error_is_distinct_from_validation_error() -> None:
     assert not issubclass(MissingAuthenticationError, ValidationError)
     assert not issubclass(ValidationError, MissingAuthenticationError)
+
+
+# `default` support: from_wire applies a numeric/enum default when the JSON key is absent, but NOT
+# for an explicit JSON null - the same "absent vs. explicit null" distinction the Go/Kotlin
+# generators' own default handling preserves (see types.js's buildDefaultLiteral).
+def test_new_widget_applies_its_defaults_when_constructed_directly() -> None:
+    widget = NewWidget(name="Gamma", owner="carol")
+    assert widget.priority == 1
+    assert widget.visibility == NewWidgetVisibility.PUBLIC
+
+
+def test_new_widget_applies_its_defaults_when_the_keys_are_absent_from_wire() -> None:
+    widget = NewWidget.from_wire({"name": "Gamma", "owner": "carol"})
+    assert widget is not None
+    assert widget.priority == 1
+    assert widget.visibility == NewWidgetVisibility.PUBLIC
+
+
+def test_new_widget_does_not_apply_its_default_when_the_key_is_explicitly_null() -> None:
+    widget = NewWidget.from_wire({"name": "Gamma", "owner": "carol", "priority": None, "visibility": None})
+    assert widget is not None
+    assert widget.priority is None
+    assert widget.visibility is None
