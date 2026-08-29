@@ -35,6 +35,38 @@ function addModel(registry, name, entry) {
   registry.order.push(name);
 }
 
+// This generator declares openApiVersion "3.2" (see generator.yml), so nullability is read from the
+// JSON Schema 2020-12 dialect OAS 3.1+ uses: a schema is nullable when its `type` is an array
+// containing "null" (there is no `nullable` boolean key in this dialect - that was 3.0-only).
+function isNullable(schema) {
+  return Array.isArray(schema.type) && schema.type.includes("null");
+}
+
+// Turns a property's `default` schema keyword into a Ruby literal for its `initialize` keyword
+// parameter's default value - `from_h` uses the very same literal (via
+// OpenapiYagenRuntime.field_with_default, see runtime.rb) so both entry points (direct
+// construction and JSON deserialization) apply it identically. Returns null for any shape not
+// recognized (e.g. an object/array default, or an enum value that doesn't match one of its own
+// entries) - the property then falls back to its ordinary `nil` default, same as if `default` were
+// absent.
+function buildDefaultLiteral(registry, descriptor, value) {
+  if (value === undefined) return null;
+  if (descriptor.kind === "primitive") {
+    if (typeof value === "string") return toStringLiteral(value);
+    if (typeof value === "boolean") return value ? "true" : "false";
+    if (typeof value === "number") return String(value);
+    return null;
+  }
+  if (descriptor.kind === "ref") {
+    const model = registry.models.get(descriptor.refName);
+    if (!model || model.kind !== "enum") return null;
+    const literal = typeof value === "number" ? String(value) : toStringLiteral(String(value));
+    const entry = model.entries.find((e) => e.valueLiteral === literal);
+    return entry ? `${descriptor.refName}::${entry.constantName}` : null;
+  }
+  return null;
+}
+
 function registerClass(registry, name, schema) {
   if (registry.models.has(name)) return;
   const required = new Set(schema.required || []);
@@ -43,25 +75,37 @@ function registerClass(registry, name, schema) {
     const f = fieldName(propName);
     const t = rubyType(registry, propSchema, name + className(propName));
     const isRequired = required.has(propName);
-    const isNullable = propSchema.nullable === true;
+    const nullable = isNullable(propSchema);
     // Ruby's own mandatory-keyword-argument mechanism (see the generated `initialize` below) only
     // enforces that a required property is *passed* to `new(...)` - not that its value isn't nil
     // (`Pet.new(id: nil, name: "Rex")` is valid Ruby). A required-and-not-nullable property needs
     // its own explicit presence check here to actually mean "required" - skipped when the schema
-    // itself says `nullable: true`, since then an explicit null is legitimate, not a bug.
+    // itself says `type: [X, null]`, since then an explicit null is legitimate, not a bug.
     const validateStatements = buildValidateStatements(t.descriptor, propSchema, `@${f.rubyName}`, f.rubyName);
-    if (isRequired && !isNullable) {
+    if (isRequired && !nullable) {
       validateStatements.unshift(`raise ArgumentError, "\\"${f.rubyName}\\" is required" if @${f.rubyName}.nil?`);
     }
+    // Only an optional property gets a default literal - a `default` alongside a required property
+    // is unusual (the property is never actually absent) and not worth special-casing.
+    const defaultLiteral = !isRequired && "default" in propSchema ? buildDefaultLiteral(registry, t.descriptor, propSchema.default) : null;
     props.push({
       rubyName: f.rubyName,
       wireLiteral: f.wireLiteral,
       descriptor: t.descriptor,
       label: t.label,
       required: isRequired,
-      nullable: isNullable,
+      nullable,
+      defaultLiteral,
       description: propSchema.description || null,
-      fromHExpr: buildFromHExpr(t.descriptor, `h[${f.wireLiteral}]`),
+      // An absent key uses the default; an explicit JSON null (key present, value null) still goes
+      // through the normal from_h transform below, which is nil-safe and correctly yields nil, not
+      // the default - the same "absent vs. explicit null" distinction the Go/Kotlin generators'
+      // own default handling preserves. Ruby's Hash#key? is what makes this cheap to express
+      // directly as a ternary, unlike Go (which needs a custom UnmarshalJSON) - no new runtime
+      // helper needed.
+      fromHExpr: defaultLiteral
+        ? `h.key?(${f.wireLiteral}) ? ${buildFromHExpr(t.descriptor, `h[${f.wireLiteral}]`)} : ${defaultLiteral}`
+        : buildFromHExpr(t.descriptor, `h[${f.wireLiteral}]`),
       toWireExpr: buildToWireExpr(t.descriptor, `@${f.rubyName}`),
       // See lib/serialization.js's buildValidateStatements - only computed here, emission into
       // the generated validate! is gated by the `validate` generator variable in the template.

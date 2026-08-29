@@ -78,9 +78,11 @@ argument** (an instance of the schema's generated model class) - only the wire e
 - **`application/json`** (default): `body.to_h` is `JSON.generate`'d.
 - **`application/x-www-form-urlencoded`**: `body.to_h`'s flat wire Hash is encoded with Ruby's
   stdlib `URI.encode_www_form` - no extra gem needed. The schema must be `type: object` with only
-  scalar/enum properties (a nested object/array field is a generator error - see "Known
-  limitations").
-- **`multipart/form-data`**: same object-schema restriction, plus a `type: string, format: binary`
+  scalar/enum properties, or arrays of either (`URI.encode_www_form` already serializes an
+  Array-valued Hash entry as one repeated key per element, e.g. `channels=sms&channels=email`, with
+  no extra code needed for it); a nested object property, or an array of non-scalar items, is a
+  generator error - see "Known limitations".
+- **`multipart/form-data`**: same schema restriction, plus a `type: string, format: binary`
   property is allowed (a file field) - its value passes straight through untouched. `body.to_h`'s
   Hash is passed as the Faraday request body **unmodified**, with **no** `Content-Type` set - your
   own connection needs [`faraday-multipart`](https://github.com/lostisland/faraday-multipart)
@@ -151,6 +153,12 @@ pet = PetStore::NewPet.new(name: "Rex", tag: "dog")
 pet.validate! # raises ArgumentError if anything's wrong; returns self otherwise
 ```
 
+A `type: string, format: binary` property (a multipart file field - see "Request body content
+types" above) is the one exception to the basic-type check above: it accepts a plain `String`, but
+also a `File`/`IO`/`StringIO`, or a `Faraday::Multipart::FilePart`/other `UploadIO`-shaped object
+(anything responding to `:read` or `:content_type`) - none of which are a Ruby `String`, but all of
+which are legitimate ways to supply file content.
+
 This costs something on every request (a type check plus a walk over each constrained property,
 recursing into nested models/enums/arrays) - set `-v validate=false` once you trust the values your
 own code constructs (e.g. for a production build of an already-tested integration) to fall back to
@@ -158,29 +166,62 @@ the bare `to_h`/`to_wire` this generator used before this feature existed, with 
 overhead. See also AGENTS.md's "a generator for a dynamically-typed target language must generate
 its own runtime checks" convention, which this feature is the reference implementation of.
 
+### Default values
+
+An optional property's `default` schema keyword becomes the real literal default for both entry
+points into a model: `initialize`'s own keyword-argument default (`NewPet.new(name: "Rex")` gets
+`priority: 1` without you passing it) and `from_h`'s absent-key handling (`NewPet.from_h({"name" =>
+"Rex"})` too). An **explicit** JSON `null` still wins over the default - `NewPet.from_h({"name" =>
+"Rex", "priority" => nil}).priority` is `nil`, not `1` - Ruby's `Hash#key?` is what makes this
+"absent vs. explicit null" distinction cheap to generate directly, unlike a language needing a
+custom (de)serializer for it. A `default` on a required property, or one whose value doesn't map to
+a recognized literal shape (an object/array default), is ignored - the property keeps its ordinary
+required/`nil`-default handling.
+
 ### Authentication (`components.securitySchemes`)
 
-An operation with a non-empty `security` in the spec pulls its credential from the client's own
+An operation with a non-empty `security` in the spec pulls its credential(s) from the client's own
 `auth:` constructor argument, not a request-level header - the generated method already knows which
-scheme it needs (and, for `apiKey`, which header/query parameter to put it in), so `auth` only needs
-to supply the raw value:
+scheme(s) it needs (and, for `apiKey`, which header/query/cookie to put each in), so `auth` only
+needs to supply the raw value(s):
 
 ```ruby
 api = PetStore::ApiClient.new(
   connection: connection,
   auth: {
-    bearer: -> { fetch_fresh_access_token },  # http, scheme: bearer - re-invoked every request
-    api_key: "sk_live_...",                   # apiKey (header or query) - a plain value is fine too
+    bearer: -> { fetch_fresh_access_token },  # http/bearer, oauth2, or openIdConnect - re-invoked every request
+    api_key: "sk_live_...",                   # apiKey (header, query, or cookie) - a plain value is fine too
   }
 )
 ```
 
-A rotating/expiring bearer token needs the callable form (`-> { ... }`, or any object responding to
-`#call`) - a plain string captured once at construction would go stale. Calling a method that needs
-a kind of credential you didn't provide raises `ArgumentError` immediately (before any request is
-sent), naming which one (`auth[:bearer]`/`auth[:api_key]`) is missing. `oauth2`/`openIdConnect`
-schemes, an `apiKey` scheme located `in: cookie`, and an operation with more than one simultaneous
-or alternative `security` requirement aren't supported yet - see "Known limitations".
+`oauth2`/`openIdConnect` schemes are treated identically to `http`/`scheme: bearer` (RFC 6750: an
+OAuth2/OIDC access token travels as `Authorization: Bearer <token>` regardless of how it was
+obtained) - both draw from the same `auth[:bearer]`, since a client only ever holds one kind of
+bearer token at a time regardless of which flow issued it. A rotating/expiring bearer token needs
+the callable form (`-> { ... }`, or any object responding to `#call`) - a plain string captured once
+at construction would go stale.
+
+An operation whose `security` lists more than one alternative (OR) or more than one scheme required
+together (AND) sends exactly one request, using whichever alternative's every scheme has a
+configured provider - tried in the spec's own declared order, first fully-satisfied one wins:
+
+```yaml
+security:
+  - oauth2Auth: [write:widgets]   # alternative 1: needs a bearer token alone
+  - apiKeyAuth: []                # alternative 2: needs an apiKey alone
+```
+
+```ruby
+# Only api_key provided -> alternative 1 (needs bearer) isn't satisfied, so alternative 2 is used
+# instead - no error, no extra request.
+api = PetStore::WidgetsClient.new(connection: connection, auth: { api_key: "..." })
+api.favorite_widget(widget_id: "1")
+```
+
+Calling a method where **no** alternative is fully configured raises `ArgumentError` immediately
+(before any request is sent), naming every alternative's required provider(s)
+(`auth[:bearer]`/`auth[:api_key]`).
 
 On any non-2xx response, `OpenapiYagenRuntime.request` raises `OpenapiYagenRuntime::ApiError`
 (`#status`, `#response_body` - the best-effort-parsed response body):
@@ -218,8 +259,8 @@ end
   above). **A requestBody/response declaring two or more media types outside those fixed ones is a
   generator error** (aborts generation under default `strict=true`; skips just that operation with
   a printed warning under `-v strict=false`) - it is never silently dropped.
-- Path/header parameters must resolve to a primitive scalar or enum (string/number/boolean) - an
-  object or array in one of those positions is a generator error. Query parameters have no such
+- Path/header/cookie parameters must resolve to a primitive scalar or enum (string/number/boolean) -
+  an object or array in one of those positions is a generator error. Query parameters have no such
   restriction: any shape (scalar, enum, array, or a plain object for the `deepObject`-style filter
   idiom) is passed straight through - `runtime.rb`'s `build_query` walks it generically at request
   time, since Ruby has no static type to get right ahead of time.
@@ -230,10 +271,18 @@ end
   optional field explicitly set to `null` and one simply left unset are indistinguishable on the
   wire.
 - `string` schemas with format `date`/`date-time`/`byte`/`binary` all map to a plain `String` - no
-  `Time`/`Date` object, no base64/binary decoding.
-- `security` only supports a single scheme, of type `http`/`scheme: bearer` or `apiKey` (`in:
-  header` or `in: query` - not `cookie`) - `oauth2`/`openIdConnect`, multiple schemes required
-  together (AND), and multiple alternative requirements (OR) are a generator error.
+  `Time`/`Date` object, no base64/binary decoding. `validate!` (see "Validation" above) never checks
+  `format` itself (`uuid`, `date`, `email`, ...) either - this is a client, constructing a request
+  from values your own code already produced, not a server rejecting untrusted wire input, so
+  format-level validation is deliberately out of scope here (the same position the Go and Kotlin
+  *client* generators take - only the *server* generators in this project validate `format: uuid`).
+- `security` schemes are limited to `http`/`scheme: bearer`, `apiKey` (`in: header`, `in: query`, or
+  `in: cookie`), `oauth2`, and `openIdConnect` (the latter two treated as a bearer token, RFC 6750;
+  no scope/claim validation) - `mutualTLS`/HTTP Basic is a generator error. Multiple simultaneous
+  (AND) and alternative (OR) requirements are supported by picking whichever alternative is fully
+  configured at request time, not by a single `auth:` shape per scheme kind - a spec needing two
+  DIFFERENT bearer-kind credentials in the same AND-group (e.g. two distinct oauth2 schemes
+  together) can't be expressed, since `auth:` has only one `:bearer` slot.
 - `moduleName` is a single flat Ruby module name (e.g. `PetStore`) - a nested namespace (`Foo::Bar`)
   isn't supported.
 - `validate!` (see "Validation" above) doesn't deep-validate a `oneOf`/`anyOf`-typed property - an

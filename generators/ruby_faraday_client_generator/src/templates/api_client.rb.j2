@@ -17,6 +17,7 @@ module {{ moduleName }}
 {% endif %}    def {{ op.name }}({% for k in op.kwargs %}{{ k.rubyName }}:{% if not k.required %} nil{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
 {% if op.hasQueryParams %}      query = { {% for p in op.queryParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
 {% endif %}{% if op.hasHeaderParams %}      headers = { {% for p in op.headerParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
+{% endif %}{% if op.hasCookieParams %}      cookies = { {% for p in op.cookieParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
 {% endif %}{% if op.body %}      body = {{ op.bodyWireExpr }}
 {% endif %}      parsed = OpenapiYagenRuntime.request(
         connection: @connection,
@@ -24,6 +25,7 @@ module {{ moduleName }}
         path: "#{@base_url}{{ op.pathExpr }}",
 {% if op.hasQueryParams %}        query: query,
 {% endif %}{% if op.hasHeaderParams %}        headers: headers,
+{% endif %}{% if op.hasCookieParams %}        cookies: cookies,
 {% endif %}{% if op.body %}        body: body,
         content_type: :{{ op.body.encoding }},
 {% if op.body.mediaType %}        media_type: {{ toStringLiteral(op.body.mediaType) }},

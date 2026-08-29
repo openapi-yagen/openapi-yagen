@@ -11,6 +11,23 @@ class ClientTest < Minitest::Test
     [conn, stubs]
   end
 
+  # Wired from the spec's `in: cookie` session_id parameter (see listPets in kitchensink.yaml) -
+  # proves it's actually sent on the Cookie header, not silently dropped (Faraday isn't
+  # browser-sandboxed the way the TypeScript fetch client is, so this is a real feature here).
+  def test_list_pets_sends_the_session_id_cookie_parameter_on_the_cookie_header
+    conn, stubs = stubbed_connection do |stub|
+      stub.get("/pets") do |env|
+        assert_equal "session_id=abc123", env.request_headers["Cookie"]
+        [200, { "Content-Type" => "application/json" }, "[]"]
+      end
+    end
+    api = Kitchensink::PetsClient.new(connection: conn)
+
+    api.list_pets(session_id: "abc123")
+
+    stubs.verify_stubbed_calls
+  end
+
   def test_get_pet_by_id_positive
     conn, stubs = stubbed_connection do |stub|
       stub.get("/pets/42") { [200, { "Content-Type" => "application/json" }, '{"id":42,"name":"Rex"}'] }
@@ -42,7 +59,7 @@ class ClientTest < Minitest::Test
     conn, stubs = stubbed_connection do |stub|
       stub.post("/pets") do |env|
         assert_equal "application/json", env.request_headers["Content-Type"]
-        assert_equal({ "name" => "Rex" }, JSON.parse(env.body))
+        assert_equal({ "name" => "Rex", "priority" => 1, "visibility" => "public" }, JSON.parse(env.body))
         [201, { "Content-Type" => "application/json" }, '{"id":1,"name":"Rex"}']
       end
     end
@@ -95,22 +112,36 @@ class ClientTest < Minitest::Test
   end
 
   def test_upload_pet_photo_sends_multipart_body_untouched_for_the_callers_own_middleware
+    # A `format: binary` field isn't a plain String on the wire - a real caller passes a File/IO or
+    # a Faraday::Multipart::FilePart-shaped UploadIO, exactly as README.md's own usage example
+    # shows. This must NOT raise (see require_string_or_file in runtime.rb, and the format: binary
+    # exemption in serialization.js's buildValidateStatements) - a prior version of this generator's
+    # validate! required a plain String here, making that documented example crash with TypeError.
+    photo = StringIO.new("raw-bytes")
     conn, stubs = stubbed_connection do |stub|
       stub.post("/pets/1/photo") do |env|
         # No Content-Type set by us, and the body stays a plain Hash (not a JSON string) - it's the
         # caller's own installed Faraday::Multipart::Middleware that would encode it for a real
         # request; this test has none installed, so we can assert on the raw pre-encoding shape.
         refute env.request_headers.key?("Content-Type")
-        assert_equal({ "caption" => "cute", "photo" => "raw-bytes" }, env.body)
+        assert_equal("cute", env.body["caption"])
+        assert_same photo, env.body["photo"]
         [204, {}, ""]
       end
     end
     api = Kitchensink::PetsClient.new(connection: conn)
 
-    result = api.upload_pet_photo(pet_id: "1", body: Kitchensink::PetPhotoUpload.new(caption: "cute", photo: "raw-bytes"))
+    result = api.upload_pet_photo(pet_id: "1", body: Kitchensink::PetPhotoUpload.new(caption: "cute", photo: photo))
 
     assert_nil result
     stubs.verify_stubbed_calls
+  end
+
+  def test_pet_photo_upload_validate_rejects_a_value_that_is_neither_string_nor_file_like
+    body = Kitchensink::PetPhotoUpload.new(caption: "cute", photo: 123)
+
+    error = assert_raises(TypeError) { body.validate! }
+    assert_match(/"photo"/, error.message)
   end
 
   def test_subscribe_to_pet_sends_urlencoded_body
@@ -126,6 +157,24 @@ class ClientTest < Minitest::Test
     result = api.subscribe_to_pet(pet_id: "1", body: Kitchensink::PetSubscription.new(email: "me@example.com", notify: true))
 
     assert_nil result
+    stubs.verify_stubbed_calls
+  end
+
+  # An array-typed urlencoded field (channels) sends one repeated key per element - stdlib's
+  # URI.encode_www_form already does this for an Array-valued Hash entry with no code of this
+  # generator's own needed for it (see operations.js's requireFlatObjectSchema).
+  def test_subscribe_to_pet_serializes_an_array_typed_urlencoded_field_as_repeated_keys
+    conn, stubs = stubbed_connection do |stub|
+      stub.post("/pets/1/subscribe") do |env|
+        pairs = URI.decode_www_form(env.body)
+        assert_equal ["sms", "email"], pairs.select { |k, _| k == "channels" }.map { |_, v| v }
+        [204, {}, ""]
+      end
+    end
+    api = Kitchensink::PetsClient.new(connection: conn)
+
+    api.subscribe_to_pet(pet_id: "1", body: Kitchensink::PetSubscription.new(email: "me@example.com", channels: ["sms", "email"]))
+
     stubs.verify_stubbed_calls
   end
 

@@ -88,6 +88,28 @@ class ModelsTest < Minitest::Test
     assert_raises(TypeError) { Kitchensink::NewPet.to_wire({ "name" => "Rex" }) }
   end
 
+  # `default` support: a numeric/enum default applies to `initialize`'s own keyword-arg default
+  # AND to from_h when the JSON key is absent - but NOT for an explicit JSON null, the same
+  # "absent vs. explicit null" distinction the Go/Kotlin generators' own default handling
+  # preserves (see types.js's buildDefaultLiteral).
+  def test_new_pet_applies_its_defaults_when_constructed_directly
+    pet = Kitchensink::NewPet.new(name: "Rex")
+    assert_equal 1, pet.priority
+    assert_equal "public", pet.visibility
+  end
+
+  def test_new_pet_applies_its_defaults_when_the_keys_are_absent_from_h
+    pet = Kitchensink::NewPet.from_h("name" => "Rex")
+    assert_equal 1, pet.priority
+    assert_equal "public", pet.visibility
+  end
+
+  def test_new_pet_does_not_apply_its_default_when_the_key_is_explicitly_null
+    pet = Kitchensink::NewPet.from_h("name" => "Rex", "priority" => nil, "visibility" => nil)
+    assert_nil pet.priority
+    assert_nil pet.visibility
+  end
+
   def test_validate_bang_returns_self_for_a_conforming_instance
     pet = Kitchensink::NewPet.new(name: "Rex")
     assert_same pet, pet.validate!

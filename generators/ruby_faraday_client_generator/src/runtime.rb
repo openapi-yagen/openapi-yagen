@@ -90,6 +90,18 @@ module OpenapiYagenRuntime
     raise TypeError, "\"#{field}\" must be true or false, got #{value.class}" unless value.nil? || value == true || value == false
   end
 
+  # `format: binary` (a multipart file field) has no single Ruby class the way a string/integer/
+  # boolean property does - a caller might supply a plain String (an in-memory buffer), a
+  # File/IO/StringIO (anything responding to :read), or a Faraday::Multipart::FilePart/other
+  # UploadIO-shaped object (anything responding to :content_type) - deliberately not checked
+  # against Faraday::Multipart::FilePart directly, since faraday-multipart is an optional gem this
+  # generator's own runtime has no hard dependency on (see README's "multipart/form-data" section).
+  def require_string_or_file(value, field)
+    return if value.nil? || value.is_a?(String) || value.respond_to?(:read) || value.respond_to?(:content_type)
+
+    raise TypeError, "\"#{field}\" must be a String, a File/IO, or an UploadIO-shaped object, got #{value.class}"
+  end
+
   def require_min(value, min, field)
     raise ArgumentError, "\"#{field}\" must be >= #{min}" if value && value < min
   end
@@ -140,32 +152,56 @@ module OpenapiYagenRuntime
     raise ArgumentError, "\"#{field}\" must be one of #{all_values.inspect}, got #{value.inspect}" if value && !all_values.include?(value)
   end
 
-  # Resolves `auth_requirement` (if the operation needs one - see each generated method's
+  # Resolves `auth_alternatives` (if the operation needs auth - see each generated method's
   # `auth:` argument) against `auth_config` (the `auth:` Hash passed to the client's own
-  # constructor - see api_client.rb.j2), applying the credential either as an Authorization header
-  # (bearer) or wherever the apiKey scheme's location says (header/query). Mutates `headers` and
-  # returns a possibly-extended `query` Hash (an apiKey in query position can't be added to
+  # constructor - see api_client.rb.j2). `auth_alternatives` is an Array of OR-alternatives, each
+  # itself an Array of AND-combined requirement Hashes (`{kind:, location:, name:}`) - this picks
+  # the first alternative (in the spec's own declared order) whose every scheme has a configured
+  # provider, then applies each of that alternative's credentials: an Authorization header
+  # (:bearer) or wherever the apiKey scheme's :location says (header/query/cookie). This is a
+  # one-time credential-availability check, not a series of trial HTTP requests - exactly one
+  # request is ever sent, using whichever alternative was picked. Mutates `headers` and `cookies`
+  # and returns a possibly-extended `query` Hash (an apiKey in query position can't be added to
   # `headers`, so it's merged into the query Hash instead, before build_query runs).
-  def apply_auth(auth_requirement, auth_config, headers, query)
-    return query unless auth_requirement
+  def apply_auth(auth_alternatives, auth_config, headers, query, cookies)
+    return query if auth_alternatives.nil? || auth_alternatives.empty?
 
-    kind = auth_requirement[:kind]
-    provider = auth_config && auth_config[kind]
-    unless provider
-      raise ArgumentError, "this operation requires \"#{kind}\" authentication, but the client's auth[:#{kind}] was not provided"
-    end
-    value = resolve(provider)
-
-    if kind == :bearer
-      headers["Authorization"] = "Bearer #{value}"
-      return query
+    alternative = auth_alternatives.find { |alt| alt.all? { |req| auth_config && auth_config[req[:kind]] } }
+    unless alternative
+      described = auth_alternatives.map { |alt| alt.map { |req| "auth[:#{req[:kind]}]" }.join(" and ") }.join(", or ")
+      raise ArgumentError, "this operation requires #{described}, but none of those were fully provided"
     end
 
-    if auth_requirement[:location] == :query
-      return (query || {}).merge(auth_requirement[:name] => value)
+    resolved_query = query
+    alternative.each do |req|
+      value = resolve(auth_config[req[:kind]])
+      if req[:kind] == :bearer
+        headers["Authorization"] = "Bearer #{value}"
+        next
+      end
+      case req[:location]
+      when :query
+        resolved_query = (resolved_query || {}).merge(req[:name] => value)
+      when :cookie
+        cookies[req[:name]] = value
+      else
+        headers[req[:name]] = value
+      end
     end
-    headers[auth_requirement[:name]] = value
-    query
+    resolved_query
+  end
+
+  # Joins a Hash of cookie name/value pairs into a single "name=value; name2=value2" Cookie header
+  # value (HTTP allows only one Cookie header, semicolon-separated - unlike Set-Cookie, which
+  # repeats) - used for both `in: cookie` parameters and a cookie-located apiKey security scheme
+  # (see apply_auth above), both funneled through the same `cookies` Hash so either source, or
+  # both together, end up on one header. Returns nil (not "") when there's nothing to encode, so
+  # the caller can skip setting the header entirely.
+  def build_cookie_header(cookies)
+    pairs = (cookies || {}).compact
+    return nil if pairs.empty?
+
+    pairs.map { |k, v| "#{URI.encode_www_form_component(k)}=#{URI.encode_www_form_component(v.to_s)}" }.join("; ")
   end
 
   # Performs one HTTP request over the caller-supplied Faraday::Connection and returns the parsed
@@ -202,13 +238,17 @@ module OpenapiYagenRuntime
   #   :bytes          - the raw response text, forced to ASCII-8BIT (binary) encoding so it isn't
   #                      silently mangled as if it were text in whatever encoding the response
   #                      happened to declare (or Ruby's default, absent that).
-  def request(connection:, method:, path:, query: nil, headers: nil, body: nil, content_type: :json,
+  def request(connection:, method:, path:, query: nil, headers: nil, cookies: nil, body: nil, content_type: :json,
               media_type: nil, response_encoding: :json, auth: nil, auth_config: nil)
     resolved_headers = (headers || {}).compact
+    resolved_cookies = (cookies || {}).compact
 
-    resolved_query = apply_auth(auth, auth_config, resolved_headers, query)
+    resolved_query = apply_auth(auth, auth_config, resolved_headers, query, resolved_cookies)
     query_string = build_query(resolved_query)
     full_path = query_string.empty? ? path : "#{path}?#{query_string}"
+
+    cookie_header = build_cookie_header(resolved_cookies)
+    resolved_headers["Cookie"] = cookie_header if cookie_header
 
     request_body = nil
     unless body.nil?

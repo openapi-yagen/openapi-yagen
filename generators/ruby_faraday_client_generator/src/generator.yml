@@ -14,7 +14,7 @@ mainScriptPath: main.js
 
 # The OpenAPI version this generator's main.js/templates are written to consume - the engine
 # converts the input spec to this version before running main.js if it declares a different one.
-openApiVersion: "3.0"
+openApiVersion: "3.2"
 
 # Variables that can be used to customize script execution
 variables:

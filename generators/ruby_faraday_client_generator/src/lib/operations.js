@@ -45,6 +45,16 @@ function buildQueryParam(p) {
   return { rubyName: paramName(p.name), wireName: p.name, required: !!p.required, description: p.description || null };
 }
 
+// A Faraday client isn't browser-sandboxed the way the TypeScript fetch client is (that generator
+// rejects `in: cookie` entirely - the Fetch/XHR spec forbids scripts from setting a Cookie header
+// at all), so this is a real, supported feature: sent via runtime.rb's build_cookie_header, same
+// "one repeated key/value on the Cookie header" mechanism a cookie-located apiKey scheme uses (see
+// buildAuthSchemeLiteral above).
+function buildCookieParam(p) {
+  requireScalarOrEnum(p, "cookie");
+  return { rubyName: paramName(p.name), wireName: p.name, required: !!p.required, description: p.description || null };
+}
+
 // Turns "/pets/{petId}/ratings" into a Ruby double-quoted string-interpolation path expression
 // referencing the already-computed path parameter Ruby names, e.g.
 // "/pets/#{OpenapiYagenRuntime.escape_path_segment(pet_id)}/ratings". Uses the engine's
@@ -68,36 +78,48 @@ function buildPathExpr(pathStr, pathParams) {
   );
 }
 
-// Turns an operation's already-resolved `security` into the Ruby hash literal passed as
-// request()'s `auth:` option (see runtime.rb), or null if the operation needs no auth. Same
-// single-alternative/single-scheme restriction as the TypeScript generator's buildAuthLiteral, for
-// the same reason: a caller-facing `auth:` config staying a plain `{ bearer:, api_key: }` hash
-// matters more here than covering every possible spec-legal combination.
-function buildAuthLiteral(op) {
-  const reqs = op.security || [];
-  if (reqs.length === 0) return null;
-  if (reqs.length > 1) {
-    throw Error(`<d4e1b7a3> Operation has ${reqs.length} alternative security requirements (OR) - only a single requirement is supported`);
-  }
-  const schemeNames = Object.keys(reqs[0]);
-  if (schemeNames.length === 0) return null; // an empty requirement object = anonymous access is allowed
-  if (schemeNames.length > 1) {
-    throw Error(`<e5f2c8b4> Operation requires ${schemeNames.length} security schemes simultaneously (AND) - only a single scheme per operation is supported`);
-  }
-  const schemeName = schemeNames[0];
+const API_KEY_LOCATIONS = { header: ":header", query: ":query", cookie: ":cookie" };
+
+// Builds one securityScheme's Ruby auth-requirement hash literal (runtime.rb's apply_auth) -
+// `oauth2`/`openIdConnect` are treated identically to `http`/`bearer` (RFC 6750: an OAuth2/OIDC
+// access token travels as `Authorization: Bearer <token>` regardless of how it was obtained), and
+// this generator never validates a token's scopes/claims - just presence, same as every other
+// scheme. Unlike a browser-first fetch client, Faraday isn't sandboxed against setting a Cookie
+// header itself, so a cookie-located apiKey scheme is a real, supported location here (not a
+// generator error).
+function buildAuthSchemeLiteral(schemeName) {
   const scheme = ((schema.components && schema.components.securitySchemes) || {})[schemeName];
   if (!scheme) throw Error(`<f603d9c5> security references scheme "${schemeName}", not declared in components.securitySchemes`);
-  if (scheme.type === "http" && String(scheme.scheme || "").toLowerCase() === "bearer") {
+  if ((scheme.type === "http" && String(scheme.scheme || "").toLowerCase() === "bearer") || scheme.type === "oauth2" || scheme.type === "openIdConnect") {
     return "{ kind: :bearer }";
   }
   if (scheme.type === "apiKey") {
-    const loc = scheme.in;
-    if (loc !== "header" && loc !== "query") {
-      throw Error(`<0714eac6> apiKey security scheme "${schemeName}" has an unsupported location "in: ${loc}" - only header or query are supported`);
+    const loc = API_KEY_LOCATIONS[scheme.in];
+    if (!loc) {
+      throw Error(`<0714eac6> apiKey security scheme "${schemeName}" has an unsupported location "in: ${scheme.in}" - only header, query, or cookie are supported`);
     }
-    return `{ kind: :api_key, location: ${loc === "header" ? ":header" : ":query"}, name: ${toStringLiteral(scheme.name)} }`;
+    return `{ kind: :api_key, location: ${loc}, name: ${toStringLiteral(scheme.name)} }`;
   }
-  throw Error(`<1825fbd7> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer and apiKey are currently supported`);
+  throw Error(
+    `<1825fbd7> Unsupported security scheme type "${scheme.type}" for "${schemeName}" - only http/bearer, apiKey, ` +
+      `oauth2, and openIdConnect are currently supported`
+  );
+}
+
+// Turns an operation's already-resolved `security` into the Ruby array-of-arrays literal passed as
+// request()'s `auth:` option (see runtime.rb's apply_auth), or null if the operation needs no auth.
+// `security` is an array of alternative requirement objects (OR between entries, AND between the
+// scheme names within one) - both are passed straight through to the runtime, which picks
+// whichever alternative's every scheme has a configured `auth:` provider at request time. An empty
+// requirement object (`{}`) as any one of the alternatives means "anonymous access is also
+// accepted" per the OpenAPI spec - satisfying it trivially needs no credential, so the whole
+// operation is treated as needing no auth at all.
+function buildAuthLiteral(op) {
+  const reqs = op.security || [];
+  if (reqs.length === 0) return null;
+  if (reqs.some((req) => Object.keys(req).length === 0)) return null;
+  const alternatives = reqs.map((req) => Object.keys(req).map((name) => buildAuthSchemeLiteral(name)));
+  return `[${alternatives.map((alt) => `[${alt.join(", ")}]`).join(", ")}]`;
 }
 
 const JSON_MEDIA_TYPE = "application/json";
@@ -115,19 +137,35 @@ function isTextMediaType(mediaType) {
 // already classified `Primitive` by the engine's kindOf() (same as any other string), so it needs
 // no special-casing here - it already passes through model registration and (de)serialization
 // completely untouched, exactly like every other scalar; only the operation's own doc comment (see
-// collectOperationsByTag below) gets a hint that a file-like value belongs there. Anything else (a
-// nested object/array property) is a generator error - same "handle the common case, error on the
-// rest" policy path/header params already follow.
+// collectOperationsByTag below) gets a hint that a file-like value belongs there. A property may
+// also be an array of scalar/enum items - to_h/buildToWireExpr is already fully generic over an
+// "array" descriptor (no per-field metadata needed downstream: `URI.encode_www_form` already
+// serializes an Array-valued Hash entry as one repeated key per element out of the box, and a
+// multipart body is passed through to the caller's own Faraday::Multipart::Middleware untouched
+// either way - see "Request body content types" in the README). Anything else (a nested object
+// property, or an array of non-scalar items) is a generator error - same "handle the common case,
+// error on the rest" policy path/header params already follow.
 function requireFlatObjectSchema(bodySchema, mediaType) {
   if (kindOf(bodySchema) !== "Object") {
     throw Error(`<2f9b6b1a> A "${mediaType}" body must be an object schema (one property per form field) - got ${kindOf(bodySchema)}`);
   }
   for (const [propName, propSchema] of Object.entries(bodySchema.properties || {})) {
-    const kind = kindOf(unwrapSchema(propSchema));
+    const resolved = unwrapSchema(propSchema);
+    const kind = kindOf(resolved);
+    if (kind === "Array") {
+      const itemKind = kindOf(unwrapSchema(resolved.items || {}));
+      if (itemKind !== "Primitive" && itemKind !== "Enum") {
+        throw Error(
+          `<9c2d5e7f> Unsupported "${mediaType}" body field "${propName}": array items must be primitive ` +
+            `scalar types or enums - got ${itemKind}`
+        );
+      }
+      continue;
+    }
     if (kind !== "Primitive" && kind !== "Enum") {
       throw Error(
         `<9c2d5e7f> Unsupported "${mediaType}" body field "${propName}": only primitive scalar types ` +
-          `(including format: binary strings) or enums are supported as form fields - got ${kind}`
+          `(including format: binary strings), enums, or arrays of either are supported as form fields - got ${kind}`
       );
     }
   }
@@ -244,6 +282,7 @@ export function collectOperationsByTag(registry) {
         const pathParams = allParams.filter((p) => p.in === "path").map(buildPathParam);
         const queryParams = allParams.filter((p) => p.in === "query").map(buildQueryParam);
         const headerParams = allParams.filter((p) => p.in === "header").map(buildHeaderParam);
+        const cookieParams = allParams.filter((p) => p.in === "cookie").map(buildCookieParam);
 
         const body = buildRequestBody(registry, hintBase, op.requestBody);
         const response = buildResponse(registry, hintBase, op.responses);
@@ -253,6 +292,7 @@ export function collectOperationsByTag(registry) {
           ...pathParams.map((p) => ({ rubyName: p.rubyName, required: true })),
           ...queryParams.map((p) => ({ rubyName: p.rubyName, required: p.required })),
           ...headerParams.map((p) => ({ rubyName: p.rubyName, required: p.required })),
+          ...cookieParams.map((p) => ({ rubyName: p.rubyName, required: p.required })),
         ];
         if (body) kwargs.push({ rubyName: "body", required: body.required });
 
@@ -287,7 +327,7 @@ export function collectOperationsByTag(registry) {
         // itself, so the doc comment is the only place a caller finds out without going to read
         // the model file directly. Always included (not gated behind `description` like the other
         // params below), since the class name itself - not free-text prose - is the point here.
-        const docParams = [...pathParams, ...queryParams, ...headerParams]
+        const docParams = [...pathParams, ...queryParams, ...headerParams, ...cookieParams]
           .filter((p) => p.description)
           .map((p) => ({ name: p.rubyName, description: p.description }));
         if (body) docParams.push({ name: "body", description: `[${body.label}]` });
@@ -304,6 +344,8 @@ export function collectOperationsByTag(registry) {
           hasQueryParams: queryParams.length > 0,
           headerParams,
           hasHeaderParams: headerParams.length > 0,
+          cookieParams,
+          hasCookieParams: cookieParams.length > 0,
           body,
           bodyWireExpr: body ? buildToWireExpr(body.descriptor, "body") : null,
           response,

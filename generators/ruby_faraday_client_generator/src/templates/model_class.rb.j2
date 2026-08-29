@@ -6,7 +6,7 @@ module {{ moduleName }}
     attr_accessor :{{ p.rubyName }}
 
 {% endfor %}{% if model.initComment %}    {{ model.initComment | indent(4) }}
-{% endif %}    def initialize({% for p in model.properties %}{{ p.rubyName }}:{% if not p.required %} nil{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
+{% endif %}    def initialize({% for p in model.properties %}{{ p.rubyName }}:{% if not p.required %}{% if p.defaultLiteral %} {{ p.defaultLiteral }}{% else %} nil{% endif %}{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
 {% for p in model.properties %}      @{{ p.rubyName }} = {{ p.rubyName }}
 {% endfor %}    end
 

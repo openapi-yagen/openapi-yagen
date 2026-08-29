@@ -84,7 +84,14 @@ export function buildValidateStatements(descriptor, schema, expr, fieldLabel, de
   // NoMethodError from one of the constraint helpers below (e.g. require_min_length calling
   // .length on an Integer).
   if (descriptor.kind === "primitive") {
-    if (resolved.type === "string") statements.push(`OpenapiYagenRuntime.require_type(${expr}, String, ${field})`);
+    // `format: binary` means "arbitrary file/binary content" (OpenAPI's convention for a
+    // multipart file field) - a plain String is still one legitimate way to supply that (e.g. an
+    // in-memory buffer), but so is a File/IO/StringIO or a Faraday::Multipart::FilePart-shaped
+    // object (anything an UploadIO wraps), none of which are a Ruby String. require_string_or_file
+    // accepts any of those instead of requiring String specifically - see runtime.rb.
+    if (resolved.type === "string" && resolved.format === "binary") {
+      statements.push(`OpenapiYagenRuntime.require_string_or_file(${expr}, ${field})`);
+    } else if (resolved.type === "string") statements.push(`OpenapiYagenRuntime.require_type(${expr}, String, ${field})`);
     else if (resolved.type === "integer") statements.push(`OpenapiYagenRuntime.require_type(${expr}, Integer, ${field})`);
     else if (resolved.type === "number") statements.push(`OpenapiYagenRuntime.require_type(${expr}, Numeric, ${field})`);
     else if (resolved.type === "boolean") statements.push(`OpenapiYagenRuntime.require_boolean(${expr}, ${field})`);
