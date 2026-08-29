@@ -153,6 +153,18 @@ const generators = [
     to: '/generators/kotlin-ktor-server',
   },
   {
+    language: 'Go',
+    title: 'net/http client',
+    text: 'API client on the standard library only, taking a caller-supplied *http.Client.',
+    to: '/generators/go-net-http-client',
+  },
+  {
+    language: 'Go',
+    title: 'net/http server',
+    text: 'Validated HTTP handlers on the standard library only (Go 1.22+ ServeMux routing).',
+    to: '/generators/go-net-http-server',
+  },
+  {
     language: 'Ruby',
     title: 'Faraday client',
     text: 'API client built on Faraday, adapter-agnostic and taking a caller-supplied connection.',
