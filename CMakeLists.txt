@@ -14,7 +14,13 @@ if(CMAKE_BUILD_TYPE_UPPERCASE MATCHES "(RELEASE|RELWITHDEBINFO|MINSIZEREL)")
 endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Werror -Wno-comment -Wno-reorder \
-  -Werror=return-type -Werror=overloaded-virtual -Wno-unused-parameter -Werror=suggest-override")
+  -Werror=return-type -Werror=overloaded-virtual -Wno-unused-parameter -Werror=suggest-override \
+  -Wno-c99-extensions")
+# quickjs.h implements JS_NULL/JS_UNDEFINED/JS_MKPTR/etc. (used throughout lib/js, lib/generator)
+# as C99 compound literals - valid, deliberate C API usage, not something our code controls. GCC's
+# -Wpedantic doesn't flag it; Apple Clang's does via -Wc99-extensions, turning every call site into
+# a -Werror build failure. GCC silently ignores -Wno- flags it doesn't recognize, so this is a
+# no-op there.
 
 if(NOT RELEASE_MODE)
     # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Werror -Wno-comment -Wno-reorder -Werror=return-type -Woverloaded-virtual")
