@@ -1,3 +1,27 @@
+# 0.11.0 (2026-08-31)
+
+- Add a Docker runtime image and Linux arm64/macOS release binaries
+- Add ruby_faraday_client_generator: a Ruby/Faraday API client generator with runtime type/constraint validation and JSON/urlencoded/multipart content-type handling (fails loudly on anything else) - later brought to feature parity with the other generators
+- Add python_tornado_server_generator, a Tornado server generator - later brought to feature parity with the other generators, including a bump to OpenAPI 3.2
+- Add go_net_http_client_generator and go_net_http_server_generator, built on Go's stdlib net/http with no external dependencies - later closed remaining gaps found vs. ogen and during general engine hardening
+- Bring kotlin_ktor_client/server_generator and typescript_fetch_client_generator to feature parity with the Go generators
+- Add text/* and raw-bytes request/response body support to all four client/server generators
+- Add engine-level -t/--tags filtering to the generate command, documented and surfaced in the playground and generator READMEs
+- Add a generate=all|models|api mode and a dateTimeType option (including kotlin.time.Instant) to both Kotlin generators, for sharing models across generated packages
+- Add a browser-based playground page running the wasm-compiled engine
+- Guard against runaway Inja macro recursion instead of crashing the process
+- Split embedded newlines in buildDocComment's summary/description/@param text per output line
+- Fix dateTimeType=kotlin.time.Instant emitting a serializer class that doesn't exist
+- Split Kotlin generator output into models/apis sub-packages instead of one flat package
+- Return 401 instead of 400 from the Kotlin server generator when required auth is missing
+- Wildcard-import generated own-package symbols in Kotlin generators, keep third-party imports explicit
+- Surface real JS error messages instead of a generic wrapper, fix a crash on builtin-thrown errors
+- Force the required-field validation message to English
+- Fix new template files silently missing from builtin: generators after an incremental build (embedded-generator glob wasn't rerun by CMake)
+- Add Google Analytics (GA4) to the docs website
+- Add the Go generators to the homepage's generator grid
+- Reorganize the generators docs: move the full list from the root README into generators/README.md with a quick builtin:<name> list up front, and drop cross-generator language comparisons from each generator's own README
+
 # 0.10.0 (2026-08-12)
 
 - Add unwrapSchema, resolveUnionDispatch, buildDocComment (with multi-language comment-style support - /** */, //, ///, #), and disambiguateName engine built-ins for generator authors
