@@ -5,10 +5,8 @@ on:
   pull_request:
     branches: [master]
 jobs:
-  build:
+  linux-amd64:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,19 +18,132 @@ jobs:
 
       - name: Build
         env:
-          DOCKER_BUILDX_ARGS: --cache-from type=gha --cache-to type=gha,mode=max
+          DOCKER_BUILDX_ARGS: --cache-from type=gha,scope=musl-amd64 --cache-to type=gha,mode=max,scope=musl-amd64
         run: ./build-musl.sh
 
-      - name: Upload Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openapi-yagen
+          name: openapi-yagen-linux-amd64
           path: dist/openapi-yagen
+
+  linux-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        env:
+          DOCKER_BUILDX_PLATFORM: linux/arm64
+          DOCKER_BUILDX_ARGS: --cache-from type=gha,scope=musl-arm64 --cache-to type=gha,mode=max,scope=musl-arm64
+        run: ./build-musl.sh
+
+      - name: Rename binary
+        run: mv dist/openapi-yagen dist/openapi-yagen-linux-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-yagen-linux-arm64
+          path: dist/openapi-yagen-linux-arm64
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build tools
+        run: |
+          brew install cmake ninja
+          python3 -m pip install --break-system-packages conan
+
+      - name: Build
+        run: ./build-macos.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-yagen-macos
+          path: dist/openapi-yagen-macos
+
+  # Publishes the runtime image (Dockerfile, not Dockerfile.musl/.uclibc/.wasm - those are build
+  # environments only) to GitHub Container Registry as ghcr.io/openapi-yagen/openapi-yagen, using
+  # the built-in GITHUB_TOKEN (no external registry secrets needed). A PR just builds (no push) as
+  # a sanity check that it still builds, amd64-only to keep that check fast - the tag push
+  # builds+pushes the real amd64+arm64 manifest.
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+        if: startsWith(github.ref, 'refs/tags/')
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ startsWith(github.ref, 'refs/tags/') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
+          tags: |
+            ghcr.io/openapi-yagen/openapi-yagen:latest
+            ghcr.io/openapi-yagen/openapi-yagen:${{ github.ref_name }}
+          cache-from: type=gha,scope=runtime-image
+          cache-to: type=gha,mode=max,scope=runtime-image
+
+  release:
+    needs: [linux-amd64, linux-arm64, macos]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: dist/openapi-yagen
+          files: |
+            dist/openapi-yagen
+            dist/openapi-yagen-linux-arm64
+            dist/openapi-yagen-macos

@@ -2,7 +2,12 @@ set(TARGET openapi-yagen)
 
 find_package(CLI11 REQUIRED)
 
-add_link_options(-static -static-libgcc -static-libstdc++)
+# Apple's linker has no equivalent of a fully static executable (no static libSystem) - macOS
+# binaries stay dynamically linked against system libs, as is normal there. Every other platform
+# we build on (Linux glibc/musl) gets a fully self-contained binary with no runtime dependencies.
+if(NOT APPLE)
+    add_link_options(-static -static-libgcc -static-libstdc++)
+endif()
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 

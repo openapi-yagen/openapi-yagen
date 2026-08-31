@@ -13,6 +13,7 @@ description: Install openapi-yagen, explore its features, and use the generate a
 
 [![GitHub release](https://img.shields.io/github/v/release/openapi-yagen/openapi-yagen)](https://github.com/openapi-yagen/openapi-yagen/releases/latest)
 [![Build status](https://img.shields.io/github/actions/workflow/status/openapi-yagen/openapi-yagen/build.yml?event=push)](https://github.com/openapi-yagen/openapi-yagen/actions/workflows/build.yml)
+[![Docker image](https://img.shields.io/badge/ghcr.io-openapi--yagen-blue)](https://github.com/openapi-yagen/openapi-yagen/pkgs/container/openapi-yagen)
 
 Main features:
 
@@ -29,9 +30,11 @@ Main features:
 
 ## Installation
 
-Statically-linked binaries for Linux (x86_64) are published on the
-[releases page](https://github.com/openapi-yagen/openapi-yagen/releases). Install the latest
-release to `~/.local/bin` - the standard per-user executable location (see
+Statically-linked binaries are published on the
+[releases page](https://github.com/openapi-yagen/openapi-yagen/releases): `openapi-yagen` for
+Linux x86_64, `openapi-yagen-linux-arm64` for Linux arm64, and `openapi-yagen-macos` (a universal
+binary - runs on both Intel and Apple Silicon Macs). Install one to `~/.local/bin` - the standard
+per-user executable location (see
 [`file-hierarchy(7)`](https://www.freedesktop.org/software/systemd/man/latest/file-hierarchy.html)),
 already on `PATH` on most modern distributions - no root/`sudo` needed:
 
@@ -44,6 +47,48 @@ If `~/.local/bin` isn't already on your `PATH`, add this to your shell's startup
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
+```
+
+### macOS
+
+Grab the universal binary instead, and clear its quarantine flag - it isn't code-signed or
+notarized (no Apple Developer account behind this project), so Gatekeeper otherwise refuses to run
+it:
+
+```bash
+mkdir -p ~/.local/bin && curl -L https://github.com/openapi-yagen/openapi-yagen/releases/latest/download/openapi-yagen-macos -o ~/.local/bin/openapi-yagen && chmod +x ~/.local/bin/openapi-yagen && xattr -d com.apple.quarantine ~/.local/bin/openapi-yagen
+```
+
+Unlike on Linux, `~/.local/bin` is never on `PATH` by default on macOS - don't skip the `export
+PATH` step above (`/usr/local/bin`, the one macOS location that *is* on `PATH` out of the box, is
+normally root-owned and needs `sudo` to write to, unless Homebrew already claimed it).
+
+Or skip both the quarantine step and the `PATH` setup with the [Docker image](#docker) below.
+
+### Docker
+
+A runtime image is published to the GitHub Container Registry as
+[`ghcr.io/openapi-yagen/openapi-yagen`](https://github.com/openapi-yagen/openapi-yagen/pkgs/container/openapi-yagen),
+for `linux/amd64` and `linux/arm64` - the latter runs natively (no emulation) on Apple Silicon under
+Docker Desktop, making this the easiest route on macOS: no Gatekeeper quarantine step, and no local
+build toolchain either. Mount the directory holding your spec (and any `--override-dir`/generator
+files) as `/workspace`, its working directory:
+
+```bash
+docker run --rm -v "$PWD":/workspace ghcr.io/openapi-yagen/openapi-yagen \
+  generate openapi.yaml -g builtin:kotlin_ktor_client -o out
+```
+
+Every subcommand below (`generate`, `convert`, `list-generators`, `extract`, `info`) works the same
+way - append it and its options after the image name exactly as you would after the
+`openapi-yagen` binary itself. `-g`/`--override-dir`/`-o`/`spec-file` paths are resolved *inside*
+the container, so keep them relative to the directory you mounted. Loading a generator from an
+HTTP(S) URL (`-g https://...`) works too - the image bundles `curl` for that.
+
+An alias makes it behave like a locally installed binary for the rest of a shell session:
+
+```bash
+alias openapi-yagen='docker run --rm -v "$PWD":/workspace ghcr.io/openapi-yagen/openapi-yagen'
 ```
 
 ## CLI reference

@@ -1,9 +1,9 @@
-/.qtcreator
+# Keeps the build context (COPY . /sources/ in Dockerfile/Dockerfile.musl/.uclibc/.wasm) from
+# dragging along generated/test-only trees the C++ build never touches - .git stays included, it's
+# needed for CMakeLists.txt's `git describe --tags` version string.
 /build
 /build-macos-*
 /dist
-/CMakeLists.txt.user
-/CMakeUserPresets.json
 /generators/out
 /generators/*/test/.gradle
 /generators/*/test/.kotlin
@@ -19,5 +19,3 @@
 /website/.docusaurus
 /website/.generated-static
 /website/build
-TODO-improvements.md
-generators/python_tornado_server_generator/test/__pycache__/test_generated.cpython-313-pytest-9.1.1.pyc
