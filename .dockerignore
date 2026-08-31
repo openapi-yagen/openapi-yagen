@@ -1,9 +1,10 @@
-# Keeps the build context (COPY . /sources/ in Dockerfile/Dockerfile.musl/.uclibc/.wasm) from
-# dragging along generated/test-only trees the C++ build never touches - .git stays included, it's
-# needed for CMakeLists.txt's `git describe --tags` version string.
+# Keeps the build context (COPY . /sources/ in Dockerfile.musl/.uclibc/.wasm) from dragging along
+# generated/test-only trees the C++ build never touches - .git stays included, it's needed for
+# CMakeLists.txt's `git describe --tags` version string. /dist is NOT excluded: Dockerfile (unlike
+# the others) does no compiling of its own, it just COPYs a prebuilt dist/openapi-yagen-linux-<arch>
+# binary from there.
 /build
 /build-macos-*
-/dist
 /generators/out
 /generators/*/test/.gradle
 /generators/*/test/.kotlin

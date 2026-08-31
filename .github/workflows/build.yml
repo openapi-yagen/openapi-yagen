@@ -27,18 +27,18 @@ jobs:
           name: openapi-yagen-linux-amd64
           path: dist/openapi-yagen
 
+  # GitHub-hosted arm64 runner (free for public repos) - builds linux/arm64 natively, no QEMU. The
+  # same job used to run on ubuntu-latest (amd64) with docker/setup-qemu-action emulating arm64,
+  # which meant every Conan package short of a cached hit got compiled under emulation - the C++
+  # build alone took the better part of an hour. Native arm64 compute makes this job roughly as
+  # fast as linux-amd64.
   linux-arm64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -82,10 +82,13 @@ jobs:
 
   # Publishes the runtime image (Dockerfile, not Dockerfile.musl/.uclibc/.wasm - those are build
   # environments only) to GitHub Container Registry as ghcr.io/openapi-yagen/openapi-yagen, using
-  # the built-in GITHUB_TOKEN (no external registry secrets needed). A PR just builds (no push) as
-  # a sanity check that it still builds, amd64-only to keep that check fast - the tag push
-  # builds+pushes the real amd64+arm64 manifest.
+  # the built-in GITHUB_TOKEN (no external registry secrets needed). Packages the binaries
+  # linux-amd64/linux-arm64 already built - Dockerfile does no compiling of its own, so this job is
+  # just a couple of `apk add`/COPY layers, not a second full C++ build per architecture. A PR just
+  # builds (no push) as a sanity check that packaging still works, amd64-only to keep that check
+  # fast - the tag push builds+pushes the real amd64+arm64 manifest.
   docker:
+    needs: [linux-amd64, linux-arm64]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -95,6 +98,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: openapi-yagen-linux-*
+          merge-multiple: true
+
+      - name: Arrange binaries per TARGETARCH
+        run: |
+          mv dist/openapi-yagen dist/openapi-yagen-linux-amd64
+          chmod +x dist/openapi-yagen-linux-*
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -122,8 +137,6 @@ jobs:
           tags: |
             ghcr.io/openapi-yagen/openapi-yagen:latest
             ghcr.io/openapi-yagen/openapi-yagen:${{ github.ref_name }}
-          cache-from: type=gha,scope=runtime-image
-          cache-to: type=gha,mode=max,scope=runtime-image
 
   release:
     needs: [linux-amd64, linux-arm64, macos]
