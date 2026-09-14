@@ -41,6 +41,11 @@ void GenerateCommand::reg(CLI::App& app)
     cmd->add_option("-t, --tags", tags,
                     "Only generate operations/models tagged with one of these tags (default: generate everything)")
         ->take_all();
+    cmd->add_option("--header", headerText,
+                     "Override the auto-generated \"do not edit\" header text prepended to every generated file "
+                     "(default: names the generator; wrapped in whichever comment syntax the file's own "
+                     "extension/generator.yml commentStyle resolves to)");
+    cmd->add_flag("--no-header", noHeader, "Disable the auto-generated \"do not edit\" header entirely");
 }
 
 void GenerateCommand::process()
@@ -85,6 +90,8 @@ void GenerateCommand::process()
         .clearOutDir = clearOutDir,
         .vars = vars,
         .tags = tags,
+        .headerText = headerText,
+        .noHeader = noHeader,
     });
 
     if (specPath.empty())

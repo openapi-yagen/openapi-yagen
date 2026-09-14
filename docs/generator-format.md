@@ -53,6 +53,15 @@ mainScriptPath: main.js
 # conversion" below). Optional; defaults to "3.0" if omitted.
 openApiVersion: "3.0"
 
+# Overrides which comment style the engine wraps the auto-generated "do not edit" header in (see
+# the root README.md's "Auto-generated file headers") for every file THIS generator writes via
+# renderTemplate/copyFile - regardless of the file's own extension. One of "/** */", "//", "///",
+# or "#" (the same four styles buildDocComment accepts - see javascript-api.md). Optional; if
+# omitted, the engine picks a style from the output file's own extension instead (falling back to
+# no header at all for an extension it doesn't recognize). Only worth setting when your generator
+# emits an extension the built-in table guesses wrong for.
+commentStyle: "//"
+
 # Variables that can be used to customize script execution
 variables:
   - name: namespace

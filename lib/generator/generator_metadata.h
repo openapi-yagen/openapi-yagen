@@ -25,6 +25,14 @@ struct GeneratorMetadata {
     // this field. The engine converts the input spec to this version before running main.js if
     // it declares a different one - see OpenApiGenerator::generate().
     OptStr openApiVersion;
+    // Overrides the engine's built-in file-extension -> comment-style table (see
+    // lib/generator/file_header.h) used for the auto-generated-file header prepended to every
+    // file this generator writes via renderTemplate/copyFile. One of buildDocComment's own 4
+    // style literals ("/** */"/"//"/"///"/"#" - see functions.cpp) - not validated against that
+    // set here, so an unrecognized value only surfaces once a file is actually written and
+    // nodeBuildDocComment itself throws. Unset means "use the built-in extension table, or skip
+    // the header for an extension the table doesn't recognize".
+    OptStr commentStyle;
     std::vector<VariableDescriptor> variables;
 };
 

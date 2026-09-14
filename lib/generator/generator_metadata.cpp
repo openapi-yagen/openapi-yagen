@@ -69,6 +69,7 @@ GeneratorMetadata parseGeneratorMetadata(const NodeWalker& w)
         .description = w["description"].optional<Str>(),
         .mainScriptPath = w["mainScriptPath"].optional<Str>(),
         .openApiVersion = w["openApiVersion"].optional<Str>(),
+        .commentStyle = w["commentStyle"].optional<Str>(),
         .variables = w["variables"].optionalList(parseVariableDescriptor).value_or(std::vector<VariableDescriptor>()),
     };
 }

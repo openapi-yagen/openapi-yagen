@@ -1,6 +1,5 @@
 module {{ moduleName }}
   module Controllers
-    # Fully generated - never edit this file by hand, it is overwritten on every regeneration.
     # Register a handler (implementing {{ group.tagBase }}HandlerInterface, see
     # ../handlers.rb) once via {{ moduleName }}::Routes.draw(mapper, handlers: { {{ toSnakeCase(group.tagBase) }}: ... }).
     class {{ group.tagBase }}Controller < {{ baseController }}

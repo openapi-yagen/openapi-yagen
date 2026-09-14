@@ -350,7 +350,10 @@ those nested values afterwards.
 
 Copies a file from the generator folder straight into the output directory, unmodified - for
 static runtime files that need no substitution (previously the only way to emit one was
-`renderTemplate` against a template with no `{{ }}` in it at all).
+`renderTemplate` against a template with no `{{ }}` in it at all). The engine still prepends its
+own auto-generated-file header first (see the root README.md's "Auto-generated file headers") -
+"unmodified" here means no templating happens on the file's own content, not that the header is
+skipped.
 
 ```typescript
 copyFile(srcFileName: string, outFileName: string): void
@@ -381,11 +384,16 @@ renderTemplate(
 renderTemplate("model.h.j2", { schemas: schemasForTemplate, namespace: vars.namespace }, "model.h");
 ```
 
+Like `copyFile`, the file actually written to disk gets the engine's own auto-generated-file
+header prepended first - see the root README.md's "Auto-generated file headers".
+
 #### `renderTemplateToString`
 
 The same as `renderTemplate`, but returns the rendered result as a string instead of writing a
 file - useful for building up a larger output (e.g. rendering a fragment per schema, then
-assembling and writing them yourself), or post-processing the text before writing it.
+assembling and writing them yourself), or post-processing the text before writing it. Since
+nothing is written to disk here, this result never gets the auto-generated-file header
+`renderTemplate`/`copyFile` do - only the file you eventually write (with one of those two) does.
 
 ```typescript
 renderTemplateToString(

@@ -28,6 +28,7 @@
 #include "../openapi/v3/reader.h"
 #include "../openapi/version_convert.h"
 #include "../templates/template_renderer.h"
+#include "file_header.h"
 #include "functions.h"
 #include "generator_metadata.h"
 #include "openapi_js_bridge.h"
@@ -968,6 +969,38 @@ JSValue resolveDiscriminatorBuiltin(JSContext* ctx, JSValueConst thisVal, int ar
     });
 }
 
+// Prepends an auto-generated-file "do not edit" header to `content` (unless suppressed/
+// unrecognized) before handing it to the real fileWriter - the single choke point copyFile and
+// renderTemplate both funnel through, so every real on-disk output file gets one uniformly,
+// without any generator author having to hand-roll their own (see AGENTS.md and the three
+// generators that used to before this was engine-owned). Deliberately NOT called from
+// renderTemplateToString below - that returns an in-memory template fragment (e.g. for a `{%
+// include %}`-style partial), not a real output file, so it must never get a header of its own.
+//
+// Resolution order: --no-header (CLI) disables this entirely; the comment style comes from the
+// generator's own generator.yml `commentStyle` if declared, else the built-in extension table
+// (file_header.h) - an unrecognized extension there means "skip, don't corrupt" (e.g. a future
+// JSON output, which has no comment syntax at all); the header TEXT comes from --header (CLI) if
+// given, else the engine's own default (naming this specific generator - see
+// file_header.h's defaultHeaderText). Formatting itself reuses buildDocComment's existing
+// per-style line-wrapping (functions.cpp) via nodeBuildDocComment - a summary-only call with no
+// description/params - rather than duplicating that logic here.
+void writeGeneratedFile(const OpenApiGenerator& gen, const string& outFileName, const string& content)
+{
+    if (gen.opts.noHeader) {
+        gen.opts.fileWriter->write(outFileName, content);
+        return;
+    }
+    auto style = gen.metadata.commentStyle ? gen.metadata.commentStyle : commentStyleForExtension(outFileName);
+    if (!style) {
+        gen.opts.fileWriter->write(outFileName, content);
+        return;
+    }
+    auto headerText = gen.opts.headerText.value_or(defaultHeaderText(gen.metadata.name));
+    auto header = nodeBuildDocComment({ Node { headerText }, Node { Node::NullValue }, Node { Node::Vec {} }, Node { *style } });
+    gen.opts.fileWriter->write(outFileName, header.get<Node::String>() + "\n\n" + content);
+}
+
 // Copies a static file from the generator's own directory straight into the output directory,
 // without routing it through the template engine just to move bytes unchanged (previously the
 // only option - see e.g. how kotlin_ktor_server_generator/templates/validation.kt.j2 has no
@@ -983,7 +1016,7 @@ JSValue copyFile(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* a
         auto outFileName = jsValueToString(ctx, argv[1]);
 
         auto content = gen.opts.fileReader->read(srcFileName);
-        gen.opts.fileWriter->write(outFileName, content);
+        writeGeneratedFile(gen, outFileName, content);
         return JS_NewBool(ctx, 1);
     });
 }
@@ -1009,7 +1042,7 @@ JSValue renderTemplate(JSContext* ctx, JSValueConst thisVal, int argc, JSValueCo
         }
 
         auto content = gen.opts.templateRenderer->render(templateFileName, data, funcs);
-        gen.opts.fileWriter->write(outFileName, content);
+        writeGeneratedFile(gen, outFileName, content);
         return JS_NewBool(ctx, 1);
     });
 }
@@ -1052,7 +1085,10 @@ void OpenApiGenerator::generate(const string& specPath)
 
     if (opts.clearOutDir)
         opts.fileWriter->clear();
-    auto metadata = readMetadata(opts.fileReader, opts.metadataPath);
+    // Assigned onto the member (not a local) - copyFile/renderTemplate's writeGeneratedFile
+    // reads gen.metadata.name/commentStyle for the auto-generated-file header, and they only run
+    // once main.js starts executing below, well after this point.
+    metadata = readMetadata(opts.fileReader, opts.metadataPath);
     auto mainScriptPath = metadata.mainScriptPath.value_or(opts.defaultMainSciptPath);
 
     // Validated before reading/resolving the spec (which can be slow for a large multi-file spec,

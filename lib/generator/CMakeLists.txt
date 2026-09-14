@@ -6,6 +6,8 @@ find_package(nlohmann_json REQUIRED)
 set(SOURCES
   external_ref_resolver.cpp
   external_ref_resolver.h
+  file_header.cpp
+  file_header.h
   functions.cpp
   functions.h
   generator_metadata.cpp

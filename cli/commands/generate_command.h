@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include "base_command.h"
 
 class GenerateCommand : public BaseCommand {
@@ -20,4 +22,6 @@ private:
     std::vector<std::string> vars;
     std::vector<std::string> tags;
     bool clearOutDir;
+    std::optional<std::string> headerText;
+    bool noHeader;
 };
