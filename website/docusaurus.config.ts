@@ -148,7 +148,7 @@ const config: Config = {
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.vsDark,
-      additionalLanguages: ['bash', 'json', 'yaml', 'kotlin', 'cpp', 'ruby'],
+      additionalLanguages: ['bash', 'json', 'yaml', 'kotlin', 'cpp', 'ruby', 'go'],
     },
   } satisfies ThemeConfig,
 };

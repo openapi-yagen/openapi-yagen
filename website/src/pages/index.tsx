@@ -171,6 +171,12 @@ const generators = [
     to: '/generators/ruby-faraday-client',
   },
   {
+    language: 'Ruby on Rails',
+    title: 'Rails server',
+    text: 'Validated routes and controllers - implement a plain Ruby class per tag, no ActionController subclassing needed.',
+    to: '/generators/ruby-rails-server',
+  },
+  {
     language: 'Python',
     title: 'Tornado server',
     text: 'Validated routes and a handler interface for Tornado servers, with generated model validation.',
