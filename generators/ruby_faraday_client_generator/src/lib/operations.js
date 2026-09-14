@@ -7,11 +7,12 @@
 // specifically: Ruby has no static type system, so a query parameter's Ruby-side value is passed
 // straight through into the shared query hash and runtime.rb's own build_query walks it
 // generically at request time (scalar, Array -> repeated key, Hash -> deepObject `key[sub]=v`) -
-// there's no per-parameter code to generate, unlike TypeScript/Kotlin, which both need to know a
-// query parameter's shape up front to emit correctly-typed code. Path and header parameters still
-// need a single unambiguous wire string, so those two positions keep the same
-// scalar/enum-or-Error validation the sibling generators apply (see buildPathParam/
-// buildHeaderParam below).
+// there's no per-parameter runtime CONVERSION code to generate, unlike TypeScript/Kotlin, which
+// both need to know a query parameter's shape up front to emit correctly-typed code (a real Ruby
+// type is still computed for every parameter that honestly has one, purely for its YARD @param -
+// see scalarLabel/buildDocLines below). Path and header parameters still need a single unambiguous
+// wire string, so those two positions keep the same scalar/enum-or-Error validation the sibling
+// generators apply (see buildPathParam/buildHeaderParam below).
 
 import { className, paramName, operationName } from "./naming.js";
 import { rubyType } from "./types.js";
@@ -27,22 +28,66 @@ function requireScalarOrEnum(p, position) {
         `types (string/number/boolean) or enums are supported in ${position} position`
     );
   }
+  return resolved;
 }
 
-function buildPathParam(p) {
-  requireScalarOrEnum(p, "path");
-  return { rubyName: paramName(p.name), wireName: p.name, description: p.description || null };
+// Computes just the YARD type label for a scalar/enum schema - unlike
+// ruby_rails_server_generator's own scalarConversionStatements (which this mirrors), no runtime
+// conversion statements are built here: a Faraday client passes an already-correctly-typed Ruby
+// value straight through as-is, so there's nothing to parse/coerce, only a name to document with.
+// The Enum branch is the one case with a side effect: it registers a real Enum class (via
+// rubyType) so the @param can reference it by name, exactly like Rails does for the same kind of
+// parameter.
+function scalarLabel(registry, resolved, hintName) {
+  if (kindOf(resolved) === "Enum") return rubyType(registry, resolved, hintName).label;
+  if (resolved.type === "string" && resolved.format === "date") return "Date";
+  if (resolved.type === "string" && resolved.format === "date-time") return "Time";
+  if (resolved.type === "integer") return "Integer";
+  if (resolved.type === "number") return "Float";
+  if (resolved.type === "boolean") return "Boolean";
+  return "String";
 }
 
-function buildHeaderParam(p) {
-  requireScalarOrEnum(p, "header");
-  return { rubyName: paramName(p.name), wireName: p.name, required: !!p.required, description: p.description || null };
+function buildPathParam(registry, hintBase, p) {
+  const resolved = requireScalarOrEnum(p, "path");
+  const rubyName = paramName(p.name);
+  return { rubyName, wireName: p.name, description: p.description || null, label: scalarLabel(registry, resolved, hintBase + className(p.name)) };
 }
 
-// No shape restriction (see this file's header comment) - the wire name is all the generated code
-// needs; runtime.rb's build_query handles scalar/Array/Hash generically at request time.
-function buildQueryParam(p) {
-  return { rubyName: paramName(p.name), wireName: p.name, required: !!p.required, description: p.description || null };
+function buildHeaderParam(registry, hintBase, p) {
+  const resolved = requireScalarOrEnum(p, "header");
+  const rubyName = paramName(p.name);
+  return {
+    rubyName,
+    wireName: p.name,
+    required: !!p.required,
+    description: p.description || null,
+    label: scalarLabel(registry, resolved, hintBase + className(p.name)),
+  };
+}
+
+// No shape restriction (see this file's header comment) - the wire name is all the RUNTIME code
+// needs; runtime.rb's build_query handles scalar/Array/Hash generically at request time. A `label`
+// is still computed for a scalar/enum/array-of-either query parameter (the common case) purely for
+// its YARD @param - anything else (object/deepObject) stays label-less: the caller passes a plain
+// Hash/Array here directly (no model .to_wire() conversion ever runs on a query parameter), so
+// inventing a class reference for it would be misleading rather than helpful.
+function buildQueryParam(registry, hintBase, p) {
+  const resolved = unwrapSchema(p.schema || { type: "string" });
+  const kind = kindOf(resolved);
+  const rubyName = paramName(p.name);
+  const hintName = hintBase + className(p.name);
+  let label = null;
+  if (kind === "Primitive" || kind === "Enum") {
+    label = scalarLabel(registry, resolved, hintName);
+  } else if (kind === "Array") {
+    const itemResolved = unwrapSchema(resolved.items || {});
+    const itemKind = kindOf(itemResolved);
+    if (itemKind === "Primitive" || itemKind === "Enum") {
+      label = `Array<${scalarLabel(registry, itemResolved, hintName + "Item")}>`;
+    }
+  }
+  return { rubyName, wireName: p.name, required: !!p.required, description: p.description || null, label };
 }
 
 // A Faraday client isn't browser-sandboxed the way the TypeScript fetch client is (that generator
@@ -50,9 +95,16 @@ function buildQueryParam(p) {
 // at all), so this is a real, supported feature: sent via runtime.rb's build_cookie_header, same
 // "one repeated key/value on the Cookie header" mechanism a cookie-located apiKey scheme uses (see
 // buildAuthSchemeLiteral above).
-function buildCookieParam(p) {
-  requireScalarOrEnum(p, "cookie");
-  return { rubyName: paramName(p.name), wireName: p.name, required: !!p.required, description: p.description || null };
+function buildCookieParam(registry, hintBase, p) {
+  const resolved = requireScalarOrEnum(p, "cookie");
+  const rubyName = paramName(p.name);
+  return {
+    rubyName,
+    wireName: p.name,
+    required: !!p.required,
+    description: p.description || null,
+    label: scalarLabel(registry, resolved, hintBase + className(p.name)),
+  };
 }
 
 // Turns "/pets/{petId}/ratings" into a Ruby double-quoted string-interpolation path expression
@@ -264,6 +316,24 @@ function tagDescription(tagName) {
   return (tag && tag.description) || null;
 }
 
+// Builds the YARD comment lines for one operation method - mirrors
+// ruby_rails_server_generator's own buildDocLines (its handler-interface method's doc comment is
+// the same shape), covering summary AND description, each documented/typed parameter (as @param
+// lines), and the return type (as @return). A query parameter's `label` can be null (an
+// object/deepObject shape - see buildQueryParam) - falls back to the old untyped rendering for
+// exactly that case, everything else always has a real label.
+function buildDocLines(op, docParams, response) {
+  const lines = [];
+  if (op.summary) lines.push(op.summary);
+  if (op.description) lines.push(op.description);
+  for (const p of docParams) {
+    const bracket = p.label ? `[${p.label}] ` : "";
+    lines.push(p.description ? `@param ${p.name} ${bracket}${p.description}` : `@param ${p.name} [${p.label}]`);
+  }
+  lines.push(response.descriptor ? `@return [${response.label}]` : "@return [void]");
+  return lines;
+}
+
 // Returns a Map<tag, { tagClass, propertyName, description, operations: [...] }> in
 // path-declaration order.
 export function collectOperationsByTag(registry) {
@@ -279,10 +349,10 @@ export function collectOperationsByTag(registry) {
         const hintBase = tagClass + className(opName);
 
         const allParams = op.parameters || [];
-        const pathParams = allParams.filter((p) => p.in === "path").map(buildPathParam);
-        const queryParams = allParams.filter((p) => p.in === "query").map(buildQueryParam);
-        const headerParams = allParams.filter((p) => p.in === "header").map(buildHeaderParam);
-        const cookieParams = allParams.filter((p) => p.in === "cookie").map(buildCookieParam);
+        const pathParams = allParams.filter((p) => p.in === "path").map((p) => buildPathParam(registry, hintBase, p));
+        const queryParams = allParams.filter((p) => p.in === "query").map((p) => buildQueryParam(registry, hintBase, p));
+        const headerParams = allParams.filter((p) => p.in === "header").map((p) => buildHeaderParam(registry, hintBase, p));
+        const cookieParams = allParams.filter((p) => p.in === "cookie").map((p) => buildCookieParam(registry, hintBase, p));
 
         const body = buildRequestBody(registry, hintBase, op.requestBody);
         const response = buildResponse(registry, hintBase, op.responses);
@@ -309,11 +379,7 @@ export function collectOperationsByTag(registry) {
 
         // A multipart body's `format: binary` field(s) pass through untouched (see
         // requireFlatObjectSchema above) - the only place that can hint what to actually pass is
-        // the operation's own doc comment, since the property itself carries no such marker. Joined
-        // with a single space (not a blank line) - buildDocComment's "#" style gives each of
-        // summary/description exactly one leading "#", it doesn't re-split an already-multi-line
-        // string per embedded newline, so an inserted "\n\n" here would print as unprefixed raw
-        // text instead of a second commented paragraph.
+        // the operation's own doc comment, since the property itself carries no such marker.
         let description = op.description || null;
         if (body && body.encoding === "multipart") {
           const hint =
@@ -325,18 +391,18 @@ export function collectOperationsByTag(registry) {
         // A `body:` keyword argument gives no hint of its own about what to pass - unlike a
         // statically-typed generator (Kotlin/TS), Ruby's method signature can't say `body: NewPet`
         // itself, so the doc comment is the only place a caller finds out without going to read
-        // the model file directly. Always included (not gated behind `description` like the other
-        // params below), since the class name itself - not free-text prose - is the point here.
+        // the model file directly. Always included (not gated behind `description`/`label` like the
+        // other params below), since the class name itself - not free-text prose - is the point.
         const docParams = [...pathParams, ...queryParams, ...headerParams, ...cookieParams]
-          .filter((p) => p.description)
-          .map((p) => ({ name: p.rubyName, description: p.description }));
-        if (body) docParams.push({ name: "body", description: `[${body.label}]` });
+          .filter((p) => p.description || p.label)
+          .map((p) => ({ name: p.rubyName, label: p.label, description: p.description }));
+        if (body) docParams.push({ name: "body", label: body.label, description: null });
 
         if (!groups.has(tag)) groups.set(tag, { tagClass, propertyName, description: tagDescription(tag), operations: [] });
         groups.get(tag).operations.push({
           name: opName,
           method: op.method.toLowerCase(),
-          docComment: buildDocComment(op.summary, description, docParams, "#"),
+          docLines: buildDocLines({ summary: op.summary, description }, docParams, response),
           kwargs,
           pathParams,
           pathExpr,

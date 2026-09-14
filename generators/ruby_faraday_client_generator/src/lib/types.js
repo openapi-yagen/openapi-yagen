@@ -114,11 +114,11 @@ function registerClass(registry, name, schema) {
   }
   // AGENTS.md: "every generator must thread OpenAPI description into generated doc comments" -
   // covers each property (see model_class.rb.j2's attr_accessor loop, using each property's own
-  // label/description directly) and, here, the constructor - reuses the same buildDocComment the
-  // rest of this generator already relies on for operation methods (see lib/operations.js),
-  // rather than hand-formatting `# @param` lines. `[Type]` mirrors the `@param body [ClassName]`
-  // convention operations.js's own docComment already uses for the same "Ruby has no static type
-  // to show this for free" reason.
+  // label/description directly) and, here, the constructor - reuses the engine's buildDocComment
+  // rather than hand-formatting `# @param` lines, with `[Type]` embedded into each param's own
+  // description text (buildDocComment's params have no separate type field) for the same "Ruby has
+  // no static type to show this for free" reason lib/operations.js's own buildDocLines exists for
+  // operation methods (which also need a `@return` buildDocComment has no equivalent for).
   const initParams = props.map((p) => ({
     name: p.rubyName,
     description: p.description ? `[${p.label}] ${p.description}` : `[${p.label}]`,

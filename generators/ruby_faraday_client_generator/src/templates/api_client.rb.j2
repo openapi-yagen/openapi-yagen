@@ -13,8 +13,8 @@ module {{ moduleName }}
       @auth = auth
     end
 {% for op in operations %}
-{% if op.docComment %}    {{ op.docComment | indent(4) }}
-{% endif %}    def {{ op.name }}({% for k in op.kwargs %}{{ k.rubyName }}:{% if not k.required %} nil{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
+{% for line in op.docLines %}    # {{ line }}
+{% endfor %}    def {{ op.name }}({% for k in op.kwargs %}{{ k.rubyName }}:{% if not k.required %} nil{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
 {% if op.hasQueryParams %}      query = { {% for p in op.queryParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
 {% endif %}{% if op.hasHeaderParams %}      headers = { {% for p in op.headerParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
 {% endif %}{% if op.hasCookieParams %}      cookies = { {% for p in op.cookieParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }

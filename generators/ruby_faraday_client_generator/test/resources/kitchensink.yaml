@@ -244,8 +244,12 @@ paths:
         - name: status
           in: query
           required: false
+          description: >-
+            An enum-typed query parameter - exercises a real generated Enum class showing up in
+            the operation method's own @param YARD comment, not just a bare String.
           schema:
             type: string
+            enum: [available, pending, sold-out]
         - name: X-Client-Version
           in: header
           required: false
