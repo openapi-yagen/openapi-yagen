@@ -1,0 +1,21 @@
+# Aggregator - requires every generated file in dependency-safe order (see main.js). Cross-model
+# references (a model's from_h/to_wire calling another model's) are resolved lazily, inside method
+# bodies that only run once something actually calls them - by then every file below is already
+# loaded, so the require order here doesn't need to match any particular reference graph. Load
+# this once, from your own app (e.g. the top of config/routes.rb), before calling
+# {{ moduleName }}::Routes.draw.
+require_relative "{{ moduleSnake }}/runtime"
+{% for m in models -%}
+require_relative "{{ moduleSnake }}/models/{{ m }}"
+{% endfor -%}
+{% if controllerMode == "generated" -%}
+{% for g in tagGroups -%}
+require_relative "{{ moduleSnake }}/controllers/{{ g.fileBase }}_handler_interface"
+require_relative "{{ moduleSnake }}/controllers/{{ g.fileBase }}_controller"
+{% endfor -%}
+{% else -%}
+{% for g in tagGroups -%}
+require_relative "{{ moduleSnake }}/controllers/{{ g.fileBase }}_controller_concern"
+{% endfor -%}
+{% endif -%}
+require_relative "{{ moduleSnake }}/routes"

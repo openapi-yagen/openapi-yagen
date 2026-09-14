@@ -51,6 +51,9 @@ instead):
 - [`go_net_http_server_generator`](go_net_http_server_generator/README.md) - Go HTTP handlers on
   the standard library's `net/http` (Go 1.22+ `ServeMux` routing), with request validation, zero
   third-party dependencies.
+- [`ruby_rails_server_generator`](ruby_rails_server_generator/README.md) - Ruby on Rails
+  controllers + routing, with request validation - you implement a plain Ruby class per tag
+  against a generated handler interface, no `ActionController` subclassing needed.
 
 ## Why generators can be self-contained
 

@@ -1,0 +1,37 @@
+module {{ moduleName }}
+{% if model.description %}{{ model.description | indent("  # ", true) }}
+{% endif %}  module {{ model.name }}
+{% for e in model.entries %}    {{ e.constantName }} = {{ e.valueLiteral }}
+{% endfor %}
+    ALL_VALUES = [{% for e in model.entries %}{{ e.constantName }}{% if not loop.is_last %}, {% endif %}{% endfor %}].freeze
+
+    # @param value [String, Integer, Float, nil] a raw wire value
+    # @return [String, Integer, Float, nil] `value`, unchanged
+    # @raise [OpenapiYagenRuntime::ValidationError] if `value` isn't nil and isn't one of
+    #   ALL_VALUES - an incoming request's own enum value is untrusted client input, so this must
+    #   be catchable by the same rescue_from a constraint violation is (see
+    #   controller.rb.j2/controller_concern.rb.j2), not a bare ArgumentError.
+    def self.from_h(value)
+      return nil if value.nil?
+      unless ALL_VALUES.include?(value)
+        raise OpenapiYagenRuntime::ValidationError, "invalid #{name} value: #{value.inspect} (expected one of #{ALL_VALUES.inspect})"
+      end
+      value
+    end
+
+    # @param value [String, Integer, Float, nil]
+    # @return [String, Integer, Float, nil] `value`, unchanged - already wire-shaped
+    # @raise [OpenapiYagenRuntime::ValidationError] if `value` isn't nil and isn't one of
+    #   ALL_VALUES{% if validate %} - a generator for a dynamically-typed target language must
+    #   generate its own runtime checks (see AGENTS.md), so an invalid value is caught here before
+    #   a response is ever sent, not just when deserializing a request{% endif %}
+    def self.to_wire(value)
+{% if validate %}      return nil if value.nil?
+      unless ALL_VALUES.include?(value)
+        raise OpenapiYagenRuntime::ValidationError, "invalid #{name} value: #{value.inspect} (expected one of #{ALL_VALUES.inspect})"
+      end
+      value
+{% else %}      value
+{% endif %}    end
+  end
+end

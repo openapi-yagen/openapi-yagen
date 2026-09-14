@@ -1,0 +1,9 @@
+source "https://rubygems.org"
+
+# Deliberately actionpack (+ its actiondispatch/activesupport deps), NOT the full "rails" gem -
+# no Rails::Application, no ActiveRecord/ActionView needed to exercise generated
+# routes/controllers. See ../README.md for why.
+gem "actionpack", "~> 8.0"
+gem "rack-test"
+gem "rake"
+gem "minitest"

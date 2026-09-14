@@ -1,0 +1,60 @@
+# Generator name
+name: ruby_rails_server
+
+# Generator description
+description: >-
+  Ruby on Rails server generator. Generates one plain Ruby class per OpenAPI schema (with
+  hand-written to_h/from_h JSON (de)serialization, no runtime-reflection gem needed), plus - per
+  OpenAPI tag - either a fully generated ActionController subclass (default) or an
+  ActiveSupport::Concern to include into a hand-written controller (see the controllerMode
+  variable), and a Routes module you call from your own config/routes.rb. Request parameters and
+  bodies are validated against the spec's own constraints before your code ever sees them.
+
+# Main JavaScript file (entrypoint).
+mainScriptPath: main.js
+
+# The OpenAPI version this generator's main.js/templates are written to consume - the engine
+# converts the input spec to this version before running main.js if it declares a different one.
+openApiVersion: "3.2"
+
+# Variables that can be used to customize script execution
+variables:
+  - name: moduleName
+    description: >-
+      Ruby module namespace for the generated controllers/models (e.g. PetStore). Also determines
+      the generated file layout: <snake_case moduleName>/... plus a top-level
+      <snake_case moduleName>.rb aggregator.
+    required: true
+  - name: strict
+    description: >-
+      When "true" (default), a schema or operation the generator can't handle aborts generation
+      with an error. Set to "false" to instead skip it with a printed warning and generate
+      everything else - useful for large real-world specs where a handful of unsupported
+      constructs shouldn't block the rest of the generated code.
+    defaultValue: "true"
+  - name: validate
+    description: >-
+      When "true" (default), every generated model gets a validate! method enforcing the schema's
+      constraints (minLength/maxLength/pattern/minimum/maximum/enum membership/format:uuid/...),
+      and every generated controller/concern validates path/query/header/cookie parameters and the
+      request body before calling into your code. Set to "false" to skip all of that - on a
+      server, this removes the only defense against malformed input from an untrusted client, so
+      only turn it off once an integration is well-tested and the overhead genuinely matters.
+    defaultValue: "true"
+  - name: controllerMode
+    description: >-
+      "generated" (default): the controller for each tag is fully generated (never edited by you)
+      and dispatches to a handler object you register once per tag; you implement a plain Ruby
+      class per tag against the generated handler-interface module, no controller subclassing
+      needed. "concern": only an ActiveSupport::Concern is generated per tag; you create your own
+      controller under app/controllers, `include` the concern, and implement its on_* methods
+      directly in that controller.
+    defaultValue: "generated"
+  - name: baseController
+    description: >-
+      Only used when controllerMode is "generated": the class the generated per-tag controller
+      inherits from (e.g. your own ApplicationApiController) instead of the default
+      ActionController::API - use this to share before_action hooks, JSON error shaping, auth, or
+      logging across every generated controller. Ignored when controllerMode is "concern", since
+      you already choose your own controller's superclass there.
+    defaultValue: "ActionController::API"

@@ -1,0 +1,80 @@
+module {{ moduleName }}
+{% if model.description %}{{ model.description | indent("  # ", true) }}
+{% endif %}  class {{ model.name }}
+{% for p in model.properties %}{% if p.description %}{{ p.description | indent("    # ", true) }}
+{% endif %}    # @return [{{ p.label }}]
+    attr_accessor :{{ p.rubyName }}
+
+{% endfor %}{% if model.initComment %}    {{ model.initComment | indent(4) }}
+{% endif %}    def initialize({% for p in model.properties %}{{ p.rubyName }}:{% if not p.required %}{% if p.defaultLiteral %} {{ p.defaultLiteral }}{% else %} nil{% endif %}{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
+{% for p in model.properties %}      @{{ p.rubyName }} = {{ p.rubyName }}
+{% endfor %}    end
+
+    # Builds a {{ model.name }} from a parsed-JSON Hash (string keys, as JSON.parse returns it).
+    # @param h [Hash, nil]
+    # @return [{{ model.name }}, nil]
+    def self.from_h(h)
+      return nil if h.nil?
+
+      new(
+{% for p in model.properties %}        {{ p.rubyName }}: {{ p.fromHExpr }},
+{% endfor %}      )
+    end
+
+    # Builds a {{ model.name }} from any object exposing the same accessor names as this model's
+    # properties (e.g. an ActiveRecord instance) - lets a handler avoid hand-writing
+    # `{{ model.name }}.new(...)` field-by-field when the application's own model already has
+    # matching attribute names. Does NOT recurse into nested models/arrays - a nested property's
+    # value is passed through as-is; build it yourself first if it needs its own conversion.
+    # Raises NoMethodError if `source` doesn't respond to one of these accessors - no attempt is
+    # made to guess a different name.
+    # @param source [Object]
+    # @return [{{ model.name }}]
+    def self.from_object(source)
+      new(
+{% for p in model.properties %}        {{ p.rubyName }}: source.{{ p.rubyName }},
+{% endfor %}      )
+    end
+{% if validate %}
+    # Raises ArgumentError if any property violates the schema's own constraints (minLength/
+    # maxLength/pattern/minimum/maximum/.../enum membership/format:uuid/nested models' own
+    # validate!) - called automatically by to_wire before a response body is sent (see AGENTS.md's
+    # "a generator for a dynamically-typed target language must generate its own runtime checks"
+    # convention: Ruby has no compiler to catch any of this the way the TypeScript/Kotlin
+    # generators' static types do). Also callable directly to check a value earlier. Returns self
+    # so it can be chained.
+    # @return [{{ model.name }}]
+    def validate!
+{% for p in model.properties %}{% for stmt in p.validateStatements %}      {{ stmt }}
+{% endfor %}{% endfor %}      self
+    end
+{% endif %}
+    # @param value [{{ model.name }}, nil]
+    # @return [Hash, nil] wire-shaped Hash (string keys), ready for JSON.generate
+    def self.to_wire(value)
+      return nil if value.nil?
+{% if validate %}      unless value.is_a?(self)
+        raise TypeError, "expected #{self}, got #{value.class}"
+      end
+      value.validate!
+{% endif %}      value.to_h
+    end
+
+    # @return [Hash] wire-shaped Hash (string keys) - properties that are nil are omitted rather
+    #   than sent as an explicit JSON null.
+    def to_h
+      {
+{% for p in model.properties %}        {{ p.wireLiteral }} => {{ p.toWireExpr }},
+{% endfor %}      }.compact
+    end
+
+    # @return [Hash{Symbol=>Object}] properties keyed by their Ruby attribute name, NOT by
+    #   wire name (unlike #to_h) - e.g. for Record#update!/#assign_attributes when the
+    #   application's own model uses the same attribute names as this schema.
+    def to_attributes
+      {
+{% for p in model.properties %}        {{ p.rubyName }}: {{ p.rubyName }},
+{% endfor %}      }
+    end
+  end
+end

@@ -15,6 +15,7 @@
 /generators/*/test/generated
 /generators/*/test/generated-default
 /generators/*/test/generated-validated
+/generators/*/test/generated_concern
 /website/node_modules
 /website/.docusaurus
 /website/.generated-static

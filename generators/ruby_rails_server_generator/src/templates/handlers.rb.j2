@@ -1,0 +1,15 @@
+module {{ moduleName }}
+{% if group.description %}{{ group.description | indent("  # ", true) }}
+{% endif %}  # Include this module into a plain Ruby class (no ActionController superclass needed) and
+  # implement every method below - the generated {{ group.tagBase }}Controller (see
+  # controllers/{{ group.fileBase }}_controller.rb) calls into an instance of it, registered once via
+  # {{ moduleName }}::Routes.draw(mapper, handlers: { {{ toSnakeCase(group.tagBase) }}: YourHandler.new }).
+  module {{ group.tagBase }}HandlerInterface
+{% for op in group.operations %}
+{% for line in op.docLines %}    # {{ line }}
+{% endfor %}    def {{ op.name }}({% for k in op.handlerKwargs %}{{ k.rubyName }}:{% if not k.required %} nil{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
+      raise NotImplementedError, "#{self.class} must implement #{{ op.name }}"
+    end
+{% endfor %}
+  end
+end

@@ -1,0 +1,25 @@
+module {{ moduleName }}
+  module Routes
+{% if controllerMode == "generated" %}    # Call this from inside your own config/routes.rb's `Rails.application.routes.draw do ... end`
+    # block, passing `self` and one handler instance per tag (implementing that tag's own
+    # <Tag>HandlerInterface module - see handlers.rb):
+    #
+    #   {{ moduleName }}::Routes.draw(self, handlers: {
+{% for g in groups %}    #     {{ toSnakeCase(g.tagBase) }}: {{ toPascalCase(g.tagBase) }}Handler.new,
+{% endfor %}    #   })
+    def self.draw(mapper, handlers:)
+{% for g in groups %}      Controllers::{{ g.tagBase }}Controller.handler = handlers.fetch(:{{ toSnakeCase(g.tagBase) }})
+{% endfor %}
+{% for g in groups %}{% for op in g.operations %}      mapper.{{ op.httpMethod }} {{ toStringLiteral(op.routePattern) }}, to: Controllers::{{ g.tagBase }}Controller.action(:{{ op.name }})
+{% endfor %}{% endfor %}    end
+{% else %}    # Call this from inside your own config/routes.rb's `Rails.application.routes.draw do ... end`
+    # block, passing `self`. Each route dispatches to the ordinarily-autoloaded controller you
+    # create yourself under app/controllers/ (see controllers/*_controller.rb's own header
+    # comment for which concern each one expects you to `include`):
+    #
+    #   {{ moduleName }}::Routes.draw(self)
+    def self.draw(mapper)
+{% for g in groups %}{% for op in g.operations %}      mapper.{{ op.httpMethod }} {{ toStringLiteral(op.routePattern) }}, to: {{ toStringLiteral(toSnakeCase(g.tagBase) + "#" + op.name) }}
+{% endfor %}{% endfor %}    end
+{% endif %}  end
+end

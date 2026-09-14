@@ -1,0 +1,42 @@
+# Self-contained test project (see ../../README.md's collection-wide convention) - its only
+# repo-relative reference is "../src", pointing back at this generator's own payload. Regenerates
+# the server code from resources/kitchensink.yaml on every `rake test`, then runs minitest against
+# the freshly generated code - never against a stale checked-in copy. Regenerated TWICE, once per
+# controllerMode ("generated" into generated/ as module Kitchensink, "concern" into
+# generated_concern/ as module KitchensinkConcern - a different module name so both can be loaded
+# in the same test process without constant collisions) - see controller_test.rb/
+# concern_controller_test.rb.
+
+require "rake/testtask"
+
+GENERATOR_SRC = File.expand_path("../src", __dir__)
+GENERATED_DIR = File.expand_path("generated", __dir__)
+GENERATED_CONCERN_DIR = File.expand_path("generated_concern", __dir__)
+SPEC_FILE = File.expand_path("resources/kitchensink.yaml", __dir__)
+
+# Points at a prebuilt openapi-yagen binary. Without it, falls back to this checkout's own
+# dist/openapi-yagen - same convention the other generator test suites use (see
+# generators/README.md).
+OPENAPI_YAGEN = ENV["OPENAPI_YAGEN"] || File.expand_path("../../../dist/openapi-yagen", __dir__)
+
+desc "Regenerate the server code from resources/kitchensink.yaml (controllerMode=generated)"
+task :generate do
+  rm_rf GENERATED_DIR
+  sh OPENAPI_YAGEN, "g", "-o", GENERATED_DIR, "-g", GENERATOR_SRC, SPEC_FILE, "-v", "moduleName=Kitchensink"
+end
+
+desc "Regenerate the server code from resources/kitchensink.yaml (controllerMode=concern)"
+task :generate_concern do
+  rm_rf GENERATED_CONCERN_DIR
+  sh OPENAPI_YAGEN, "g", "-o", GENERATED_CONCERN_DIR, "-g", GENERATOR_SRC, SPEC_FILE,
+     "-v", "moduleName=KitchensinkConcern", "-v", "controllerMode=concern"
+end
+
+Rake::TestTask.new(:test) do |t|
+  t.libs << "test"
+  t.test_files = FileList["test/**/*_test.rb"]
+  t.warning = false
+end
+
+task test: [:generate, :generate_concern]
+task default: :test

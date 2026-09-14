@@ -1,0 +1,35 @@
+module {{ moduleName }}
+  module Controllers
+    # Fully generated - never edit this file by hand, it is overwritten on every regeneration.
+    # Register a handler (implementing {{ group.tagBase }}HandlerInterface, see
+    # ../handlers.rb) once via {{ moduleName }}::Routes.draw(mapper, handlers: { {{ toSnakeCase(group.tagBase) }}: ... }).
+    class {{ group.tagBase }}Controller < {{ baseController }}
+      class << self
+        attr_accessor :handler
+      end
+
+      rescue_from OpenapiYagenRuntime::ValidationError, with: :render_openapi_validation_error
+      rescue_from OpenapiYagenRuntime::MissingAuthenticationError, with: :render_openapi_missing_authentication_error
+{% for op in group.operations %}
+      def {{ op.name }}
+{% for stmt in op.statements %}        {{ stmt }}
+{% endfor %}{% if op.bodyStatements %}{% for stmt in op.bodyStatements %}        {{ stmt }}
+{% endfor %}{% endif %}        result = self.class.handler.{{ op.name }}({% for k in op.handlerKwargs %}{{ k.rubyName }}: {{ k.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %})
+{% if not op.response.descriptor %}        head {{ op.response.statusCode }}
+{% else %}{% if op.response.encoding == "json" %}        render json: {{ op.responseWireExpr }}, status: {{ op.response.statusCode }}
+{% else %}        render body: {{ op.responseWireExpr }}, status: {{ op.response.statusCode }}
+{% if op.response.mediaType %}        response.headers["Content-Type"] = {{ toStringLiteral(op.response.mediaType) }}
+{% endif %}{% endif %}{% endif %}      end
+{% endfor %}
+      private
+
+      def render_openapi_validation_error(e)
+        render json: { error: e.message }, status: :unprocessable_entity
+      end
+
+      def render_openapi_missing_authentication_error(e)
+        render json: { error: e.message }, status: :unauthorized
+      end
+    end
+  end
+end

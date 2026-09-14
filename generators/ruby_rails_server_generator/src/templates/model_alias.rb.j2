@@ -1,0 +1,17 @@
+module {{ moduleName }}
+  # {{ model.label }}
+{% if model.description %}{{ model.description | indent("  # ", true) }}
+{% endif %}  module {{ model.name }}
+    # @param value [Object, nil] a parsed-JSON value
+    # @return [Object, nil]
+    def self.from_h(value)
+      {{ model.fromHExpr }}
+    end
+
+    # @param value [Object, nil]
+    # @return [Object, nil] wire-shaped value
+    def self.to_wire(value)
+      {{ model.toWireExpr }}
+    end
+  end
+end
