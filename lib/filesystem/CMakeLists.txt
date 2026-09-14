@@ -49,6 +49,7 @@ set(EMBEDDED_GENERATOR_DIRS
   kotlin_ktor_server_generator
   typescript_fetch_client_generator
   ruby_faraday_client_generator
+  ruby_rails_server_generator
   python_tornado_server_generator
   go_net_http_client_generator
   go_net_http_server_generator

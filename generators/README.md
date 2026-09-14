@@ -20,13 +20,14 @@ checkout, zip, or network access - see the root [`README.md`](../README.md#using
 - `builtin:kotlin_ktor_server`
 - `builtin:typescript_fetch_client`
 - `builtin:ruby_faraday_client`
+- `builtin:ruby_rails_server`
 - `builtin:python_tornado_server`
 - `builtin:go_net_http_client`
 - `builtin:go_net_http_server`
 
 Run `openapi-yagen list-generators` for this same list straight from whatever binary you have
-installed. The full collection, including generators not built in (pass `-g` a directory/zip/URL
-instead):
+installed. The full collection (every generator above is also listed here, plus
+`sample_cpp_models_generator`, which isn't built in):
 
 - [`sample_cpp_models_generator`](sample_cpp_models_generator/README.md) - minimal example
   generating C++ model structs from schemas.
