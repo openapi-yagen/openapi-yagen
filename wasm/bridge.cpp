@@ -211,6 +211,8 @@ GenerateResult runGenerate(const string& specText, const vector<FS::FileReaderBa
             .clearOutDir = false,
             .vars = vars,
             .tags = tags,
+            .headerText = std::nullopt,
+            .noHeader = false,
         });
         g.generate(SPEC_PATH);
 
