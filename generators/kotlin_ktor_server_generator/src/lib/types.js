@@ -272,7 +272,20 @@ function buildDispatchCondition(dispatchKind, dispatchField) {
 function registerUnion(registry, name, schema, variantOpts) {
   if (registry.models.has(name)) return;
   const variants = schema.oneOf || schema.anyOf || [];
-  const dispatch = resolveUnionDispatch(schema);
+  let dispatch;
+  try {
+    dispatch = resolveUnionDispatch(schema);
+  } catch (e) {
+    // Variants can't be safely told apart from the raw JSON alone (e.g. multiple object variants
+    // share the exact same top-level properties, differing only in some nested shape) - rather
+    // than guessing, fall back to the same fully-qualified JsonElement escape hatch already used
+    // for genuinely free-form schemas (see ktType's final fallback) and let the caller sort the
+    // real shape out for themselves. Always warned about, regardless of strict/-v strict=false -
+    // this isn't a skip-with-data-loss, it's a deliberate decision not to guess.
+    dump(`WARNING: ${name}'s oneOf/anyOf variants could not be told apart from raw JSON alone (${e.message || e}); falling back to an untyped value`);
+    addModel(registry, name, { name, kind: "typealias", targetType: "kotlinx.serialization.json.JsonElement", description: schema.description || null });
+    return;
+  }
 
   const variantModels = variants.map((variant, index) => {
     const { dispatchKind, dispatchField } = dispatch.variants[index];

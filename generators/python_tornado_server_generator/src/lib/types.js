@@ -302,7 +302,20 @@ function valueGuard(descriptor) {
 function registerUnionDispatch(registry, name, schema) {
   if (registry.models.has(name)) return;
   const variants = schema.oneOf || schema.anyOf || [];
-  const dispatch = resolveUnionDispatch(schema);
+  let dispatch;
+  try {
+    dispatch = resolveUnionDispatch(schema);
+  } catch (e) {
+    // Variants can't be safely told apart from the raw JSON alone (e.g. multiple object variants
+    // share the exact same top-level properties, differing only in some nested shape) - rather
+    // than guessing, fall back to the same untyped "Any" escape hatch already used for genuinely
+    // free-form schemas (see pyType's final fallback) and let the caller sort the real shape out
+    // for themselves. Always warned about, regardless of strict/-v strict=false - this isn't a
+    // skip-with-data-loss, it's a deliberate decision not to guess.
+    dump(`WARNING: ${name}'s oneOf/anyOf variants could not be told apart from raw JSON alone (${e.message || e}); falling back to an untyped value`);
+    registerAlias(registry, name, schema.description || null, { kind: "unknown" }, "Any");
+    return;
+  }
   const built = variants.map((variant, index) => {
     const variantRawName = nameOf(variant);
     const hint = name + (variantRawName ? className(variantRawName) : `Variant${index + 1}`);
@@ -377,6 +390,11 @@ export function pyType(registry, schema, hintName) {
     if (variants.length === 1) return pyType(registry, variants[0], hintName);
     const name = nameOf(s) ? className(nameOf(s)) : disambiguateHintName(registry, hintName);
     registerUnionDispatch(registry, name, s);
+    // registerUnionDispatch falls back to a plain alias (no from_wire/to_wire of its own) when the
+    // variants can't be disambiguated - use its actual (inlined) descriptor/label in that case
+    // instead of assuming the "ref" calling convention every real union/class model supports.
+    const registered = registry.models.get(name);
+    if (registered.kind === "alias") return { label: registered.label, descriptor: registered.descriptor };
     return { label: name, descriptor: { kind: "ref", refName: name } };
   }
   if (kind === "Array") {

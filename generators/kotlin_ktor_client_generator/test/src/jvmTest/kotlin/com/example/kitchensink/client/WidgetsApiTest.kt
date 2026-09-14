@@ -2,6 +2,7 @@ package com.example.kitchensink.client
 
 import com.example.kitchensink.client.apis.WidgetsApi
 import com.example.kitchensink.client.models.Circle
+import com.example.kitchensink.client.models.EnvelopeUnion
 import com.example.kitchensink.client.models.Shape
 import com.example.kitchensink.client.models.Square
 import com.example.kitchensink.client.models.Widget
@@ -20,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
@@ -183,5 +185,16 @@ class WidgetsApiTest {
 
         assertIs<Square>(shape)
         assertEquals(4.0, shape.side)
+    }
+
+    // EnvelopeUnion's 3 variants share the exact same top-level properties (meta + payload) and
+    // differ only in the nested shape of payload - resolveUnionDispatch can't tell them apart, so
+    // generation falls back to a plain JsonElement typealias instead of failing.
+    @Test
+    fun `EnvelopeUnion falls back to a JsonElement when variants can't be disambiguated`() {
+        val element: EnvelopeUnion = Json.decodeFromString("""{"meta":{"code":1},"payload":["a","b"]}""")
+        val payload = element.jsonObject["payload"]!!.jsonArray
+        assertEquals(2, payload.size)
+        assertEquals("a", payload[0].jsonPrimitive.content)
     }
 }

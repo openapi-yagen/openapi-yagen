@@ -502,6 +502,56 @@ components:
         - $ref: "#/components/schemas/WidgetVariantA"
         - $ref: "#/components/schemas/WidgetVariantB"
         - type: string
+    EnvelopeUnion:
+      description: >-
+        An undiscriminated oneOf that resolveUnionDispatch can NOT tell apart: all three variants
+        share the exact same top-level properties (meta + payload), differing only in the nested
+        shape of payload (array vs. an object with a uniquely-declared field vs. a fieldless
+        object) - a common real-world "envelope" API shape. This must fall back to an untyped
+        ("alias" kind) value with a generation-time warning instead of failing generation.
+      oneOf:
+        - $ref: "#/components/schemas/EnvelopeArrayResult"
+        - $ref: "#/components/schemas/EnvelopeTaggedResult"
+        - $ref: "#/components/schemas/EnvelopePlainResult"
+    EnvelopeArrayResult:
+      type: object
+      properties:
+        meta:
+          type: object
+          properties:
+            code:
+              type: integer
+        payload:
+          type: array
+          items:
+            type: string
+    EnvelopeTaggedResult:
+      type: object
+      properties:
+        meta:
+          type: object
+          properties:
+            code:
+              type: integer
+        payload:
+          type: object
+          required: [tag]
+          properties:
+            tag:
+              type: string
+    EnvelopePlainResult:
+      type: object
+      properties:
+        meta:
+          type: object
+          properties:
+            code:
+              type: integer
+        payload:
+          type: object
+          properties:
+            note:
+              type: string
     WidgetVariantA:
       type: object
       required: [kind, value]

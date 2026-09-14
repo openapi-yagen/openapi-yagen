@@ -67,6 +67,7 @@ sys.path.insert(0, str(OUT_DIR))
 from kitchensink_api.apis.widgets import WidgetsHandler, build_widgets_routes  # noqa: E402
 from kitchensink_api.models import (  # noqa: E402
     Circle,
+    EnvelopeUnion,
     ErrorResponse,
     NewWidget,
     NewWidgetVisibility,
@@ -467,6 +468,13 @@ def test_widget_variant_undiscriminated_union_round_trip() -> None:
 def test_widget_variant_undiscriminated_union_rejects_unrecognized_shape() -> None:
     with pytest.raises(ValidationError):
         WidgetVariant.from_wire(123)
+
+
+def test_envelope_union_falls_back_to_an_untyped_alias() -> None:
+    # EnvelopeUnion's 3 variants share the exact same top-level properties (meta + payload) and
+    # differ only in the nested shape of payload - resolveUnionDispatch can't tell them apart, so
+    # generation falls back to a plain `Any` alias instead of failing.
+    assert EnvelopeUnion is Any
 
 
 def test_missing_authentication_error_is_distinct_from_validation_error() -> None:

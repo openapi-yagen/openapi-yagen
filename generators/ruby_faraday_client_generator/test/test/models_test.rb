@@ -82,6 +82,16 @@ class ModelsTest < Minitest::Test
     assert_raises(ArgumentError) { Kitchensink::WidgetVariant.from_h(42) }
   end
 
+  # EnvelopeUnion's 3 variants share the exact same top-level properties (meta + payload) and
+  # differ only in the nested shape of payload - resolveUnionDispatch can't tell them apart, so
+  # this must fall back to an untyped passthrough instead of failing generation.
+  def test_envelope_union_falls_back_to_untyped_value
+    raw = { "meta" => { "code" => 1 }, "payload" => %w[a b] }
+    value = Kitchensink::EnvelopeUnion.from_h(raw)
+    assert_equal raw, value
+    assert_equal raw, Kitchensink::EnvelopeUnion.to_wire(value)
+  end
+
   # See AGENTS.md's "a generator for a dynamically-typed target language must generate its own
   # runtime checks" convention - this generator's reference implementation of it.
   def test_to_wire_raises_type_error_for_a_non_matching_object

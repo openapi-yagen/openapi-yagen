@@ -371,6 +371,22 @@ func TestWidgetVariantUndiscriminatedUnion(t *testing.T) {
 	}
 }
 
+func TestEnvelopeUnionFallsBackToUntypedValue(t *testing.T) {
+	raw := []byte(`{"meta":{"code":1},"payload":["a","b"]}`)
+	var v models.EnvelopeUnion
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("unexpected error unmarshaling into the untyped fallback: %v", err)
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		t.Fatalf("expected EnvelopeUnion to decode as a plain map[string]any, got %T", v)
+	}
+	payload, ok := m["payload"].([]any)
+	if !ok || len(payload) != 2 || payload[0] != "a" {
+		t.Fatalf("expected the raw payload array to survive the round-trip, got %+v", m["payload"])
+	}
+}
+
 func TestPetStatusEnumRejectsUnknownValue(t *testing.T) {
 	var s models.PetStatus
 	if err := json.Unmarshal([]byte(`"unknown-status"`), &s); err == nil {
