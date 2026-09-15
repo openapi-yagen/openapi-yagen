@@ -82,6 +82,11 @@ renderTemplate(
 
 renderTemplate("templates/runtime.rb.j2", { moduleName }, `${moduleSnake}/runtime.rb`);
 renderTemplate(
+  "templates/eager_load_integration.rb.j2",
+  { moduleName, moduleSnake, baseController, warmBaseController: controllerMode === "generated" && baseController !== "ActionController::API" },
+  `${moduleSnake}/eager_load_integration.rb`
+);
+renderTemplate(
   "templates/index.rb.j2",
   { moduleName, moduleSnake, models: registry.order.map((n) => toSnakeCase(n)), tagGroups, controllerMode, publishOpenApiSpec },
   `${moduleSnake}.rb`

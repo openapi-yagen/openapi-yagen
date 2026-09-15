@@ -139,6 +139,18 @@ debugging a generator, or when changing what globals/functions are exposed to `m
   the same pattern; a statically-typed target's compiler already covers the "wrong shape" half of
   this, but still gets nothing for free on OpenAPI-level constraints like `minLength`/`pattern` -
   worth the same consideration there too.
+- **Comments in GENERATED code must not reference the generator's own internals** - no `.j2`
+  template filenames, `AGENTS.md`, `main.js`, internal JS function names (`buildValidateStatements`
+  and the like), or other generators in this project by name. The reader of a generated file only
+  has that file - not this repo's source. A comment explaining something about *that file itself*
+  (a method's behavior, a data format, OpenAPI semantics) is fine, even at length - a comment
+  explaining why the generator's authors chose one implementation over another is not.
+- **A generator's README documents USE, not DESIGN** - a clear description of what the generator
+  produces, step-by-step integration with working examples, and practically relevant behavior
+  (formats, errors, limitations). The reader has only that one README, not the whole repo - don't
+  send them to `AGENTS.md` or to another generator's README ("same restriction X applies" / "see
+  that generator's README for..."); inline the fact itself instead. Don't explain why one
+  implementation choice was made over another unless it changes how the reader uses the generator.
 
 ## Building
 

@@ -1,0 +1,17 @@
+# Requires the generated aggregator at the one point in Rails' boot sequence where this is safe
+# under config.eager_load = true: Rails.application.config.to_prepare runs after Zeitwerk's
+# autoloader is set up, but before eager_load reaches your own app/ - so any app/ class (a
+# handler implementing {{ moduleName }}::...HandlerInterface, your own controller including
+# {{ moduleName }}::...Controller, or baseController) that references this module can safely
+# eager-load afterwards. Require this file itself from any config/initializers/*.rb (order
+# doesn't matter - it only registers the callback below, it doesn't require the generated code
+# right away):
+#
+#   # config/initializers/{{ moduleSnake }}.rb
+#   require Rails.root.join(".generated/{{ moduleSnake }}/eager_load_integration")
+Rails.application.config.to_prepare do
+{% if warmBaseController %}  # Touching {{ baseController }} here warms Zeitwerk's autoload for it before the generated
+  # controllers (which subclass it) load.
+  {{ baseController }}
+{% endif %}  require_relative "{{ moduleSnake }}"
+end

@@ -55,6 +55,7 @@ openapi-yagen g -o .generated -g ruby_rails_server_generator openapi.yaml -v mod
 <module>/openapi.json                               only if publishOpenApiSpec=true - the effective OpenAPI document
 <module>/routes.rb                                  Routes.draw(mapper, handlers:) - call from config/routes.rb
 <module>/runtime.rb                                 <module>::Runtime - shared validation/parsing/auth helpers
+<module>/eager_load_integration.rb                  require this from an initializer under config.eager_load=true
 <module>.rb                                         aggregator - requires every file above, in a safe order
 ```
 
@@ -67,6 +68,7 @@ openapi-yagen g -o .generated -g ruby_rails_server_generator openapi.yaml -v mod
 <module>/openapi.json                               only if publishOpenApiSpec=true - the effective OpenAPI document
 <module>/routes.rb                                  Routes.draw(mapper) - call from config/routes.rb
 <module>/runtime.rb                                 same as above
+<module>/eager_load_integration.rb                  same as above
 <module>.rb                                         same as above
 ```
 
@@ -121,14 +123,34 @@ class PetsHandler
 end
 ```
 
-`Model.from_object(source)`/`instance.to_attributes` (see "Mapping to your own application
-models" below) read/write by Ruby attribute name, not wire name - useful when your ActiveRecord
-(or any other) model's column names already match the schema's property names, letting you skip
-hand-writing the field-by-field mapping in the common case.
+`Model.from_object`/`#to_attributes` map between wire and Ruby attribute names - see "Mapping to
+your own application models" below.
 
-Routes are drawn via `to: Controller.action(:name)` (Rails' routing-directly-to-a-class API),
-not a `"controller#action"` string - this is why requiring the aggregator is enough; the
-generated controllers never need to be on Zeitwerk's autoload/eager-load paths.
+Routes are drawn via `to: Controller.action(:name)`, not a `"controller#action"` string - the
+generated controllers are never autoloaded by Zeitwerk.
+
+### Production (`config.eager_load = true`)
+
+The plain `require` above is enough in development, but breaks once `config.eager_load = true`
+(the default in production): Rails eager-loads all of `app/` *before* `config/routes.rb` ever
+runs, so anything under `app/` that references the generated module - a handler `include`ing
+`PetStore::PetsHandlerInterface`, a `concern`-mode controller `include`ing `PetStore::PetsController`,
+or a `baseController` pointing at your own class - fails with `NameError: uninitialized constant
+PetStore` before it's ever defined.
+
+Require the generated `eager_load_integration.rb` instead, from any `config/initializers/*.rb`:
+
+```ruby
+# config/initializers/pet_store.rb
+require Rails.root.join(".generated/pet_store/eager_load_integration")
+```
+
+This registers a `Rails.application.config.to_prepare` callback that requires the generated
+aggregator at the one point in Rails' boot sequence where it's safe - after Zeitwerk's autoloader
+is set up, but before eager-load reaches your own `app/`. It also warms up a custom
+`baseController` first, if you set one. Keep (or replace) the plain `require` in
+`config/routes.rb` too - `to_prepare` also re-runs on every code reload in development, so this
+works unchanged in both environments.
 
 ### `controllerMode=concern`
 
@@ -187,15 +209,13 @@ whenever the spec changes.
 
 ## Request body content types
 
-Same priority order and the same typed `body:` argument as `ruby_faraday_client_generator`'s own
-"Request body content types" section - see that generator's README for the full rationale.
-`application/json` > `multipart/form-data` > `application/x-www-form-urlencoded` > a single
-remaining media type (as a plain `String`, read via `request.raw_post`). Unlike a JSON body
-(where `JSON.parse` already hands back a real `Integer`/`Float`/`true`/`false`), a
+Priority order: `application/json` > `multipart/form-data` > `application/x-www-form-urlencoded` >
+a single remaining media type (as a plain `String`, read via `request.raw_post`). Unlike a JSON
+body (where `JSON.parse` already hands back a real `Integer`/`Float`/`true`/`false`), a
 multipart/urlencoded form field's `type: integer`/`number`/`boolean`/`format: date`/`date-time`
 property is parsed from its raw wire String the same way a query parameter is (see "Parameters"
 below) before your model's own `from_h` ever sees it - both content types restrict form fields to
-a flat object (scalar/enum properties, or arrays of either), same as the client generator.
+a flat object (scalar/enum properties, or arrays of either).
 
 ## Parameters
 
@@ -204,22 +224,19 @@ a flat object (scalar/enum properties, or arrays of either), same as the client 
 - **Query/header/cookie**: read from Rails' `params`/`request.headers`/`request.cookies` and
   parsed/validated according to the schema (`Integer`/`Float`/`true`-or-`false`/`Date`/`Time`,
   `format: uuid` shape-checked, an enum's membership checked) before your handler ever sees it -
-  raises `Runtime::ValidationError` on a malformed value. Restricted to a primitive
-  scalar or enum, same restriction `ruby_faraday_client_generator` applies to path/header/cookie
-  (query has no such restriction there, since a client only ever *sends* a query value - a server
-  has to *parse* one, so this generator can't accept an arbitrary shape it has no generic parsing
-  story for).
+  raises `Runtime::ValidationError` on a malformed value. Path/header/cookie parameters must
+  resolve to a primitive scalar or enum; query parameters accept any shape (a server has to
+  *parse* whatever's there, so there's no restriction to enforce ahead of time).
 - **Array-typed query parameters** (OpenAPI 3's default `style: form, explode: true` - a repeated
-  key, `?tags=a&tags=b`, the same wire format `ruby_faraday_client_generator`'s own client sends)
-  are collected correctly even though Rails' own `params` does NOT do this for a plain
-  (non-bracket) repeated key - see `runtime.rb`'s `query_array`.
+  key, `?tags=a&tags=b`) are collected correctly even though Rails' own `params` does NOT do this
+  for a plain (non-bracket) repeated key - see `runtime.rb`'s `query_array`.
 
 ## Authentication (`components.securitySchemes`)
 
-Same scheme support as `ruby_faraday_client_generator` (`http`/`scheme: bearer`, `apiKey` in
-`header`/`query`/`cookie`, `oauth2`, `openIdConnect` - the latter two treated as a bearer token
-per RFC 6750; no scope/claim validation) - but a server *verifies presence*, it doesn't inject a
-credential. Each security scheme becomes its own keyword argument on your handler method, named
+Supported schemes: `http`/`scheme: bearer`, `apiKey` (`header`/`query`/`cookie`), `oauth2`,
+`openIdConnect` (the latter two treated as a bearer token per RFC 6750; no scope/claim
+validation) - the server *verifies presence*, it doesn't inject a credential. Each security
+scheme becomes its own keyword argument on your handler method, named
 after the scheme (e.g. `bearer_auth:`, `api_key_auth:`), holding the raw extracted value so your
 own code can look it up/verify it:
 
@@ -268,9 +285,7 @@ uses these to show correct types and flag a mismatched call in your own handler 
 
 ## `format: uuid`/`date`/`date-time`
 
-Unlike `ruby_faraday_client_generator` (a client only ever *constructing* an outgoing value, so
-format-level validation is out of scope there - see that generator's README), this generator
-validates/parses them, since a server receives untrusted wire input:
+Validated/parsed, since a server receives untrusted wire input:
 
 - `format: uuid` stays a plain `String`, shape-checked (canonical 8-4-4-4-12 hex form) via
   `Runtime.require_uuid`.
@@ -279,12 +294,18 @@ validates/parses them, since a server receives untrusted wire input:
 
 ## oneOf/anyOf support
 
-Same discriminated/undiscriminated dispatch rules as `ruby_faraday_client_generator` - see that
-generator's README. One difference: every `from_h`/`to_wire` failure here (an unknown
-discriminator value, no variant matching an undiscriminated union's shape, an invalid enum value)
-raises `Runtime::ValidationError`, not a bare `ArgumentError` - so it's caught by the
-same `rescue_from` a constraint violation is, and mapped to the same `422`, no matter which model
-file it originated in.
+- **Discriminated** (`discriminator.propertyName` + every variant a `$ref` to a named schema):
+  reads the discriminator property and delegates to the matching variant class's own `from_h`/
+  `to_wire`.
+- **Undiscriminated** (or discriminated but unresolvable): dispatches by shape - checking each
+  object variant's own distinguishing property first, then any array/string/number/boolean-shaped
+  variant, then falling back to whatever's left (at most one property-less/unconstrained variant
+  is allowed as that fallback).
+
+Every `from_h`/`to_wire` failure here (an unknown discriminator value, no variant matching an
+undiscriminated union's shape, an invalid enum value) raises `Runtime::ValidationError`, not a
+bare `ArgumentError` - so it's caught by the same `rescue_from` a constraint violation is, and
+mapped to the same `422`, no matter which model file it originated in.
 
 ## Publishing the OpenAPI spec
 
@@ -308,27 +329,29 @@ picks up the new route automatically, in both `controllerMode`s.
   `snake_case` name implies (e.g. not `PetsController` for tag `pets`) means the route's
   `to: "pets#..."` string simply won't resolve, a plain Rails routing error, not something this
   generator can catch ahead of time.
-- Everything `ruby_faraday_client_generator`'s own "Known limitations" already documents about
-  content-type support, path/header/cookie parameter shape, query array serialization style
-  (`explode: true` only), `moduleName` being a single flat namespace, and `security` scheme
-  coverage applies here too, adjusted for the server-side mechanics described above.
+- Request/response bodies support `application/json`, `multipart/form-data`,
+  `application/x-www-form-urlencoded`, and a single remaining media type - two or more media
+  types outside that fixed set is a generator error.
+- Query array parameters are only read in OpenAPI's default repeated-key style
+  (`explode: true`) - `explode: false`/`spaceDelimited`/`pipeDelimited` aren't parsed.
+- Only `http`/`bearer`, `apiKey`, `oauth2`, and `openIdConnect` security schemes are supported -
+  `mutualTLS`/HTTP Basic is a generator error.
+- `moduleName` is a single flat Ruby module name - a nested namespace (`Foo::Bar`) isn't
+  supported.
 - A multipart/urlencoded body's array-typed form field is not currently type-coerced/collected
   reliably the way an array-typed *query* parameter is (see `runtime.rb`'s `query_array`) - stick
   to a single value, or a JSON body, for an array-typed form field.
 - Nothing checks, at generation or boot time, that a registered handler actually implements every
   method its tag's interface module declares - a forgotten override only surfaces as a
   `NotImplementedError` the first time that specific operation is actually called.
-- Generated files are not run through a formatter - see `ruby_faraday_client_generator`'s README
-  for the `-p/--post-process` escape hatch (identical here).
+- Generated files are not run through a formatter - pipe the output through a formatter yourself
+  via `-p`/`--post-process`, e.g. `-p "rb:rufo %file%"`.
 
 ## Try it
 
-This generator's own self-contained test suite (see also [`../README.md`](../README.md) for the
-collection-wide convention) regenerates from a kitchen-sink spec exercising every feature above -
-**twice**, once per `controllerMode` - and drives the real generated code with
-[`Rack::Test`](https://github.com/rack/rack-test) against a bare
-`ActionDispatch::Routing::RouteSet` - deliberately just `actionpack`, not the full `rails` gem,
-and no `Rails::Application`:
+This generator's own self-contained test suite regenerates from a kitchen-sink spec exercising
+every feature above - **twice**, once per `controllerMode` - and drives the real generated code
+with [`Rack::Test`](https://github.com/rack/rack-test):
 
 ```bash
 cd generators/ruby_rails_server_generator/test

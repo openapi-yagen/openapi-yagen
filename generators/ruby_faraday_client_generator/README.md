@@ -107,9 +107,8 @@ argument** (an instance of the schema's generated model class) - only the wire e
     ),
   )
   ```
-  `faraday-multipart` is **not** a dependency of the generated code itself (this generator never
-  adds a gem dependency beyond `faraday` - see "Integrating the generated code" above) - only
-  callers who actually invoke a multipart operation need it.
+  `faraday-multipart` is **not** a dependency of the generated code itself - only callers who
+  actually invoke a multipart operation need it.
 - **any single `text/*` media type** (`text/plain`, `text/csv`, `text/html`, ...) or **any single
   other remaining media type** (`application/octet-stream`, `application/zip`, `application/pdf`,
   `image/png`, ...): `body:` is a plain `String` (Ruby has no separate byte-array type for an HTTP
@@ -166,10 +165,8 @@ which are legitimate ways to supply file content.
 
 This costs something on every request (a type check plus a walk over each constrained property,
 recursing into nested models/enums/arrays) - set `-v validate=false` once you trust the values your
-own code constructs (e.g. for a production build of an already-tested integration) to fall back to
-the bare `to_h`/`to_wire` this generator used before this feature existed, with zero validation
-overhead. See also AGENTS.md's "a generator for a dynamically-typed target language must generate
-its own runtime checks" convention, which this feature is the reference implementation of.
+own code constructs (e.g. for a production build of an already-tested integration) for zero
+validation overhead, falling back to a bare `to_h`/`to_wire`.
 
 ### Default values
 
@@ -283,8 +280,7 @@ end
   `Time`/`Date` object, no base64/binary decoding. `validate!` (see "Validation" above) never checks
   `format` itself (`uuid`, `date`, `email`, ...) either - this is a client, constructing a request
   from values your own code already produced, not a server rejecting untrusted wire input, so
-  format-level validation is deliberately out of scope here (the same position the Go and Kotlin
-  *client* generators take - only the *server* generators in this project validate `format: uuid`).
+  format-level validation is deliberately out of scope here.
 - `security` schemes are limited to `http`/`scheme: bearer`, `apiKey` (`in: header`, `in: query`, or
   `in: cookie`), `oauth2`, and `openIdConnect` (the latter two treated as a bearer token, RFC 6750;
   no scope/claim validation) - `mutualTLS`/HTTP Basic is a generator error. Multiple simultaneous
@@ -310,8 +306,7 @@ end
 
 ## Try it
 
-From the `generators/` directory, with `openapi-yagen` on `PATH` (see `run_ruby_client.sh`,
-sibling to `run.sh`):
+Quick generate, with `openapi-yagen` on `PATH`:
 
 ```bash
 cd generators && ./run_ruby_client.sh
@@ -319,10 +314,8 @@ cd generators && ./run_ruby_client.sh
 
 generates into `generators/out/ruby-client` from `test/resources/petstore.yaml`.
 
-For a real generate-then-run check exercising every operation, positive and negative, see
-[`test/`](https://github.com/openapi-yagen/openapi-yagen/tree/master/generators/ruby_faraday_client_generator/test) -
-this generator's own self-contained test suite (see also
-[`../README.md`](../README.md) for the collection-wide convention):
+For a real generate-then-run check exercising every operation, positive and negative, this
+generator's own self-contained test suite:
 
 ```bash
 cd generators/ruby_faraday_client_generator/test
