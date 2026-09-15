@@ -83,6 +83,11 @@ application.listen(8080)
 IOLoop.current().start()
 ```
 
+`build_<tag>_routes()`'s URL patterns come straight from the spec's own `paths:` keys (no prefix
+applied) - you control the mount path yourself, e.g. by prefixing the pattern strings it returns
+before passing them to `Application`, or nesting them under your own `Application`'s
+`default_host`/handler list, if the spec's own `servers`/`basePath` implies one.
+
 A validation failure (a missing required parameter, a constraint violation, a malformed body) is
 raised as the generator's own `runtime.ValidationError`, immediately caught by the generated
 `RequestHandler` method and re-raised as `tornado.web.HTTPError(422, reason=str(exc))` - Tornado's

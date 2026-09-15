@@ -44,6 +44,25 @@ module OpenapiYagenRuntime
     URI::DEFAULT_PARSER.escape(value.to_s, /[^a-zA-Z0-9\-_.~]/)
   end
 
+  # `path` always starts with "/" (straight from the OpenAPI `paths:` key - see operations.js's
+  # buildPathExpr), which Faraday treats as an RFC 3986 absolute-path reference: merging it against
+  # `connection`'s own base URL (`Connection#build_url`/`#run_request`) REPLACES the base's own path
+  # component instead of appending to it - a connection configured as
+  # `Faraday.new(url: "https://api.example.com/v1")` would have `/v1` silently discarded on every
+  # request, resolving to "https://api.example.com/current.json" instead of ".../v1/current.json".
+  # Resolved here instead, via plain string concatenation (matching how the Go/Kotlin generators'
+  # own generated code already builds request URLs, sidestepping this same RFC 3986 merge
+  # entirely) - only when `connection.url_prefix.host` is present, i.e. a real base URL was
+  # configured. A bare `Faraday.new { |f| f.adapter :test, stubs }` (no `url:` at all - the
+  # pattern this generator's own test suite uses throughout) has a nil host and a degenerate
+  # `url_prefix` ("http:/"); concatenating that would produce a broken, doubly-prefixed URL once
+  # Faraday re-merges it, so `path` is left untouched in that case, preserving today's behavior.
+  def resolve_request_path(connection, path)
+    return path unless connection.url_prefix.host
+
+    "#{connection.url_prefix.to_s.sub(%r{/+\z}, "")}#{path}"
+  end
+
   # Builds an already-escaped query string from a wire-name-keyed Hash whose values may be a plain
   # scalar, an Array (OpenAPI 3's default array query serialization: one repeated `key=` pair per
   # element, e.g. "tag=a&tag=b" - not a single comma-joined value), or a Hash (deepObject-style
@@ -253,8 +272,9 @@ module OpenapiYagenRuntime
     resolved_cookies = (cookies || {}).compact
 
     resolved_query = apply_auth(auth, auth_config, resolved_headers, query, resolved_cookies)
+    resolved_path = resolve_request_path(connection, path)
     query_string = build_query(resolved_query)
-    full_path = query_string.empty? ? path : "#{path}?#{query_string}"
+    full_path = query_string.empty? ? resolved_path : "#{resolved_path}?#{query_string}"
 
     cookie_header = build_cookie_header(resolved_cookies)
     resolved_headers["Cookie"] = cookie_header if cookie_header

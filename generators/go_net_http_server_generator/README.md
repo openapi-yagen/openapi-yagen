@@ -72,6 +72,11 @@ server.RegisterPetsRoutes(mux, &petsHandler{}, nil)
 http.ListenAndServe(":8080", mux)
 ```
 
+Routes are registered exactly as the spec's own `paths:` keys declare them (no prefix applied) -
+you control the mount path by wrapping `mux` yourself (e.g. `http.StripPrefix("/v1", mux)`, or
+registering `RegisterPetsRoutes` onto a sub-mux mounted under a prefix on an outer one) if the
+spec's own `servers`/`basePath` implies one.
+
 `RegisterXRoutes`'s third argument is an `ErrorHandler` (`func(w http.ResponseWriter, r *http.Request,
 err error)`) called whenever parameter parsing, validation, authentication, or the handler method
 itself returns an error - `nil` uses `server.DefaultErrorHandler`, which maps a

@@ -5,6 +5,25 @@ require_relative "test_helper"
 # params) are asserted directly against our own code rather than through Faraday's own stub-path
 # matcher, which has its own (irrelevant-to-us) opinions about query-string matching.
 class RuntimeTest < Minitest::Test
+  def test_resolve_request_path_preserves_a_configured_connections_own_base_path
+    conn = Faraday.new(url: "https://api.example.com/v1")
+    assert_equal "https://api.example.com/v1/pets", OpenapiYagenRuntime.resolve_request_path(conn, "/pets")
+  end
+
+  def test_resolve_request_path_is_unaffected_by_a_root_only_base
+    conn = Faraday.new(url: "https://api.example.com")
+    assert_equal "https://api.example.com/pets", OpenapiYagenRuntime.resolve_request_path(conn, "/pets")
+  end
+
+  # The pattern every other test in this suite uses for a Faraday::Adapter::Test-only connection
+  # (no `url:` at all) - `url_prefix.host` is nil and `url_prefix.to_s` is a degenerate "http:/"
+  # placeholder, so `path` must be returned unchanged rather than concatenated onto it (which
+  # would produce a broken, doubly-prefixed URL once Faraday re-merges it).
+  def test_resolve_request_path_leaves_a_bare_test_adapter_connection_unchanged
+    conn = Faraday.new { |f| f.adapter :test, Faraday::Adapter::Test::Stubs.new }
+    assert_equal "/pets", OpenapiYagenRuntime.resolve_request_path(conn, "/pets")
+  end
+
   def test_build_query_skips_nil_and_repeats_array_values
     qs = OpenapiYagenRuntime.build_query("tag" => "dog", "limit" => nil, "tags" => ["a", "b"])
     assert_equal "tag=dog&tags=a&tags=b", qs

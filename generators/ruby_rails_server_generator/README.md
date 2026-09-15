@@ -96,6 +96,12 @@ Rails.application.routes.draw do
 end
 ```
 
+`Routes.draw`'s `mapper` argument is literally your own routes-drawing context (`self` inside
+`Rails.application.routes.draw do ... end`), so routes are drawn exactly as the spec's own
+`paths:` keys declare them (no prefix applied) but you control the mount path the same way you
+would any other Rails route - wrap the call in your own `scope "/v1" do ... end`/`namespace` if
+the spec's own `servers`/`basePath` implies one.
+
 Your handler is a plain Ruby object - no `ActionController` superclass, no `include`d module
 beyond the generated interface itself, which exists purely so a missing/misspelled method fails
 loudly (`NotImplementedError`) instead of silently:

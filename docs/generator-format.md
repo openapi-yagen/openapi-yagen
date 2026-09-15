@@ -154,6 +154,29 @@ The same conversion is available as a standalone command, independent of any gen
 root [`README.md`](../README.md#cli-reference)'s `convert` subcommand, e.g. to pin a spec to one
 version before checking it in, or to inspect what a 3.1 spec looks like once folded down to 3.0.
 
+## `servers`/`basePath` is never read by a generator
+
+Every operation's own path (a `paths:` key, e.g. `/pets/{id}`) is meant to be interpreted relative
+to the path component of a `servers[].url` entry (or, converted from Swagger 2.0, `basePath`) -
+but no built-in generator reads `servers`/`basePath` at all, even though the field reaches every
+generator's spec JSON (it's part of the engine's own `Document`/`PathItem` model). This is a
+deliberate convention, not an oversight: a spec's `servers` entry is typically a dev/staging
+placeholder, and the real base URL/mount point is an environment-specific deploy-time decision the
+integrator makes, not something baked into generated code. Concretely:
+
+- **Client generators** always emit each operation's path as-is (leading `/` included) and leave
+  the base URL entirely to the caller's own HTTP client setup (a `Faraday::Connection`'s `url:`, a
+  Go client's `baseURL` constructor argument, a Kotlin client's `baseUrl`, ...). Combining a
+  caller-supplied base URL that itself has a non-root path (e.g. `.../v1`) with an operation's own
+  leading-`/` path is the generator's job to get right without silently truncating the base -
+  see `ruby_faraday_client_generator`'s README for a worked example of a bug class this caused
+  (RFC 3986 URL-merge semantics silently discarding a base path) and how it's now handled.
+- **Server generators** always register each operation's path as-is too; mounting a server under a
+  prefix (e.g. to match a spec's `servers`/`basePath`, or a reverse proxy's own path) is always an
+  explicit, deterministic step the deployer performs using that target framework's own mechanism
+  (Rails `scope`/`namespace`, Go `http.StripPrefix`/a wrapping mux, Ktor a nested `Route`, Tornado
+  prefixing its own `URLSpec` patterns) - see each server generator's own README for specifics.
+
 ## Loading a generator
 
 `-g` accepts:

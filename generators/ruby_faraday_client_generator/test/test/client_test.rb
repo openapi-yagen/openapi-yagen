@@ -50,6 +50,27 @@ class ClientTest < Minitest::Test
     stubs.verify_stubbed_calls
   end
 
+  # Regression test for a real bug: a connection configured with its own non-root base path (e.g.
+  # ".../v1", as WeatherAPI.com's real Swagger 2.0 spec's basePath requires) had that path silently
+  # discarded, because every operation's own path starts with "/" (straight from the spec) and
+  # Faraday treats a leading-"/" path as an RFC 3986 absolute-path reference that REPLACES the
+  # connection's base path rather than appending to it - `Faraday.new(url:
+  # "https://api.example.com/v1").build_url("/pets")` resolved to
+  # "https://api.example.com/pets" (v1 silently lost) before this was fixed in
+  # OpenapiYagenRuntime.resolve_request_path (see runtime.rb). This test fails on the pre-fix
+  # code with `Faraday::Adapter::Test::Stubs::NotFound: no stubbed request for get
+  # https://api.example.com/pets` (the stub below is only registered at "/v1/pets").
+  def test_list_pets_preserves_the_connections_own_base_path
+    stubs = Faraday::Adapter::Test::Stubs.new
+    stubs.get("/v1/pets") { [200, { "Content-Type" => "application/json" }, "[]"] }
+    conn = Faraday.new(url: "https://api.example.com/v1") { |f| f.adapter :test, stubs }
+    api = Kitchensink::PetsClient.new(connection: conn)
+
+    api.list_pets
+
+    stubs.verify_stubbed_calls
+  end
+
   def test_list_pets_omits_absent_optional_array_query_params
     conn, stubs = stubbed_connection do |stub|
       stub.get("/pets") do |env|

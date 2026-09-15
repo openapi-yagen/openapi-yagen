@@ -63,6 +63,11 @@ pet = api.pets.get_pet_by_id(pet_id: "123")
 pets_api = PetStore::PetsClient.new(connection: connection) # only need one tag? skip ApiClient
 ```
 
+A connection's own base path (e.g. the `/v1` above) is preserved on every request regardless of
+what each operation's own path is - `OpenapiYagenRuntime` resolves the two itself rather than
+leaning on Faraday's own URL-merging, which (per RFC 3986) would otherwise silently discard a
+base path whenever an operation's path starts with `/` (as every OpenAPI `paths:` key does).
+
 Do **not** install a JSON-parsing response middleware (e.g. `faraday-json`'s
 `Faraday::Response::Json`) on the connection you inject - `OpenapiYagenRuntime.request` parses the
 raw response body itself, and a response body that's already been parsed into a Hash by your own
