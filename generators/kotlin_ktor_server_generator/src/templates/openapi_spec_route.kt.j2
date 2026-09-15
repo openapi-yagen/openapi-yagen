@@ -1,0 +1,22 @@
+package {{ packageName }}
+
+import io.ktor.http.ContentType
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.Route
+import io.ktor.server.routing.get
+
+// The OpenAPI spec is embedded as a string constant, not a bundled resource: this generator's
+// output targets both JVM and Kotlin/Native from common source, and there is no resource-loading
+// API shared by both - a plain String constant works unchanged on every target with no extra
+// build-file wiring.
+internal val openApiSpecJson: String = """
+{{ openApiSpecJsonEscaped }}
+""".trimIndent()
+
+class OpenApiSpecRoute(route: Route) {
+    init {
+        route.get({{ toStringLiteral(openApiSpecPath) }}) {
+            call.respondText(openApiSpecJson, ContentType.Application.Json)
+        }
+    }
+}

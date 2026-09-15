@@ -1,0 +1,21 @@
+from __future__ import annotations
+
+import importlib.resources
+from typing import List
+
+from tornado.routing import URLSpec
+from tornado.web import RequestHandler
+
+
+class OpenApiSpecHandler(RequestHandler):
+    """Serves the OpenAPI document this package was generated from - read from openapi.json next
+    to this file, not re-derived at request time."""
+
+    def get(self) -> None:
+        text = importlib.resources.files("{{ packageName }}").joinpath("openapi.json").read_text(encoding="utf-8")
+        self.set_header("Content-Type", "application/json")
+        self.write(text)
+
+
+def build_openapi_spec_routes() -> List[URLSpec]:
+    return [URLSpec({{ openApiSpecPathLiteral }}, OpenApiSpecHandler)]

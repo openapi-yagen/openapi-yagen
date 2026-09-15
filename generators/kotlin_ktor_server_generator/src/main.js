@@ -82,6 +82,22 @@ if (generate !== "models") {
     { packageName, modelsPackage, apisPackage, models: validatedModels },
     "ModelValidation.kt"
   );
+
+  if (vars.publishOpenApiSpec === "true") {
+    const openApiSpecPath = vars.openApiSpecPath || "/openapi.json";
+    // Kotlin triggers string-template interpolation on "$" even inside a raw triple-quoted
+    // string, so any literal "$" in the JSON text (present at least in every internal "$ref"
+    // pointer this engine leaves un-inlined, see openApiSpecJson's own doc comment) must be
+    // escaped before embedding it below. A replacer FUNCTION, not a string, is required here -
+    // String.replace treats "$" specially in a *string* replacement pattern (e.g. "$'" means
+    // "everything after the match"), which corrupts the very "${'$'}" text this is trying to emit.
+    const openApiSpecJsonEscaped = openApiSpecJson.replace(/\$/g, () => "${'$'}");
+    renderTemplate(
+      "templates/openapi_spec_route.kt.j2",
+      { packageName, openApiSpecPath, openApiSpecJsonEscaped },
+      "OpenApiSpecRoute.kt"
+    );
+  }
 }
 
 dump(`Generated (mode: ${generate}) ${registry.order.length} model(s) and ${groups.size} operation group(s)`);

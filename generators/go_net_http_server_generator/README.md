@@ -31,6 +31,8 @@ openapi-yagen g -o out -g go_net_http_server_generator openapi.yaml \
 | `packageName` | yes      | Go import path for the generated code (e.g. `github.com/example/petstore`). Used to build the import statement `server` code needs to reference `models` - the `package` clause of every generated file is always the literal `models`/`server`, never this value. |
 | `strict`      | no (default `true`) | `true`: an unsupported schema/operation aborts generation with an error. `false`: skip it with a printed warning and generate everything else. |
 | `generate`    | no (default `all`) | `all`: models plus the server. `models`: only `models/*.go`. `api`: everything except `models/*.go` - see "Sharing models" below. |
+| `publishOpenApiSpec` | no (default `false`) | `true`: generates `server/openapi.json` (the effective OpenAPI document - the one actually used to generate this code, after `$ref` resolution, `--tags` filtering, and conversion to this generator's OpenAPI 3.1) plus a `RegisterOpenApiSpecRoute` function serving it as JSON at `openApiSpecPath`, compiled into the binary via `go:embed`. Ignored when `generate` is `models`. |
+| `openApiSpecPath` | no (default `/openapi.json`) | Only used when `publishOpenApiSpec` is `true`: the route path the spec is served at. |
 
 ## Output layout
 
@@ -39,6 +41,8 @@ models/<Name>.go          one file per schema (struct / enum / union / defined t
 server/<Tag>Handler.go    handler interface for one OpenAPI tag, one method per operation
 server/RegisterXRoutes.go registers that tag's routes onto a *http.ServeMux
 server/runtime.go         parameter parsing/validation helpers, error types, ErrorHandler - rendered once
+server/openapi.json       only if publishOpenApiSpec=true - the effective OpenAPI document
+server/openapi_spec.go    only if publishOpenApiSpec=true - RegisterOpenApiSpecRoute, embeds openapi.json
 models/validation.go      ValidationError plus requireMin/requireMax/requireMinLength/requireMaxLength/requirePattern
 models/union_helpers.go   internal helpers used by generated oneOf/anyOf wrapper types
 ```
@@ -74,6 +78,26 @@ itself returns an error - `nil` uses `server.DefaultErrorHandler`, which maps a
 `*models.ValidationError` to 400, a `*server.MissingAuthenticationError` to 401, and anything else
 to 500. Pass a custom `ErrorHandler` for a different error body shape, logging, or request-ID
 correlation.
+
+### Publishing the OpenAPI spec
+
+Set `-v publishOpenApiSpec=true` to have the generated server publish its own spec:
+
+```bash
+openapi-yagen g -o out -g go_net_http_server_generator openapi.yaml \
+    -v packageName=github.com/example/petstore -v publishOpenApiSpec=true
+```
+
+This writes `server/openapi.json` - the *effective* document (after `$ref` resolution, `--tags`
+filtering, and conversion to this generator's OpenAPI 3.1) - and `server/openapi_spec.go`, which
+embeds it into the binary at compile time via `//go:embed` and exposes
+`RegisterOpenApiSpecRoute(mux)`. Call it alongside your other `RegisterXRoutes` calls:
+
+```go
+mux := http.NewServeMux()
+server.RegisterPetsRoutes(mux, &petsHandler{}, nil)
+server.RegisterOpenApiSpecRoute(mux)
+```
 
 ### Authentication
 

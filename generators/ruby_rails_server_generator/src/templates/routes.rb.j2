@@ -11,7 +11,8 @@ module {{ moduleName }}
 {% for g in groups %}      Controllers::{{ g.tagBase }}Controller.handler = handlers.fetch(:{{ toSnakeCase(g.tagBase) }})
 {% endfor %}
 {% for g in groups %}{% for op in g.operations %}      mapper.{{ op.httpMethod }} {{ toStringLiteral(op.routePattern) }}, to: Controllers::{{ g.tagBase }}Controller.action(:{{ op.name }})
-{% endfor %}{% endfor %}    end
+{% endfor %}{% endfor %}{% if publishOpenApiSpec %}      mapper.get {{ toStringLiteral(openApiSpecPath) }}, to: Controllers::OpenApiSpecController.action(:show)
+{% endif %}    end
 {% else %}    # Call this from inside your own config/routes.rb's `Rails.application.routes.draw do ... end`
     # block, passing `self`. Each route dispatches to the ordinarily-autoloaded controller you
     # create yourself under app/controllers/ (see controllers/*_controller.rb's own header
@@ -20,6 +21,7 @@ module {{ moduleName }}
     #   {{ moduleName }}::Routes.draw(self)
     def self.draw(mapper)
 {% for g in groups %}{% for op in g.operations %}      mapper.{{ op.httpMethod }} {{ toStringLiteral(op.routePattern) }}, to: {{ toStringLiteral(toSnakeCase(g.tagBase) + "#" + op.name) }}
-{% endfor %}{% endfor %}    end
+{% endfor %}{% endfor %}{% if publishOpenApiSpec %}      mapper.get {{ toStringLiteral(openApiSpecPath) }}, to: Controllers::OpenApiSpecController.action(:show)
+{% endif %}    end
 {% endif %}  end
 end

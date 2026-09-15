@@ -33,6 +33,8 @@ openapi-yagen g -o out -g python_tornado_server_generator openapi.yaml -v packag
 | `packageName` | yes      | Python package name for the generated code (e.g. `petstore_api`) |
 | `strict`      | no (default `true`) | `true`: an unsupported schema/operation aborts generation with an error. `false`: skip it with a printed warning and generate everything else - useful for large real-world specs (see "Known limitations" below). |
 | `generate`    | no (default `all`) | `all`: models.py plus the apis/ routes/handlers. `models`: only `models.py`. `api`: everything except `models.py` (`apis/`, `runtime.py`). |
+| `publishOpenApiSpec` | no (default `false`) | `true`: generates `<packageName>/openapi.json` (the effective OpenAPI document - the one actually used to generate this code, after `$ref` resolution, `--tags` filtering, and conversion to this generator's OpenAPI 3.2) plus a `build_openapi_spec_routes()` function serving it as JSON at `openApiSpecPath`. Ignored when `generate` is `models`. |
+| `openApiSpecPath` | no (default `/openapi.json`) | Only used when `publishOpenApiSpec` is `true`: the route path the spec is served at. |
 
 ## Output layout
 
@@ -44,6 +46,8 @@ openapi-yagen g -o out -g python_tornado_server_generator openapi.yaml -v packag
     __init__.py
     <tag>.py               handler interface + RequestHandler subclasses + build_<tag>_routes()
   runtime.py               shared parameter-extraction/constraint-checking helpers
+  openapi.json             only if publishOpenApiSpec=true - the effective OpenAPI document
+  openapi_spec.py          only if publishOpenApiSpec=true - build_openapi_spec_routes()
 ```
 
 Written under a real `<packageName>`-named directory - Python requires a file's location to match
@@ -105,6 +109,24 @@ class BaseHandler(RequestHandler):
 ```bash
 openapi-yagen g -o out -g python_tornado_server_generator openapi.yaml \
     -v packageName=petstore_api -v handlerBaseClass=your_app.support.BaseHandler
+```
+
+### Publishing the OpenAPI spec
+
+Set `-v publishOpenApiSpec=true` to have the generated server publish its own spec:
+
+```bash
+openapi-yagen g -o out -g python_tornado_server_generator openapi.yaml \
+    -v packageName=petstore_api -v publishOpenApiSpec=true
+```
+
+This writes `<packageName>/openapi.json` - the *effective* document (after `$ref` resolution,
+`--tags` filtering, and conversion to this generator's OpenAPI 3.2) - and `openapi_spec.py`, which
+reads it via `importlib.resources` (so it works whether `<packageName>` ends up on disk or inside a
+zipped/frozen package) and exposes `build_openapi_spec_routes()`. Combine it with your other routes:
+
+```python
+application = Application(build_pets_routes(PetsService()) + build_openapi_spec_routes())
 ```
 
 ### Model types

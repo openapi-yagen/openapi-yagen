@@ -19,6 +19,8 @@ if (controllerMode !== "generated" && controllerMode !== "concern") {
   throw Error(`<6e40a11a> Unsupported controllerMode "${controllerMode}" - only "generated" or "concern" are supported`);
 }
 const baseController = vars.baseController || "ActionController::API";
+const publishOpenApiSpec = vars.publishOpenApiSpec === "true";
+const openApiSpecPath = vars.openApiSpecPath || "/openapi.json";
 
 const registry = buildModelRegistry(schema);
 // May register additional inline models discovered only in operation bodies/responses - must run
@@ -64,12 +66,24 @@ for (const [, group] of groups) {
   }
   tagGroups.push(group);
 }
-renderTemplate("templates/routes.rb.j2", { moduleName, groups: tagGroups, controllerMode }, `${moduleSnake}/routes.rb`);
+if (publishOpenApiSpec) {
+  writeFile(`${moduleSnake}/openapi.json`, openApiSpecJson);
+  renderTemplate(
+    "templates/openapi_spec_controller.rb.j2",
+    { moduleName, baseController },
+    `${moduleSnake}/controllers/openapi_spec_controller.rb`
+  );
+}
+renderTemplate(
+  "templates/routes.rb.j2",
+  { moduleName, groups: tagGroups, controllerMode, publishOpenApiSpec, openApiSpecPath },
+  `${moduleSnake}/routes.rb`
+);
 
 copyFile("runtime.rb", `${moduleSnake}/runtime.rb`);
 renderTemplate(
   "templates/index.rb.j2",
-  { moduleName, moduleSnake, models: registry.order.map((n) => toSnakeCase(n)), tagGroups, controllerMode },
+  { moduleName, moduleSnake, models: registry.order.map((n) => toSnakeCase(n)), tagGroups, controllerMode, publishOpenApiSpec },
   `${moduleSnake}.rb`
 );
 

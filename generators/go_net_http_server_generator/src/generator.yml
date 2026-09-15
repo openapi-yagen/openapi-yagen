@@ -41,3 +41,15 @@ variables:
       into a shared package, then generate "api" for both the client and server generators against
       it.
     defaultValue: "all"
+  - name: publishOpenApiSpec
+    description: >-
+      When "true", generates server/openapi.json (the effective OpenAPI document - the one
+      actually used to generate this code, after $ref resolution, --tags filtering, and conversion
+      to this generator's declared openApiVersion) plus a RegisterOpenApiSpecRoute function serving
+      it as JSON at openApiSpecPath, compiled into the binary via go:embed. Ignored when generate
+      is "models". Default "false".
+    defaultValue: "false"
+  - name: openApiSpecPath
+    description: >-
+      Only used when publishOpenApiSpec is "true": the route path the OpenAPI spec is served at.
+    defaultValue: "/openapi.json"

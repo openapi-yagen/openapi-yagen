@@ -69,7 +69,8 @@ val generateServer = tasks.register<Exec>("generateServer") {
         "-o", generatedDir.get().asFile.absolutePath,
         "-g", "${projectDir}/../src",
         "-c", "${projectDir}/resources/kitchensink.yaml",
-        "-v", "packageName=com.example.kitchensink.server"
+        "-v", "packageName=com.example.kitchensink.server",
+        "-v", "publishOpenApiSpec=true"
     )
 }
 

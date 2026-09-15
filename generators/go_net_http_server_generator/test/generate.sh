@@ -8,4 +8,5 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
     -o generated \
     -g ../src \
     -c resources/kitchensink.yaml \
-    -v "packageName=go_net_http_server_generator_test/generated"
+    -v "packageName=go_net_http_server_generator_test/generated" \
+    -v "publishOpenApiSpec=true"

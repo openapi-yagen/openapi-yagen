@@ -1,5 +1,6 @@
 import { buildModelRegistry, finalizeModels } from "./lib/types.js";
 import { collectOperationsByTag } from "./lib/operations.js";
+import { toGoStringLiteral } from "./lib/keywords.js";
 
 const packageName = vars.packageName;
 
@@ -8,6 +9,8 @@ const generate = vars.generate || "all";
 if (!GENERATE_MODES.includes(generate)) {
   throw Error(`<3d6a8b21> Unsupported generate "${generate}"; expected one of ${GENERATE_MODES.join(", ")}`);
 }
+const publishOpenApiSpec = vars.publishOpenApiSpec === "true";
+const openApiSpecPath = vars.openApiSpecPath || "/openapi.json";
 
 const registry = buildModelRegistry(schema);
 // May register additional inline models discovered only in operation params/bodies/responses -
@@ -54,6 +57,11 @@ if (generate !== "models") {
     );
   }
   renderTemplate("runtime.go.j2", { packageName }, "server/runtime.go");
+  if (publishOpenApiSpec) {
+    writeFile("server/openapi.json", openApiSpecJson);
+    const openApiSpecPatternLiteral = toGoStringLiteral(`GET ${openApiSpecPath}`);
+    renderTemplate("templates/openapi_spec.go.j2", { openApiSpecPatternLiteral }, "server/openapi_spec.go");
+  }
 }
 
 dump(`Generated (mode: ${generate}) ${registry.order.length} model(s) and ${groups.size} operation group(s)`);

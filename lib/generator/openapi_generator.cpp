@@ -23,6 +23,7 @@
 #include "../js/executor.h"
 #include "../js/tools.h"
 #include "../logger/logger.h"
+#include "../openapi/document_field_order.h"
 #include "../openapi/filter.h"
 #include "../openapi/resolve.h"
 #include "../openapi/v3/reader.h"
@@ -1021,6 +1022,26 @@ JSValue copyFile(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* a
     });
 }
 
+// Writes JS-computed string content straight to the output directory - the write-side counterpart
+// to copyFile above (which only ever copies bytes from the generator's own source directory, never
+// content a generator's main.js computed itself, e.g. openApiSpecJson below). Routed through the
+// same writeGeneratedFile() choke point, so it gets the same auto-generated-file header handling
+// (skipped for extensions with no comment syntax, e.g. .json - see writeGeneratedFile's doc comment).
+JSValue writeFile(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic, JSValue* data)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        const auto& gen = *jsValueToPtr<const OpenApiGenerator>(*data);
+
+        if (argc != 2)
+            throw runtime_error("<7a1c9f3e> writeFile requires 2 arguments (outFileName: string, content: string)");
+        auto outFileName = jsValueToString(ctx, argv[0]);
+        auto content = jsValueToString(ctx, argv[1]);
+
+        writeGeneratedFile(gen, outFileName, content);
+        return JS_NewBool(ctx, 1);
+    });
+}
+
 JSValue renderTemplate(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic, JSValue* data)
 {
     return runAndCatchExceptions(ctx, [&] {
@@ -1110,6 +1131,13 @@ void OpenApiGenerator::generate(const string& specPath)
     }
     auto operations = OpenApi::collectOperations(doc);
 
+    // The effective spec (post version-conversion/ref-resolution/--tags-filtering, i.e. exactly
+    // what this generation run actually used), serialized to canonical JSON text - reuses the same
+    // nodeToJsonText/documentFieldOrder path the `convert` CLI command uses. Exposed to main.js as
+    // openApiSpecJson below so a generator can publish it (e.g. from a generated controller)
+    // without needing to safely stringify the cyclic, pointer-memoized `schema` JS object graph.
+    auto openApiSpecJsonText = nodeToJsonText(schemaNode, OpenApi::documentFieldOrder(versioned.version));
+
     auto generatorPtr = this;
 
     vector<FuncType> commonJsFuncs;
@@ -1117,12 +1145,13 @@ void OpenApiGenerator::generate(const string& specPath)
     CollectOperationsCtx collectOperationsCtx { };
     opts.jsExecutor->execute(
         mainScriptPath,
-        [&schemaNode, &doc, &operations, generatorPtr, &vars, &commonJsFuncs, &builder,
+        [&schemaNode, &doc, &operations, &openApiSpecJsonText, generatorPtr, &vars, &commonJsFuncs, &builder,
          &collectOperationsCtx](JSContext* ctx) {
             auto globalObj = JS_GetGlobalObject(ctx);
             finalize { JS_FreeValue(ctx, globalObj); };
 
             setObjFunction(ctx, globalObj, "copyFile", copyFile, generatorPtr);
+            setObjFunction(ctx, globalObj, "writeFile", writeFile, generatorPtr);
             setObjFunction(ctx, globalObj, "renderTemplate", renderTemplate, generatorPtr);
             setObjFunction(ctx, globalObj, "renderTemplateToString", renderTemplateToString, generatorPtr);
 
@@ -1144,6 +1173,8 @@ void OpenApiGenerator::generate(const string& specPath)
             setObjFunction(ctx, globalObj, "resolveUnionDispatch", resolveUnionDispatchBuiltin);
 
             setObjProperty(ctx, globalObj, "vars", nodeToJSValue(ctx, vars));
+            setObjProperty(ctx, globalObj, "openApiSpecJson",
+                           JS_NewStringLen(ctx, openApiSpecJsonText.c_str(), openApiSpecJsonText.size()));
 
             auto funcs = getCommonFunctions();
             commonJsFuncs.reserve(funcs.size());

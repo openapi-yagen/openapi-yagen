@@ -12,10 +12,13 @@
 /generators/*/test/dist
 /generators/*/test/.venv
 /generators/*/test/.pytest_cache
+/generators/*/test/.bundle
+/generators/*/test/vendor
 /generators/*/test/generated
 /generators/*/test/generated-default
 /generators/*/test/generated-validated
 /generators/*/test/generated_concern
+/generators/*/test/generated_no_spec
 /website/node_modules
 /website/.docusaurus
 /website/.generated-static

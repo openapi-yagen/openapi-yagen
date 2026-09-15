@@ -58,3 +58,14 @@ variables:
       logging across every generated controller. Ignored when controllerMode is "concern", since
       you already choose your own controller's superclass there.
     defaultValue: "ActionController::API"
+  - name: publishOpenApiSpec
+    description: >-
+      When "true", generates an OpenApiSpecController serving the effective OpenAPI document (the
+      one actually used to generate this code - after $ref resolution, --tags filtering, and
+      conversion to this generator's declared openApiVersion) as JSON at openApiSpecPath, plus the
+      matching Routes.draw entry. Default "false".
+    defaultValue: "false"
+  - name: openApiSpecPath
+    description: >-
+      Only used when publishOpenApiSpec is "true": the route path the OpenAPI spec is served at.
+    defaultValue: "/openapi.json"

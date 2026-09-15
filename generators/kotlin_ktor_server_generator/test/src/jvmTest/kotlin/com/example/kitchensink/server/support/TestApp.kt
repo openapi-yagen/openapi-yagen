@@ -6,6 +6,7 @@ import com.example.kitchensink.server.apis.WidgetsApiHandler
 import com.example.kitchensink.server.apis.WidgetsApiRoutes
 import com.example.kitchensink.server.fakes.FakePetsApiHandler
 import com.example.kitchensink.server.MissingAuthenticationException
+import com.example.kitchensink.server.OpenApiSpecRoute
 import com.example.kitchensink.server.fakes.FakeWidgetsApiHandler
 import com.example.kitchensink.server.fakes.NotFoundException
 import io.ktor.http.HttpStatusCode
@@ -46,6 +47,7 @@ fun ApplicationTestBuilder.installKitchenSinkApp(
         routing {
             PetsApiRoutes(this, petsHandler)
             WidgetsApiRoutes(this, widgetsHandler)
+            OpenApiSpecRoute(this)
         }
     }
 }

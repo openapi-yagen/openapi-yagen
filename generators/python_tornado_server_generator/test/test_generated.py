@@ -52,6 +52,8 @@ def _generate() -> None:
             str(GENERATOR_SRC),
             "-v",
             f"packageName={PACKAGE_NAME}",
+            "-v",
+            "publishOpenApiSpec=true",
             "-c",
         ],
         capture_output=True,
@@ -65,6 +67,7 @@ _generate()
 sys.path.insert(0, str(OUT_DIR))
 
 from kitchensink_api.apis.widgets import WidgetsHandler, build_widgets_routes  # noqa: E402
+from kitchensink_api.openapi_spec import build_openapi_spec_routes  # noqa: E402
 from kitchensink_api.models import (  # noqa: E402
     Circle,
     EnvelopeUnion,
@@ -175,7 +178,7 @@ class GeneratedTornadoAppTest(AsyncHTTPTestCase):
         import tornado.web
 
         self.handler_impl = FakeWidgetsHandler()
-        return tornado.web.Application(build_widgets_routes(self.handler_impl))
+        return tornado.web.Application(build_widgets_routes(self.handler_impl) + build_openapi_spec_routes())
 
     def test_list_widgets_returns_json_array(self) -> None:
         response = self.fetch("/widgets")
@@ -406,6 +409,39 @@ class GeneratedTornadoAppTest(AsyncHTTPTestCase):
         assert response.code == 200
         assert response.headers["Content-Type"] == "text/plain"
         assert response.body == b"OK"
+
+    # _generate() above passes -v publishOpenApiSpec=true (see build_openapi_spec_routes above).
+    def test_openapi_spec_endpoint_serves_the_effective_document(self) -> None:
+        response = self.fetch("/openapi.json")
+        assert response.code == 200
+        assert response.headers["Content-Type"] == "application/json"
+        doc = json.loads(response.body)
+        assert doc["openapi"].startswith("3.")
+        assert "/widgets" in doc["paths"]
+
+
+def test_publish_openapi_spec_is_off_by_default() -> None:
+    """Regenerates into a throwaway directory WITHOUT publishOpenApiSpec, to confirm the feature is
+    genuinely opt-in - unlike _generate() above, which always passes it."""
+    with tempfile.TemporaryDirectory(prefix="python_tornado_server_generator_test_nospec_") as out_dir:
+        result = subprocess.run(
+            [
+                _openapi_yagen_binary(),
+                "generate",
+                str(SPEC),
+                "-o",
+                out_dir,
+                "-g",
+                str(GENERATOR_SRC),
+                "-v",
+                "packageName=kitchensink_api_nospec",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"generation failed:\n{result.stdout}\n{result.stderr}"
+        assert not (Path(out_dir) / "kitchensink_api_nospec" / "openapi.json").exists()
+        assert not (Path(out_dir) / "kitchensink_api_nospec" / "openapi_spec.py").exists()
 
 
 def test_model_validate_rejects_wrong_type() -> None:

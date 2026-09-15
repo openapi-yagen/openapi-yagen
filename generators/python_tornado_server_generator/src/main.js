@@ -1,5 +1,6 @@
 import { buildModelRegistry } from "./lib/types.js";
 import { collectOperationsByPathAndTag } from "./lib/operations.js";
+import { escapePythonString } from "./lib/keywords.js";
 
 const packageName = vars.packageName;
 if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(packageName)) {
@@ -25,6 +26,9 @@ if (handlerBaseClassPath) {
   handlerBase = { module: handlerBaseClassPath.slice(0, lastDot), className: handlerBaseClassPath.slice(lastDot + 1) };
 }
 
+const publishOpenApiSpec = vars.publishOpenApiSpec === "true";
+const openApiSpecPath = vars.openApiSpecPath || "/openapi.json";
+
 const registry = buildModelRegistry(schema);
 // May register additional inline models discovered only in operation params/bodies/responses -
 // must run before rendering models.py below so nothing is missed.
@@ -43,6 +47,11 @@ if (generate !== "models") {
   copyFile("apis_init.py", `${packageName}/apis/__init__.py`);
   for (const [, group] of tagGroups) {
     renderTemplate("templates/api_module.py.j2", { packageName, handlerBase, ...group }, `${packageName}/apis/${group.tagModule}.py`);
+  }
+  if (publishOpenApiSpec) {
+    writeFile(`${packageName}/openapi.json`, openApiSpecJson);
+    const openApiSpecPathLiteral = escapePythonString(openApiSpecPath);
+    renderTemplate("templates/openapi_spec.py.j2", { packageName, openApiSpecPathLiteral }, `${packageName}/openapi_spec.py`);
   }
 }
 

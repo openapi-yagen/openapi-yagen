@@ -40,6 +40,8 @@ openapi-yagen g -o .generated -g ruby_rails_server_generator openapi.yaml -v mod
 | `validate` | no (default `true`) | `true`: every model gets a `validate!` method, and every generated controller validates path/query/header/cookie parameters and the request body before calling your code. `false`: zero validation overhead - only turn this off once an integration is well-tested, since on a server this is the only defense against malformed input from an untrusted client. |
 | `controllerMode` | no (default `generated`) | `generated`: the controller is fully generated - you register a handler object instead (see below). `concern`: only an `ActiveSupport::Concern` is generated - you write your own controller and `include` it. |
 | `baseController` | no (default `ActionController::API`) | Only used when `controllerMode` is `generated`: the class the generated controller inherits from - point this at your own base class to share `before_action` hooks, JSON error shaping, auth, or logging across every generated controller. |
+| `publishOpenApiSpec` | no (default `false`) | `true`: generates an `OpenApiSpecController` (both `controllerMode`s) serving the effective OpenAPI document - the one actually used to generate this code, after `$ref` resolution, `--tags` filtering, and conversion to this generator's OpenAPI 3.2 - as JSON at `openApiSpecPath`. |
+| `openApiSpecPath` | no (default `/openapi.json`) | Only used when `publishOpenApiSpec` is `true`: the route path the spec is served at. |
 
 ## Output layout
 
@@ -49,6 +51,8 @@ openapi-yagen g -o .generated -g ruby_rails_server_generator openapi.yaml -v mod
 <module>/models/<name>.rb                          one file per schema (class / enum module / union dispatch module)
 <module>/controllers/<tag>_handler_interface.rb     the interface you implement, one module per tag
 <module>/controllers/<tag>_controller.rb            fully generated ActionController subclass, one per tag
+<module>/controllers/openapi_spec_controller.rb     only if publishOpenApiSpec=true - serves ../openapi.json
+<module>/openapi.json                               only if publishOpenApiSpec=true - the effective OpenAPI document
 <module>/routes.rb                                  Routes.draw(mapper, handlers:) - call from config/routes.rb
 <module>/runtime.rb                                 OpenapiYagenRuntime - shared validation/parsing/auth helpers
 <module>.rb                                         aggregator - requires every file above, in a safe order
@@ -59,6 +63,8 @@ openapi-yagen g -o .generated -g ruby_rails_server_generator openapi.yaml -v mod
 ```
 <module>/models/<name>.rb                          same as above
 <module>/controllers/<tag>_controller_concern.rb    the ActiveSupport::Concern you `include`, one per tag
+<module>/controllers/openapi_spec_controller.rb     only if publishOpenApiSpec=true - serves ../openapi.json
+<module>/openapi.json                               only if publishOpenApiSpec=true - the effective OpenAPI document
 <module>/routes.rb                                  Routes.draw(mapper) - call from config/routes.rb
 <module>/runtime.rb                                 same as above
 <module>.rb                                         same as above
@@ -272,6 +278,21 @@ discriminator value, no variant matching an undiscriminated union's shape, an in
 raises `OpenapiYagenRuntime::ValidationError`, not a bare `ArgumentError` - so it's caught by the
 same `rescue_from` a constraint violation is, and mapped to the same `422`, no matter which model
 file it originated in.
+
+## Publishing the OpenAPI spec
+
+Set `-v publishOpenApiSpec=true` to have the generated server publish its own spec:
+
+```bash
+openapi-yagen g -o .generated -g ruby_rails_server_generator openapi.yaml \
+  -v moduleName=PetStore -v publishOpenApiSpec=true
+```
+
+This writes `<module>/openapi.json` - the *effective* document (after `$ref` resolution, `--tags`
+filtering, and conversion to this generator's OpenAPI 3.2) - and generates an
+`OpenApiSpecController` that reads and serves it, wired into `Routes.draw` at `openApiSpecPath`
+(default `/openapi.json`). No extra setup needed beyond regenerating: `Routes.draw`'s existing call
+picks up the new route automatically, in both `controllerMode`s.
 
 ## Known limitations (v1)
 

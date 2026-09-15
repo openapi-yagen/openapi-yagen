@@ -29,6 +29,11 @@ below already in scope - no `require`/`import` needed for any of them.
 - **`vars`** - an object with the resolved generator variables (see `-v`/`--var` and the
   `variables` section of `generator.yml` - [`generator-format.md`](generator-format.md)), keyed by
   variable name.
+- **`openApiSpecJson`** - the *effective* OpenAPI document (after `$ref` resolution, `--tags`
+  filtering, and conversion to the generator's declared `openApiVersion`) serialized as canonical
+  JSON text. Unlike `schema`, this is plain, non-cyclic text - safe to embed verbatim in generated
+  output (e.g. write it with `writeFile` and serve it from a generated controller) without the
+  circular-reference concerns that apply to `schema`.
 
 ```js
 renderTemplate("model.h.j2", { schemas: schema.components.schemas, namespace: vars.namespace }, "model.h");
@@ -360,6 +365,21 @@ copyFile(srcFileName: string, outFileName: string): void
 ```
 ```js
 copyFile("Validation.kt", "Validation.kt"); // no templating needed for this file
+```
+
+#### `writeFile`
+
+Writes JS-computed string content straight into the output directory - the counterpart to
+`copyFile` for content that doesn't exist as a file in the generator folder (e.g. `openApiSpecJson`
+above). Like `copyFile`/`renderTemplate`, the engine prepends its own auto-generated-file header
+first, unless the output extension has no recognized comment syntax (e.g. `.json`), in which case
+the content is written unmodified.
+
+```typescript
+writeFile(outFileName: string, content: string): void
+```
+```js
+writeFile("openapi.json", openApiSpecJson);
 ```
 
 #### `renderTemplate`

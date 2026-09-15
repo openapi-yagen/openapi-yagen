@@ -33,6 +33,8 @@ openapi-yagen g -o out -g kotlin_ktor_server_generator openapi.yaml \
 | `packageName` | yes      | Kotlin package for the generated classes (e.g. `com.example.petstore`) |
 | `strict`      | no (default `true`) | `true`: an unsupported schema/operation aborts generation with an error. `false`: skip it with a printed warning and generate everything else - useful for large real-world specs (see "Known limitations" below). |
 | `generate`    | no (default `all`) | `all`: models plus routes/handlers. `models`: only `models/<Name>.kt`. `api`: everything except `models/<Name>.kt` - see "Sharing models" below. |
+| `publishOpenApiSpec` | no (default `false`) | `true`: generates `OpenApiSpecRoute.kt` exposing an `OpenApiSpecRoute` class that serves the effective OpenAPI document (the one actually used to generate this code, after `$ref` resolution, `--tags` filtering, and conversion to this generator's OpenAPI 3.2) as JSON at `openApiSpecPath`. Ignored when `generate` is `models`. |
+| `openApiSpecPath` | no (default `/openapi.json`) | Only used when `publishOpenApiSpec` is `true`: the route path the spec is served at. |
 
 ## Output layout
 
@@ -42,6 +44,7 @@ apis/<Tag>Handler.kt    interface you implement with your business logic
 apis/<Tag>Routes.kt     class that wires a Route to a <Tag>Handler
 Validation.kt           shared parameter-extraction/constraint-checking helpers, rendered once
 ModelValidation.kt      validate() extension for every object model, rendered once
+OpenApiSpecRoute.kt     only if publishOpenApiSpec=true - see "Publishing the OpenAPI spec"
 ```
 
 Written flat, not nested under a `packageName`-derived directory - unlike Java, Kotlin's compiler
@@ -185,6 +188,33 @@ via the ordinary `call.respond(status, result)`; a single `text/*` media type is
 type as the response's `Content-Type` header (e.g. `text/csv`, not a generic `text/plain`), and the
 handler method's return type is `String`/`ByteArray` to match. More than one remaining media type on
 a response is a generator error too.
+
+## Publishing the OpenAPI spec
+
+Set `-v publishOpenApiSpec=true` to have the generated server publish its own spec:
+
+```bash
+openapi-yagen g -o out -g kotlin_ktor_server_generator openapi.yaml \
+    -v packageName=com.example.petstore -v publishOpenApiSpec=true
+```
+
+This generates `OpenApiSpecRoute.kt`, exposing an `OpenApiSpecRoute(route: Route)` class you mount
+alongside your other routes:
+
+```kotlin
+routing {
+    PetsRoutes(this, PetsService())
+    OpenApiSpecRoute(this)
+}
+```
+
+Unlike the client-side `-v generate=models`/`-v generate=api` split above, this generator's output
+targets both JVM and Kotlin/Native (see "Try it"), and there is no resource-loading API shared by
+both - so, unlike some of this project's other server generators, the *effective* OpenAPI document
+(after `$ref` resolution, `--tags` filtering, and conversion to this generator's OpenAPI 3.2) is
+embedded directly as a Kotlin string constant in `OpenApiSpecRoute.kt`, not written as a separate
+bundled resource file. It works unchanged on every target with no extra build-file wiring, at the
+cost of needing a regeneration (not just a redeploy) to pick up a spec change.
 
 ## Authentication
 

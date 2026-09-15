@@ -18,4 +18,7 @@ require_relative "{{ moduleSnake }}/controllers/{{ g.fileBase }}_controller"
 require_relative "{{ moduleSnake }}/controllers/{{ g.fileBase }}_controller_concern"
 {% endfor -%}
 {% endif -%}
+{% if publishOpenApiSpec -%}
+require_relative "{{ moduleSnake }}/controllers/openapi_spec_controller"
+{% endif -%}
 require_relative "{{ moduleSnake }}/routes"

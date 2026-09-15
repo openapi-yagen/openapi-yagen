@@ -12,6 +12,7 @@ require "rake/testtask"
 GENERATOR_SRC = File.expand_path("../src", __dir__)
 GENERATED_DIR = File.expand_path("generated", __dir__)
 GENERATED_CONCERN_DIR = File.expand_path("generated_concern", __dir__)
+GENERATED_NO_SPEC_DIR = File.expand_path("generated_no_spec", __dir__)
 SPEC_FILE = File.expand_path("resources/kitchensink.yaml", __dir__)
 
 # Points at a prebuilt openapi-yagen binary. Without it, falls back to this checkout's own
@@ -22,14 +23,24 @@ OPENAPI_YAGEN = ENV["OPENAPI_YAGEN"] || File.expand_path("../../../dist/openapi-
 desc "Regenerate the server code from resources/kitchensink.yaml (controllerMode=generated)"
 task :generate do
   rm_rf GENERATED_DIR
-  sh OPENAPI_YAGEN, "g", "-o", GENERATED_DIR, "-g", GENERATOR_SRC, SPEC_FILE, "-v", "moduleName=Kitchensink"
+  sh OPENAPI_YAGEN, "g", "-o", GENERATED_DIR, "-g", GENERATOR_SRC, SPEC_FILE,
+     "-v", "moduleName=Kitchensink", "-v", "publishOpenApiSpec=true"
 end
 
 desc "Regenerate the server code from resources/kitchensink.yaml (controllerMode=concern)"
 task :generate_concern do
   rm_rf GENERATED_CONCERN_DIR
   sh OPENAPI_YAGEN, "g", "-o", GENERATED_CONCERN_DIR, "-g", GENERATOR_SRC, SPEC_FILE,
-     "-v", "moduleName=KitchensinkConcern", "-v", "controllerMode=concern"
+     "-v", "moduleName=KitchensinkConcern", "-v", "controllerMode=concern", "-v", "publishOpenApiSpec=true"
+end
+
+# Regenerated WITHOUT publishOpenApiSpec (the default) - only used by
+# openapi_spec_controller_test.rb to assert the feature is genuinely opt-in: no openapi.json, no
+# OpenApiSpecController, no route for it, when the var is left unset.
+desc "Regenerate the server code from resources/kitchensink.yaml (publishOpenApiSpec left unset)"
+task :generate_no_spec do
+  rm_rf GENERATED_NO_SPEC_DIR
+  sh OPENAPI_YAGEN, "g", "-o", GENERATED_NO_SPEC_DIR, "-g", GENERATOR_SRC, SPEC_FILE, "-v", "moduleName=KitchensinkNoSpec"
 end
 
 Rake::TestTask.new(:test) do |t|
@@ -38,5 +49,5 @@ Rake::TestTask.new(:test) do |t|
   t.warning = false
 end
 
-task test: [:generate, :generate_concern]
+task test: [:generate, :generate_concern, :generate_no_spec]
 task default: :test

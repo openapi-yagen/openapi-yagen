@@ -1,0 +1,12 @@
+module {{ moduleName }}
+  module Controllers
+    # Serves the OpenAPI document this module was generated from - see
+    # {{ moduleName }}::Routes.draw. The file it reads from disk is written alongside this one at
+    # generation time (../openapi.json), not re-derived at request time.
+    class OpenApiSpecController < {{ baseController }}
+      def show
+        send_data File.read(File.join(__dir__, "..", "openapi.json")), type: "application/json", disposition: "inline"
+      end
+    end
+  end
+end

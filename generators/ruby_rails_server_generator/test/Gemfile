@@ -7,3 +7,6 @@ gem "actionpack", "~> 8.0"
 gem "rack-test"
 gem "rake"
 gem "minitest"
+# No longer a default gem as of Ruby 3.5/4.0 (still required transitively by minitest's mock
+# support) - unrelated to this generator, just keeps the suite runnable on newer Ruby.
+gem "ostruct"

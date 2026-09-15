@@ -47,3 +47,17 @@ variables:
       client and server generators run with "api" against it. See README's "Sharing models"
       section.
     defaultValue: "all"
+  - name: publishOpenApiSpec
+    description: >-
+      When "true", generates OpenApiSpecRoute.kt exposing an OpenApiSpecRoute class that serves
+      the effective OpenAPI document (the one actually used to generate this code, after $ref
+      resolution, --tags filtering, and conversion to this generator's declared openApiVersion) as
+      JSON at openApiSpecPath. The document is embedded as a Kotlin string constant, not a bundled
+      resource - this generator's output targets both JVM and Kotlin/Native from common source,
+      and there is no resource-loading API shared by both. Ignored when generate is "models".
+      Default "false".
+    defaultValue: "false"
+  - name: openApiSpecPath
+    description: >-
+      Only used when publishOpenApiSpec is "true": the route path the OpenAPI spec is served at.
+    defaultValue: "/openapi.json"

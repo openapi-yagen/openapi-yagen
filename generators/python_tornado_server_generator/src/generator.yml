@@ -46,3 +46,15 @@ variables:
       on_finish(), auth, ...). Empty (default) uses tornado.web.RequestHandler itself. See README
       "Integrating the generated code".
     required: false
+  - name: publishOpenApiSpec
+    description: >-
+      When "true", generates <packageName>/openapi.json (the effective OpenAPI document - the one
+      actually used to generate this code, after $ref resolution, --tags filtering, and conversion
+      to this generator's declared openApiVersion) plus a build_openapi_spec_routes() function
+      returning a URLSpec serving it as JSON at openApiSpecPath. Ignored when generate is "models".
+      Default "false".
+    defaultValue: "false"
+  - name: openApiSpecPath
+    description: >-
+      Only used when publishOpenApiSpec is "true": the route path the OpenAPI spec is served at.
+    defaultValue: "/openapi.json"

@@ -10,6 +10,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -94,6 +97,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	mux := http.NewServeMux()
 	server.RegisterPetsRoutes(mux, fakePetsHandler{}, nil)
 	server.RegisterWidgetsRoutes(mux, fakeWidgetsHandler{}, nil)
+	server.RegisterOpenApiSpecRoute(mux)
 	s := httptest.NewServer(mux)
 	t.Cleanup(s.Close)
 	return s
@@ -564,5 +568,59 @@ func TestListPetsNotFoundPath(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected the fake handler's not-found ValidationError to map to 400, got %d", resp.StatusCode)
+	}
+}
+
+// generate.sh passes -v publishOpenApiSpec=true, so RegisterOpenApiSpecRoute (registered in
+// newTestServer above) should serve the effective spec this package was generated from.
+func TestOpenApiSpecEndpoint(t *testing.T) {
+	s := newTestServer(t)
+	resp, err := http.Get(s.URL + "/openapi.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("expected application/json content type, got %q", ct)
+	}
+	var doc map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+		t.Fatal(err)
+	}
+	openapiVersion, _ := doc["openapi"].(string)
+	if !strings.HasPrefix(openapiVersion, "3.") {
+		t.Fatalf("expected an OpenAPI 3.x document, got openapi=%q", openapiVersion)
+	}
+	paths, _ := doc["paths"].(map[string]any)
+	if _, ok := paths["/pets"]; !ok {
+		t.Fatalf("expected the served document to contain the spec's own paths, got %+v", paths)
+	}
+}
+
+// Regenerates into a throwaway directory WITHOUT publishOpenApiSpec, to confirm the feature is
+// genuinely opt-in - unlike newTestServer's generated/ (see generate.sh), which always passes it.
+func TestPublishOpenApiSpecOffByDefault(t *testing.T) {
+	binary := os.Getenv("OPENAPI_YAGEN")
+	if binary == "" {
+		binary = "../../../dist/openapi-yagen"
+	}
+	outDir := t.TempDir()
+	cmd := exec.Command(binary, "generate",
+		"-o", outDir,
+		"-g", "../src",
+		"-c", "resources/kitchensink.yaml",
+		"-v", "packageName=go_net_http_server_generator_test/nospec",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generation failed: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "server", "openapi.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected server/openapi.json to be absent, stat error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "server", "openapi_spec.go")); !os.IsNotExist(err) {
+		t.Fatalf("expected server/openapi_spec.go to be absent, stat error: %v", err)
 	}
 }
