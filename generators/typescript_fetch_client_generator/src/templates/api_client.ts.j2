@@ -23,7 +23,7 @@ import type { ApiClientConfig } from "../runtime{{ importExt }}";
 {% filter indent(6, true) %}method: "{{ op.method }}",
 path: `{{ op.pathExpr }}`,
 {% if op.hasQueryParams %}query: {
-{% for p in op.queryParams %}  {{ p.queryKeyLiteral }}: options.{{ p.tsName }},
+{% for p in op.queryParams %}  {{ p.queryKeyLiteral }}: {% if p.arraySeparator %}options.{{ p.tsName }}?.join({{ toStringLiteral(p.arraySeparator) }}){% else %}options.{{ p.tsName }}{% endif %},
 {% endfor %}},
 {% endif %}{% if op.hasHeaderParams %}headers: {
 {% for p in op.headerParams %}  {{ p.headerKeyLiteral }}: options.{{ p.tsName }},

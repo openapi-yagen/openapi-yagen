@@ -44,12 +44,57 @@ func TestListPets(t *testing.T) {
 	c := newTestClient(t, handler)
 	limit := 10
 	sessionID := "abc123"
-	pets, err := c.Pets.ListPets(context.Background(), &limit, nil, []string{"a", "b"}, &sessionID)
+	pets, err := c.Pets.ListPets(context.Background(), &limit, nil, []string{"a", "b"}, nil, nil, nil, &sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(pets) != 1 || pets[0].Name != "Rex" {
 		t.Fatalf("unexpected pets: %+v", pets)
+	}
+}
+
+// explode:true (the OpenAPI default, tags) stays a repeated key; explode:false with style:
+// form/spaceDelimited/pipeDelimited (tagsCsv/tagsSpace/tagsPipe) each join into a single value -
+// see kitchensink.yaml's listPets and operations.js's buildArrayQueryParam.
+func TestListPetsSerializesArrayQueryParamsPerTheirDeclaredStyle(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query()["tags"]; len(got) != 2 || got[0] != "a" || got[1] != "b" {
+			t.Fatalf("expected repeated tags=a&tags=b, got %v", got)
+		}
+		if got := r.URL.Query().Get("tagsCsv"); got != "a,b" {
+			t.Fatalf("expected tagsCsv=a,b, got %q", got)
+		}
+		if got := r.URL.Query().Get("tagsSpace"); got != "a b" {
+			t.Fatalf("expected tagsSpace=\"a b\", got %q", got)
+		}
+		if got := r.URL.Query().Get("tagsPipe"); got != "a|b" {
+			t.Fatalf("expected tagsPipe=a|b, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]models.Pet{})
+	})
+
+	c := newTestClient(t, handler)
+	tags := []string{"a", "b"}
+	_, err := c.Pets.ListPets(context.Background(), nil, nil, tags, tags, tags, tags, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListPetsOmitsAbsentOptionalArrayQueryParams(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("tagsCsv") {
+			t.Fatalf("expected tagsCsv to be absent, got query %q", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]models.Pet{})
+	})
+
+	c := newTestClient(t, handler)
+	_, err := c.Pets.ListPets(context.Background(), nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

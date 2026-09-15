@@ -43,6 +43,36 @@ paths:
             type: array
             items:
               type: string
+        - name: tagsCsv
+          in: query
+          required: false
+          style: form
+          explode: false
+          description: Array-typed query parameter with explode:false - comma-joined `tagsCsv=a,b`.
+          schema:
+            type: array
+            items:
+              type: string
+        - name: tagsSpace
+          in: query
+          required: false
+          style: spaceDelimited
+          explode: false
+          description: Array-typed query parameter with style:spaceDelimited - space-joined.
+          schema:
+            type: array
+            items:
+              type: string
+        - name: tagsPipe
+          in: query
+          required: false
+          style: pipeDelimited
+          explode: false
+          description: Array-typed query parameter with style:pipeDelimited - pipe-joined.
+          schema:
+            type: array
+            items:
+              type: string
         - name: session_id
           in: cookie
           required: false

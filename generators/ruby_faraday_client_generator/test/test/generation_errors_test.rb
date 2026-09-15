@@ -36,4 +36,31 @@ class GenerationErrorsTest < Minitest::Test
              "the only operation on the only tag was skipped, so no api client file should exist for it"
     end
   end
+
+  UNSUPPORTED_QUERY_ARRAY_STYLE_SPEC = File.expand_path("../resources/unsupported_query_array_style.yaml", __dir__)
+
+  def generate_query_array_style(out_dir, strict: nil)
+    args = [OPENAPI_YAGEN, "g", "-o", out_dir, "-g", GENERATOR_SRC, UNSUPPORTED_QUERY_ARRAY_STYLE_SPEC, "-v", "moduleName=UnsupportedQueryArrayStyle"]
+    args += ["-v", "strict=#{strict}"] unless strict.nil?
+    Open3.capture3(*args)
+  end
+
+  def test_strict_mode_aborts_generation_on_an_unsupported_query_array_style
+    Dir.mktmpdir do |out_dir|
+      stdout, stderr, status = generate_query_array_style(out_dir)
+      refute status.success?, "expected generation to fail in strict mode (default)"
+      assert_match(/matrix/, stdout + stderr)
+    end
+  end
+
+  def test_permissive_mode_skips_the_operation_on_an_unsupported_query_array_style
+    Dir.mktmpdir do |out_dir|
+      stdout, stderr, status = generate_query_array_style(out_dir, strict: "false")
+      assert status.success?, "expected generation to succeed under -v strict=false: #{stdout}\n#{stderr}"
+      assert_match(/WARNING/, stdout + stderr)
+      assert_match(/matrix/, stdout + stderr)
+      refute File.exist?(File.join(out_dir, "unsupported_query_array_style", "apis", "notes_client.rb")),
+             "the only operation on the only tag was skipped, so no api client file should exist for it"
+    end
+  end
 end

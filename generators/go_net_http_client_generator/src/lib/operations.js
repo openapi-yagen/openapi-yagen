@@ -34,6 +34,13 @@ function isEnumType(registry, typeStr) {
   return !!m && m.kind === "enum";
 }
 
+// OpenAPI's three query-array serialization styles: "form" (default, explode defaults true) sends
+// a repeated key (`?tag=a&tag=b`) when exploded, else comma-joined; "spaceDelimited"/"pipeDelimited"
+// (explode defaults false) join with a space/pipe instead. arraySeparator is null for the
+// repeated-key case (addQueryParamList in client_tag.go.j2, unchanged) or the join character
+// otherwise, in which case the template calls addQueryParamJoined instead (see runtime.go).
+const ARRAY_QUERY_SEPARATORS = { form: ",", spaceDelimited: " ", pipeDelimited: "|" };
+
 // A query param whose (unwrapped) schema is Array-kind - serialized as repeated `?name=a&name=b`
 // keys (OpenAPI 3's default `style: form, explode: true`) - path/header positions have no
 // standard "repeated value" serialization, so those stay scalar-only.
@@ -45,6 +52,19 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
       `<01534acc> Unsupported query parameter array item type for "${p.name}": array items must be ` +
         `primitive scalar types (string/integer/number/boolean/date-time) or enums, got "${itemT.type}"`
     );
+  }
+  const style = p.style || "form";
+  const explode = p.explode !== undefined ? p.explode : style === "form";
+  let arraySeparator = null;
+  if (!explode) {
+    const sep = ARRAY_QUERY_SEPARATORS[style];
+    if (!sep) {
+      throw Error(
+        `<044d10b3> Unsupported query parameter array serialization style "${style}" for "${p.name}" - ` +
+          `only style: form (explode: true or false), spaceDelimited, or pipeDelimited are supported`
+      );
+    }
+    arraySeparator = sep;
   }
   return {
     goName: paramName(p.name),
@@ -59,6 +79,8 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
     // check the way an optional scalar (*T) does - never wrapped in an extra pointer.
     pointer: false,
     description: p.description || null,
+    arraySeparator,
+    arraySeparatorLiteral: arraySeparator ? toGoStringLiteral(arraySeparator) : null,
   };
 }
 
@@ -303,6 +325,7 @@ export function computeImportFlags(operations) {
     if (op.response.type) noteType(op.response.type);
     if (op.response.type && op.response.type !== "string" && op.response.type !== "[]byte") flags.json = true;
     if (op.queryParams.length > 0) flags.urlPkg = true;
+    if (op.queryParams.some((p) => p.arraySeparator)) flags.strings = true;
     for (const p of [...op.pathParams, ...op.queryParams, ...op.headerParams, ...op.cookieParams]) noteType(p.itemType || p.type);
     if (op.body) {
       noteType(op.body.type);

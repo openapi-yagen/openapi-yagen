@@ -26,8 +26,9 @@ import io.ktor.http.contentType
 {% endif %}    suspend fun {{ op.name }}({{ op.signatureParams }}){% if op.returnsValue %}: {{ op.response.type }}{% endif %} {
 {% filter indent(8, true) %}{% if op.returnsValue %}val response = client.{{ op.method }}("$baseUrl{{ op.pathExpr }}") {
 {% else %}client.{{ op.method }}("$baseUrl{{ op.pathExpr }}") {
-{% endif %}{% for p in op.queryParams %}{% if p.isArray %}    queryParamList({{ toStringLiteral(p.wireName) }}, {{ p.ktName }})
-{% else %}{% if p.queryArms %}    {{ p.ktName }}?.let { v ->
+{% endif %}{% for p in op.queryParams %}{% if p.isArray %}{% if p.arraySeparator %}    queryParamJoined({{ toStringLiteral(p.wireName) }}, {{ p.ktName }}, {{ toStringLiteral(p.arraySeparator) }})
+{% else %}    queryParamList({{ toStringLiteral(p.wireName) }}, {{ p.ktName }})
+{% endif %}{% else %}{% if p.queryArms %}    {{ p.ktName }}?.let { v ->
         when (v) {
 {% for arm in p.queryArms %}{% if arm.kind == "object" %}            is {{ p.type }}.{{ arm.wrapperName }} -> {
 {% for f in arm.fields %}                queryParam({{ toStringLiteral(p.wireName + "[" + f.wireName + "]") }}, v.value.{{ f.ktName }})

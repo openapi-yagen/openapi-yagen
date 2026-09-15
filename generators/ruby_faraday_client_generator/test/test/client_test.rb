@@ -28,6 +28,42 @@ class ClientTest < Minitest::Test
     stubs.verify_stubbed_calls
   end
 
+  # explode:true (the OpenAPI default, tags) stays a repeated key; explode:false with style:
+  # form/spaceDelimited/pipeDelimited (tagsCsv/tagsSpace/tagsPipe) each join into a single value -
+  # see kitchensink.yaml's listPets and operations.js's buildQueryParam.
+  def test_list_pets_serializes_array_query_params_per_their_declared_style
+    conn, stubs = stubbed_connection do |stub|
+      stub.get("/pets") do |env|
+        pairs = URI.decode_www_form(env.url.query)
+        assert_equal ["a", "b"], pairs.select { |k, _| k == "tags" }.map { |_, v| v }
+        values = pairs.to_h
+        assert_equal "a,b", values["tagsCsv"]
+        assert_equal "a b", values["tagsSpace"]
+        assert_equal "a|b", values["tagsPipe"]
+        [200, { "Content-Type" => "application/json" }, "[]"]
+      end
+    end
+    api = Kitchensink::PetsClient.new(connection: conn)
+
+    api.list_pets(tags: ["a", "b"], tags_csv: ["a", "b"], tags_space: ["a", "b"], tags_pipe: ["a", "b"])
+
+    stubs.verify_stubbed_calls
+  end
+
+  def test_list_pets_omits_absent_optional_array_query_params
+    conn, stubs = stubbed_connection do |stub|
+      stub.get("/pets") do |env|
+        refute env.url.query.to_s.include?("tagsCsv"), env.url.query.to_s
+        [200, { "Content-Type" => "application/json" }, "[]"]
+      end
+    end
+    api = Kitchensink::PetsClient.new(connection: conn)
+
+    api.list_pets
+
+    stubs.verify_stubbed_calls
+  end
+
   def test_get_pet_by_id_positive
     conn, stubs = stubbed_connection do |stub|
       stub.get("/pets/42") { [200, { "Content-Type" => "application/json" }, '{"id":42,"name":"Rex"}'] }

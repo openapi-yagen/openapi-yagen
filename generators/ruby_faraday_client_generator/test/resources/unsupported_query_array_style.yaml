@@ -1,0 +1,28 @@
+openapi: 3.0.3
+info:
+  title: Unsupported query array style fixture (ruby_faraday_client_generator test fixture)
+  version: "1.0"
+  description: >-
+    A single operation with an array-typed query parameter declaring an unrecognized `style` -
+    "matrix" is a real OpenAPI 3 parameter style, but not one defined for the query location (it's
+    path-only), so it's not one of this generator's supported query-array styles (form,
+    spaceDelimited, pipeDelimited). Used to assert generation fails loudly (default strict=true) or
+    is skipped with a warning (-v strict=false).
+paths:
+  /notes:
+    get:
+      operationId: listNotes
+      tags: [notes]
+      parameters:
+        - name: tags
+          in: query
+          required: false
+          style: matrix
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        "200":
+          description: OK

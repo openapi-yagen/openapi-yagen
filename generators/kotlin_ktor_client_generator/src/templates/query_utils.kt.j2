@@ -15,6 +15,13 @@ fun HttpRequestBuilder.queryParamList(name: String, values: List<*>?) {
     values?.forEach { parameter(name, it) }
 }
 
+// Comma/space/pipe-joined single-value array query parameter serialization (OpenAPI's
+// `explode: false`, style: form/spaceDelimited/pipeDelimited) - the counterpart to
+// queryParamList's repeated-key form (explode: true).
+fun HttpRequestBuilder.queryParamJoined(name: String, values: List<*>?, separator: String) {
+    if (values != null && values.isNotEmpty()) parameter(name, values.joinToString(separator))
+}
+
 fun HttpRequestBuilder.headerParam(name: String, value: Any?) {
     if (value != null) header(name, value)
 }

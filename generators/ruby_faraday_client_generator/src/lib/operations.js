@@ -72,12 +72,20 @@ function buildHeaderParam(registry, hintBase, p) {
 // its YARD @param - anything else (object/deepObject) stays label-less: the caller passes a plain
 // Hash/Array here directly (no model .to_wire() conversion ever runs on a query parameter), so
 // inventing a class reference for it would be misleading rather than helpful.
+// OpenAPI's three query-array serialization styles: "form" (default, explode defaults true) sends
+// a repeated key (`?tag=a&tag=b`) when exploded, else comma-joined; "spaceDelimited"/"pipeDelimited"
+// (explode defaults false) join with a space/pipe instead. arraySeparator is null for the repeated-
+// key case (build_query's existing generic Array handling, unchanged) or the join character
+// otherwise - the joining itself happens in the generated method (see api_client.rb.j2), not here.
+const ARRAY_QUERY_SEPARATORS = { form: ",", spaceDelimited: " ", pipeDelimited: "|" };
+
 function buildQueryParam(registry, hintBase, p) {
   const resolved = unwrapSchema(p.schema || { type: "string" });
   const kind = kindOf(resolved);
   const rubyName = paramName(p.name);
   const hintName = hintBase + className(p.name);
   let label = null;
+  let arraySeparator = null;
   if (kind === "Primitive" || kind === "Enum") {
     label = scalarLabel(registry, resolved, hintName);
   } else if (kind === "Array") {
@@ -86,8 +94,20 @@ function buildQueryParam(registry, hintBase, p) {
     if (itemKind === "Primitive" || itemKind === "Enum") {
       label = `Array<${scalarLabel(registry, itemResolved, hintName + "Item")}>`;
     }
+    const style = p.style || "form";
+    const explode = p.explode !== undefined ? p.explode : style === "form";
+    if (!explode) {
+      const sep = ARRAY_QUERY_SEPARATORS[style];
+      if (!sep) {
+        throw Error(
+          `<5c36faad> Unsupported query parameter array serialization style "${style}" for "${p.name}" - ` +
+            `only style: form (explode: true or false), spaceDelimited, or pipeDelimited are supported`
+        );
+      }
+      arraySeparator = sep;
+    }
   }
-  return { rubyName, wireName: p.name, required: !!p.required, description: p.description || null, label };
+  return { rubyName, wireName: p.name, required: !!p.required, description: p.description || null, label, arraySeparator };
 }
 
 // A Faraday client isn't browser-sandboxed the way the TypeScript fetch client is (that generator

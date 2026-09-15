@@ -22,6 +22,7 @@ const bin = process.env.OPENAPI_YAGEN || path.join(__dirname, "..", "..", "..", 
 const generatorSrc = path.join(__dirname, "..", "..", "..", "src");
 const spec = path.join(__dirname, "..", "..", "resources", "unsupported_content_type.yaml");
 const cookieParamSpec = path.join(__dirname, "..", "..", "resources", "unsupported_cookie_param.yaml");
+const queryArrayStyleSpec = path.join(__dirname, "..", "..", "resources", "unsupported_query_array_style.yaml");
 
 function generate(outDir: string, extraArgs: string[] = [], specPath: string = spec): string {
   return execFileSync(bin, ["g", "-o", outDir, "-g", generatorSrc, "-c", specPath, ...extraArgs], { encoding: "utf8" });
@@ -83,6 +84,35 @@ test("an in: cookie parameter is skipped with a warning under strict=false", () 
     assert.match(output, /WARNING/);
     assert.match(output, /in: cookie/);
     assert.equal(existsSync(path.join(outDir, "apis", "SessionsClient.ts")), false);
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test("an unsupported query array style aborts generation by default (strict=true)", () => {
+  const outDir = mkdtempSync(path.join(tmpdir(), "ts-query-array-style-strict-"));
+  try {
+    let threw = false;
+    try {
+      generate(outDir, [], queryArrayStyleSpec);
+    } catch (e: unknown) {
+      threw = true;
+      const err = e as { message?: string; stdout?: string; stderr?: string };
+      assert.match(`${err.message ?? ""}${err.stdout ?? ""}${err.stderr ?? ""}`, /matrix/);
+    }
+    assert.ok(threw, "expected generation to fail in strict mode");
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test("an unsupported query array style is skipped with a warning under strict=false", () => {
+  const outDir = mkdtempSync(path.join(tmpdir(), "ts-query-array-style-permissive-"));
+  try {
+    const output = generate(outDir, ["-v", "strict=false"], queryArrayStyleSpec);
+    assert.match(output, /WARNING/);
+    assert.match(output, /matrix/);
+    assert.equal(existsSync(path.join(outDir, "apis", "NotesClient.ts")), false);
   } finally {
     rmSync(outDir, { recursive: true, force: true });
   }

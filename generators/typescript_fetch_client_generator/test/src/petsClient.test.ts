@@ -35,6 +35,28 @@ test("listPets serializes an array-typed query parameter as repeated keys", asyn
   assert.deepEqual(url.searchParams.getAll("tags"), ["dog", "small"]);
 });
 
+// explode:false with style: form/spaceDelimited/pipeDelimited (tagsCsv/tagsSpace/tagsPipe) each
+// join into a single value instead of repeated keys - see kitchensink.yaml's listPets.
+test("listPets joins explode:false array query params per their declared style", async () => {
+  const { fetch, calls } = createFetchStub(() => ({ status: 200, body: [] }));
+  await new PetsClient({ baseUrl: "https://example.test", fetch }).listPets({
+    tagsCsv: ["dog", "small"],
+    tagsSpace: ["dog", "small"],
+    tagsPipe: ["dog", "small"],
+  });
+  const url = new URL(calls[0]!.url);
+  assert.equal(url.searchParams.get("tagsCsv"), "dog,small");
+  assert.equal(url.searchParams.get("tagsSpace"), "dog small");
+  assert.equal(url.searchParams.get("tagsPipe"), "dog|small");
+});
+
+test("listPets omits absent explode:false array query params", async () => {
+  const { fetch, calls } = createFetchStub(() => ({ status: 200, body: [] }));
+  await new PetsClient({ baseUrl: "https://example.test", fetch }).listPets({});
+  const url = new URL(calls[0]!.url);
+  assert.equal(url.searchParams.has("tagsCsv"), false);
+});
+
 test("createPet sends the body as JSON with a Content-Type header", async () => {
   const { fetch, calls } = createFetchStub(() => ({ status: 201, body: { id: 1, name: "Rex" } }));
   await new PetsClient({ baseUrl: "https://example.test", fetch }).createPet({ body: { name: "Rex" } });

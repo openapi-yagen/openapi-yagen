@@ -279,9 +279,12 @@ npx prettier --write "out/**/*.ts"
   forbids scripts from setting a `Cookie` request header at all (a "forbidden header name"), so
   there's no correct way for generated code to ever send one; the browser sends its own cookies
   automatically.
-- Query parameters may be arrays, serialized as repeated keys (`?tag=a&tag=b`, OpenAPI 3's default
-  `style: form, explode: true`) - other serialization styles (`explode: false`,
-  `spaceDelimited`/`pipeDelimited`) are not supported.
+- Query parameters may be arrays, supporting all three OpenAPI 3 serialization styles: `style: form`
+  (default) with `explode: true` (the OpenAPI default - a repeated key, `?tag=a&tag=b`) or
+  `explode: false` (comma-joined, `?tag=a,b`), `spaceDelimited` (space-joined), and `pipeDelimited`
+  (pipe-joined, `?tag=a|b`) - each `explode: false` style joins the array into a single value in the
+  generated method itself, before it reaches `runtime.ts`'s `buildUrl()`. Any other `style` is a
+  generator error.
 - `string` schemas with format `date`/`date-time`/`byte`/`binary` all map to plain `string` - no
   `Date` object, no base64/binary decoding.
 - `integer`/`number` (any format) map to `number` - values beyond 2^53 lose precision.

@@ -130,7 +130,7 @@ differs:
 - **`application/x-www-form-urlencoded`**: `setBody(FormDataContent(Parameters.build { ... }))`,
   one `append("wireName", body.ktName.toString())` per scalar/enum property, or one `append(...)`
   per element for an array property (one repeated `name=` key per element, OpenAPI's default
-  `style: form, explode: true` - same convention an array-typed query parameter already follows).
+  `style: form, explode: true` - unlike a query-position array, other styles aren't supported here).
   The schema must be `type: object` with only scalar/enum properties, or arrays of either; a
   nested object property, or an array of non-scalar items, is a generator error - see "Known
   limitations".
@@ -223,8 +223,11 @@ find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --
 - Path/query/header/cookie parameters must resolve to a primitive scalar type (string/integer/
   number/boolean), an enum, or a oneOf/anyOf whose every variant is itself primitive/enum-shaped
   (passed straight through as a plain, unparsed `String` - see "oneOf/anyOf support" above) - an
-  object or array in one of those positions is a generator error, except a `query`-position array
-  (one repeated key per element).
+  object or array in one of those positions is a generator error, except a `query`-position array.
+  A `query`-position array supports all three OpenAPI 3 serialization styles: `style: form`
+  (default) with `explode: true` (the OpenAPI default - a repeated key, `?name=a&name=b`) or
+  `explode: false` (comma-joined, `?name=a,b`), `spaceDelimited` (space-joined), and `pipeDelimited`
+  (pipe-joined, `?name=a|b`) - any other `style` is a generator error.
 - Generated files are not run through a formatter - see "Formatting generated sources" above.
 
 ## Try it

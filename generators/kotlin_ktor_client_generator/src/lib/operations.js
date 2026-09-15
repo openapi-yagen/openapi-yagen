@@ -92,6 +92,13 @@ function tryBuildFilterUnionQueryParam(registry, hintBase, p, schema) {
   };
 }
 
+// OpenAPI's three query-array serialization styles: "form" (default, explode defaults true) sends
+// a repeated key (`?tag=a&tag=b`) when exploded, else comma-joined; "spaceDelimited"/"pipeDelimited"
+// (explode defaults false) join with a space/pipe instead. arraySeparator is null for the
+// repeated-key case (queryParamList in api_client.kt.j2, unchanged) or the join character
+// otherwise, in which case the template calls queryParamJoined instead (see query_utils.kt.j2).
+const ARRAY_QUERY_SEPARATORS = { form: ",", spaceDelimited: " ", pipeDelimited: "|" };
+
 // A query param whose (unwrapped) schema is Array-kind - serialized as repeated `?name=a&name=b`
 // keys (OpenAPI 3's default `style: form, explode: true`), matching the typescript_fetch_client
 // generator's own support for this (path/header positions have no standard "repeated value"
@@ -105,6 +112,19 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
         `primitive scalar types (string/integer/number/boolean) or enums, got "${itemT.type}"`
     );
   }
+  const style = p.style || "form";
+  const explode = p.explode !== undefined ? p.explode : style === "form";
+  let arraySeparator = null;
+  if (!explode) {
+    const sep = ARRAY_QUERY_SEPARATORS[style];
+    if (!sep) {
+      throw Error(
+        `<6d3bf9ef> Unsupported query parameter array serialization style "${style}" for "${p.name}" - ` +
+          `only style: form (explode: true or false), spaceDelimited, or pipeDelimited are supported`
+      );
+    }
+    arraySeparator = sep;
+  }
   const { kotlinName } = fieldName(p.name);
   const required = !!p.required;
   return {
@@ -117,6 +137,7 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
     isArray: true,
     queryArms: null,
     description: p.description || null,
+    arraySeparator,
   };
 }
 

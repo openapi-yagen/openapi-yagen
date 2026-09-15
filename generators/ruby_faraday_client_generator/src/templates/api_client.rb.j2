@@ -15,7 +15,7 @@ module {{ moduleName }}
 {% for op in operations %}
 {% for line in op.docLines %}    # {{ line }}
 {% endfor %}    def {{ op.name }}({% for k in op.kwargs %}{{ k.rubyName }}:{% if not k.required %} nil{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %})
-{% if op.hasQueryParams %}      query = { {% for p in op.queryParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
+{% if op.hasQueryParams %}      query = { {% for p in op.queryParams %}{{ toStringLiteral(p.wireName) }} => {% if p.arraySeparator %}{{ p.rubyName }}&.join({{ toStringLiteral(p.arraySeparator) }}){% else %}{{ p.rubyName }}{% endif %}{% if not loop.is_last %}, {% endif %}{% endfor %} }
 {% endif %}{% if op.hasHeaderParams %}      headers = { {% for p in op.headerParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
 {% endif %}{% if op.hasCookieParams %}      cookies = { {% for p in op.cookieParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
 {% endif %}{% if op.body %}      body = {{ op.bodyWireExpr }}

@@ -240,6 +240,15 @@ module OpenapiYagenRuntime
   #                      happened to declare (or Ruby's default, absent that).
   def request(connection:, method:, path:, query: nil, headers: nil, cookies: nil, body: nil, content_type: :json,
               media_type: nil, response_encoding: :json, auth: nil, auth_config: nil)
+    # Faraday's own default params encoder (NestedParamsEncoder) collapses a repeated bare key
+    # (e.g. "tags=a&tags=b", the wire format build_query below produces for an exploded array
+    # query parameter) down to just its last value the moment req.url(full_path) re-decodes it -
+    # silently dropping every element but one. FlatParamsEncoder decodes/re-encodes repeated bare
+    # keys as an array instead (no "tags[]=" bracket mangling), matching what build_query actually
+    # emits. Set once per connection, non-destructively (a caller who explicitly configured their
+    # own encoder is left alone) - see Faraday::Connection#build_url/#run_request.
+    connection.options.params_encoder ||= Faraday::FlatParamsEncoder
+
     resolved_headers = (headers || {}).compact
     resolved_cookies = (cookies || {}).compact
 

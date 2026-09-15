@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -32,6 +33,20 @@ func addQueryParamList[T any](q url.Values, name string, values []T) {
 	for _, v := range values {
 		q.Add(name, formatParam(v))
 	}
+}
+
+// Comma/space/pipe-joined single-value array query parameter serialization (OpenAPI's
+// `explode: false`, style: form/spaceDelimited/pipeDelimited) - the counterpart to
+// addQueryParamList's repeated-key form (explode: true).
+func addQueryParamJoined[T any](q url.Values, name string, values []T, sep string) {
+	if len(values) == 0 {
+		return
+	}
+	parts := make([]string, len(values))
+	for i, v := range values {
+		parts[i] = formatParam(v)
+	}
+	q.Set(name, strings.Join(parts, sep))
 }
 
 // writeMultipartFile writes a multipart `format: binary` field as an actual file part (via

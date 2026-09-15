@@ -80,6 +80,40 @@ class PetsApiTest {
         assertEquals("dog", captured!!.url.parameters["tag"])
     }
 
+    // explode:true (the OpenAPI default, tags) stays a repeated key; explode:false with style:
+    // form/spaceDelimited/pipeDelimited (tagsCsv/tagsSpace/tagsPipe) each join into a single value -
+    // see kitchensink.yaml's listPets and operations.js's buildArrayQueryParam.
+    @Test
+    fun `listPets serializes array query params per their declared style`() = runTest {
+        var captured: HttpRequestData? = null
+        val client = buildTestClient { request ->
+            captured = request
+            respond("[]", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val api = PetsApi(client, "https://example.test")
+
+        api.listPets(tags = listOf("a", "b"), tagsCsv = listOf("a", "b"), tagsSpace = listOf("a", "b"), tagsPipe = listOf("a", "b"))
+
+        assertEquals(listOf("a", "b"), captured!!.url.parameters.getAll("tags"))
+        assertEquals("a,b", captured!!.url.parameters["tagsCsv"])
+        assertEquals("a b", captured!!.url.parameters["tagsSpace"])
+        assertEquals("a|b", captured!!.url.parameters["tagsPipe"])
+    }
+
+    @Test
+    fun `listPets omits absent optional array query params`() = runTest {
+        var captured: HttpRequestData? = null
+        val client = buildTestClient { request ->
+            captured = request
+            respond("[]", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val api = PetsApi(client, "https://example.test")
+
+        api.listPets()
+
+        assertFalse(captured!!.url.parameters.contains("tagsCsv"))
+    }
+
     // Wired from the spec's `in: cookie` session_id parameter - proves cookieParam (query_utils.kt.j2)
     // actually sends it on the request's Cookie header, not silently dropping it.
     @Test

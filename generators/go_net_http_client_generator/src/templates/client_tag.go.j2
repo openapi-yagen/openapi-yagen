@@ -33,10 +33,12 @@ func New{{ tagType }}(httpClient *http.Client, baseURL string) *{{ tagType }} {
 
 {% if op.queryParams %}	yagenQuery := url.Values{}
 {% for p in op.queryParams %}{% if p.isArray %}{% if p.pointer %}	if {{ p.goName }} != nil {
-		addQueryParamList(yagenQuery, {{ p.wireNameLiteral }}, {{ p.goName }})
-	}
+{% if p.arraySeparator %}		addQueryParamJoined(yagenQuery, {{ p.wireNameLiteral }}, {{ p.goName }}, {{ p.arraySeparatorLiteral }})
+{% else %}		addQueryParamList(yagenQuery, {{ p.wireNameLiteral }}, {{ p.goName }})
+{% endif %}	}
+{% else %}{% if p.arraySeparator %}	addQueryParamJoined(yagenQuery, {{ p.wireNameLiteral }}, {{ p.goName }}, {{ p.arraySeparatorLiteral }})
 {% else %}	addQueryParamList(yagenQuery, {{ p.wireNameLiteral }}, {{ p.goName }})
-{% endif %}{% else %}{% if p.pointer %}	if {{ p.goName }} != nil {
+{% endif %}{% endif %}{% else %}{% if p.pointer %}	if {{ p.goName }} != nil {
 		addQueryParam(yagenQuery, {{ p.wireNameLiteral }}, *{{ p.goName }})
 	}
 {% else %}	addQueryParam(yagenQuery, {{ p.wireNameLiteral }}, {{ p.goName }})

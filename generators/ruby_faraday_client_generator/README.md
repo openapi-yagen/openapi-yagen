@@ -264,9 +264,12 @@ end
   restriction: any shape (scalar, enum, array, or a plain object for the `deepObject`-style filter
   idiom) is passed straight through - `runtime.rb`'s `build_query` walks it generically at request
   time, since Ruby has no static type to get right ahead of time.
-- Query array parameters serialize as a repeated key (`?tag=a&tag=b`, OpenAPI 3's default `style:
-  form, explode: true`) - other serialization styles (`explode: false`,
-  `spaceDelimited`/`pipeDelimited`) aren't supported.
+- Query array parameters support all three OpenAPI 3 serialization styles: `style: form` (default)
+  with `explode: true` (the OpenAPI default - a repeated key, `?tag=a&tag=b`) or `explode: false`
+  (comma-joined, `?tag=a,b`), `spaceDelimited` (space-joined), and `pipeDelimited` (pipe-joined,
+  `?tag=a|b`) - each `explode: false` style joins the array into a single value in the generated
+  method itself, before it reaches `runtime.rb`'s `build_query`. Any other `style` is a generator
+  error.
 - `to_h` omits a `nil`-valued property entirely rather than sending an explicit JSON `null` - an
   optional field explicitly set to `null` and one simply left unset are indistinguishable on the
   wire.

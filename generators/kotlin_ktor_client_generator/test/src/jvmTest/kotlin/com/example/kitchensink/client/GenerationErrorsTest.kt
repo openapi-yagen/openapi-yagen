@@ -54,4 +54,44 @@ class GenerationErrorsTest {
             outDir.deleteRecursively()
         }
     }
+
+    private val queryArrayStyleSpec = File(System.getProperty("testResourcesDir"), "unsupported_query_array_style.yaml").absolutePath
+
+    private fun generateQueryArrayStyle(outDir: File, vararg extraArgs: String): Pair<Int, String> {
+        val command = mutableListOf(
+            bin, "g", "-o", outDir.absolutePath, "-g", generatorSrc, "-c", queryArrayStyleSpec,
+            "-v", "packageName=com.example.unsupportedqueryarraystyle"
+        )
+        command.addAll(extraArgs)
+        val process = ProcessBuilder(command).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText()
+        val exitCode = process.waitFor()
+        return exitCode to output
+    }
+
+    @Test
+    fun `an unsupported query array style aborts generation by default (strict=true)`() {
+        val outDir = Files.createTempDirectory("kotlin-query-array-style-strict-").toFile()
+        try {
+            val (exitCode, output) = generateQueryArrayStyle(outDir)
+            assertTrue(exitCode != 0, "expected generation to fail in strict mode (default): $output")
+            assertTrue(output.contains("matrix"), output)
+        } finally {
+            outDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an unsupported query array style is skipped with a warning under strict=false`() {
+        val outDir = Files.createTempDirectory("kotlin-query-array-style-permissive-").toFile()
+        try {
+            val (exitCode, output) = generateQueryArrayStyle(outDir, "-v", "strict=false")
+            assertTrue(exitCode == 0, "expected generation to succeed under -v strict=false: $output")
+            assertTrue(output.contains("WARNING"), output)
+            assertTrue(output.contains("matrix"), output)
+            assertFalse(File(outDir, "apis/NotesApi.kt").exists())
+        } finally {
+            outDir.deleteRecursively()
+        }
+    }
 }

@@ -14,9 +14,12 @@
 //   turning a param into wire form is always just `String(value)`.
 // - No constraintsOf-driven validation calls, for the same reason (see lib/types.js's header
 //   comment) - a client has nothing untrusted to validate.
-// - Query parameters MAY be arrays (serialized as repeated `key=v1&key=v2`, OpenAPI 3's default
-//   `style: form, explode: true`) - a deliberate improvement over generators that forbid arrays in
-//   query position entirely.
+// - Query parameters MAY be arrays - a deliberate improvement over generators that forbid arrays
+//   in query position entirely. Serialized per the parameter's own style/explode (see
+//   buildQueryParam's arraySeparator): a repeated key (`key=v1&key=v2`, OpenAPI 3's default
+//   `style: form, explode: true`) when null, else joined into a single value with the style's
+//   separator (`,`/` `/`|`) by the generated method itself, before handing off to the shared
+//   runtime's buildUrl().
 
 import { typeName, paramName, operationName, propertyKeyLiteral } from "./naming.js";
 import { tsType } from "./types.js";
@@ -107,6 +110,7 @@ function buildQueryParam(registry, hintBase, p) {
   }
   let tsTypeStr;
   let isArray = false;
+  let arraySeparator = null;
   if (kind === "Array") {
     const itemType = scalarWireType(registry, resolved.items || {}, hintBase + typeName(p.name) + "Item");
     if (!itemType) {
@@ -117,6 +121,25 @@ function buildQueryParam(registry, hintBase, p) {
     }
     tsTypeStr = `${itemType}[]`;
     isArray = true;
+    // OpenAPI's three query-array serialization styles: "form" (default, explode defaults true)
+    // sends a repeated key (`?tag=a&tag=b`) when exploded, else comma-joined; "spaceDelimited"/
+    // "pipeDelimited" (explode defaults false) join with a space/pipe instead. arraySeparator is
+    // null for the repeated-key case (buildUrl's existing generic Array.isArray handling,
+    // unchanged) or the join character otherwise - the joining happens in the generated method's
+    // own `query` object literal (see api_client.ts.j2), not in the shared runtime.
+    const style = p.style || "form";
+    const explode = p.explode !== undefined ? p.explode : style === "form";
+    if (!explode) {
+      const separators = { form: ",", spaceDelimited: " ", pipeDelimited: "|" };
+      const sep = separators[style];
+      if (!sep) {
+        throw Error(
+          `<7d14aef7> Unsupported query parameter array serialization style "${style}" for "${p.name}" - ` +
+            `only style: form (explode: true or false), spaceDelimited, or pipeDelimited are supported`
+        );
+      }
+      arraySeparator = sep;
+    }
   } else {
     const t = scalarWireType(registry, schema, hintBase + typeName(p.name));
     if (!t) {
@@ -132,6 +155,7 @@ function buildQueryParam(registry, hintBase, p) {
     wireName: p.name,
     tsType: tsTypeStr,
     isArray,
+    arraySeparator,
     required: !!p.required,
     description: p.description || null,
     queryKeyLiteral: propertyKeyLiteral(p.name),

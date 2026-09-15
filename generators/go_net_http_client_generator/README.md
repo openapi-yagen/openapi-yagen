@@ -172,10 +172,13 @@ error.
 (string/integer/number/boolean), a `format: date-time` value, an enum, or a `oneOf`/`anyOf` whose
 every variant is itself primitive/enum-shaped (passed through as a plain, unparsed `string`) - an
 object or array in one of those positions is a generator error, except a query parameter whose
-schema is itself an array (repeated `?name=a&name=b` keys, OpenAPI's default `style: form, explode:
-true` - path/header/cookie positions have no standard "repeated value" serialization, so those stay
-scalar-only). A cookie parameter is sent via `http.Request.AddCookie`/read via `http.Request.Cookie`
-- not the raw `Cookie` header directly.
+schema is itself an array - path/header/cookie positions have no standard "repeated value"
+serialization, so those stay scalar-only. An array-typed query parameter supports all three OpenAPI
+3 serialization styles: `style: form` (default) with `explode: true` (the OpenAPI default - a
+repeated key, `?name=a&name=b`) or `explode: false` (comma-joined, `?name=a,b`), `spaceDelimited`
+(space-joined), and `pipeDelimited` (pipe-joined, `?name=a|b`) - any other `style` is a generator
+error. A cookie parameter is sent via `http.Request.AddCookie`/read via `http.Request.Cookie` - not
+the raw `Cookie` header directly.
 
 ## Formatting generated sources
 
