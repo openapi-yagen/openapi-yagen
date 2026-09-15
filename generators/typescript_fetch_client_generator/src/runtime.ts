@@ -28,7 +28,10 @@ export type AuthProvider = {
 };
 
 export interface ApiClientConfig {
-  /** Base URL every operation's path is resolved against, e.g. "https://api.example.com/v1". */
+  /** Base URL every operation's path is resolved against, e.g. "https://api.example.com/v1".
+   * A relative value ("/api/v1") or "" (same-origin, exactly like a bare `fetch("/api/...")`)
+   * works too - it's concatenated with each operation's path as a plain string, not parsed as an
+   * absolute URL. */
   baseUrl: string;
   /** Overrides the `fetch` implementation used for every request - inject a polyfill, a test
    * double, or an instrumented wrapper (logging, retries, tracing) without touching generated
@@ -170,25 +173,29 @@ function encodeFormBody(body: Record<string, unknown>): string {
 }
 
 function buildUrl(baseUrl: string, path: string, query: RequestOptions["query"]): string {
-  const url = new URL(baseUrl.replace(/\/+$/, "") + path);
+  const params = new URLSearchParams();
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value === undefined) continue;
       if (Array.isArray(value)) {
-        for (const v of value) url.searchParams.append(key, String(v));
+        for (const v of value) params.append(key, String(v));
       } else if (typeof value === "object") {
         // deepObject serialization (OpenAPI `style: deepObject`) - each of the value's own
         // properties becomes its own `key[subkey]=...` pair, e.g. a Stripe-style range filter
         // (`created: { gte: 1700000000 }`) becomes `created[gte]=1700000000`.
         for (const [subKey, subValue] of Object.entries(value)) {
-          if (subValue !== undefined) url.searchParams.append(`${key}[${subKey}]`, String(subValue));
+          if (subValue !== undefined) params.append(`${key}[${subKey}]`, String(subValue));
         }
       } else {
-        url.searchParams.append(key, String(value));
+        params.append(key, String(value));
       }
     }
   }
-  return url.toString();
+  // Built via string concatenation rather than `new URL(...)`, so baseUrl can be a relative path
+  // or "" (same-origin) - the WHATWG URL constructor would otherwise reject the result as not an
+  // absolute URL.
+  const queryString = params.toString();
+  return baseUrl.replace(/\/+$/, "") + path + (queryString ? `?${queryString}` : "");
 }
 
 async function resolveHeaders(provider: HeaderProvider | undefined): Promise<Record<string, string>> {

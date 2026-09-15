@@ -52,6 +52,9 @@ const api = new ApiClient({ baseUrl: "https://api.example.com/v1" });
 const pet = await api.pets.getPetById("123");
 ```
 
+`baseUrl` doesn't need to be absolute - `""` (same-origin, exactly like a bare `fetch("/api/...")`)
+or a relative path (`"/api/v1"`) both work, for a frontend served from the same origin as its API.
+
 Each `<Tag>Client` class is also usable on its own (`new PetsClient(config)`) if you'd rather not
 construct the whole `ApiClient` facade. Because the generated code makes no assumption about where
 it runs, this works identically inside a React component, a Vue composable, an Angular service, a
