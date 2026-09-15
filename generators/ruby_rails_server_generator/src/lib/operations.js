@@ -40,28 +40,28 @@ function scalarConversionStatements(registry, resolved, hintName, varName, field
   if (kind === "Enum") {
     const t = rubyType(registry, resolved, hintName);
     const stmts = [];
-    if (resolved.type === "integer") stmts.push(`${varName} = OpenapiYagenRuntime.parse_int(${varName}, ${fieldLiteral})`);
-    else if (resolved.type === "number") stmts.push(`${varName} = OpenapiYagenRuntime.parse_float(${varName}, ${fieldLiteral})`);
-    stmts.push(`OpenapiYagenRuntime.require_enum(${varName}, ${t.label}::ALL_VALUES, ${fieldLiteral})`);
+    if (resolved.type === "integer") stmts.push(`${varName} = Runtime.parse_int(${varName}, ${fieldLiteral})`);
+    else if (resolved.type === "number") stmts.push(`${varName} = Runtime.parse_float(${varName}, ${fieldLiteral})`);
+    stmts.push(`Runtime.require_enum(${varName}, ${t.label}::ALL_VALUES, ${fieldLiteral})`);
     return { label: t.label, statements: stmts };
   }
   if (resolved.type === "string" && resolved.format === "date") {
-    return { label: "Date", statements: [`${varName} = OpenapiYagenRuntime.parse_date_param(${varName}, ${fieldLiteral})`] };
+    return { label: "Date", statements: [`${varName} = Runtime.parse_date_param(${varName}, ${fieldLiteral})`] };
   }
   if (resolved.type === "string" && resolved.format === "date-time") {
-    return { label: "Time", statements: [`${varName} = OpenapiYagenRuntime.parse_datetime_param(${varName}, ${fieldLiteral})`] };
+    return { label: "Time", statements: [`${varName} = Runtime.parse_datetime_param(${varName}, ${fieldLiteral})`] };
   }
   if (resolved.type === "integer") {
-    return { label: "Integer", statements: [`${varName} = OpenapiYagenRuntime.parse_int(${varName}, ${fieldLiteral})`] };
+    return { label: "Integer", statements: [`${varName} = Runtime.parse_int(${varName}, ${fieldLiteral})`] };
   }
   if (resolved.type === "number") {
-    return { label: "Float", statements: [`${varName} = OpenapiYagenRuntime.parse_float(${varName}, ${fieldLiteral})`] };
+    return { label: "Float", statements: [`${varName} = Runtime.parse_float(${varName}, ${fieldLiteral})`] };
   }
   if (resolved.type === "boolean") {
-    return { label: "Boolean", statements: [`${varName} = OpenapiYagenRuntime.parse_bool(${varName}, ${fieldLiteral})`] };
+    return { label: "Boolean", statements: [`${varName} = Runtime.parse_bool(${varName}, ${fieldLiteral})`] };
   }
   // A plain string - format:uuid gets a shape check but no type conversion (already a String).
-  const stmts = resolved.format === "uuid" ? [`OpenapiYagenRuntime.require_uuid(${varName}, ${fieldLiteral})`] : [];
+  const stmts = resolved.format === "uuid" ? [`Runtime.require_uuid(${varName}, ${fieldLiteral})`] : [];
   return { label: "String", statements: stmts };
 }
 
@@ -91,7 +91,7 @@ function buildHeaderParam(registry, hintBase, p) {
   const field = toStringLiteral(p.name);
   const required = !!p.required;
   const conv = scalarConversionStatements(registry, resolved, hintBase + className(p.name), rubyName, field);
-  const fetch = required ? `OpenapiYagenRuntime.require_header(request, ${field})` : `OpenapiYagenRuntime.header(request, ${field})`;
+  const fetch = required ? `Runtime.require_header(request, ${field})` : `Runtime.header(request, ${field})`;
   return {
     rubyName,
     wireName: p.name,
@@ -111,7 +111,7 @@ function buildCookieParam(registry, hintBase, p) {
   const field = toStringLiteral(p.name);
   const required = !!p.required;
   const conv = scalarConversionStatements(registry, resolved, hintBase + className(p.name), rubyName, field);
-  const fetch = required ? `OpenapiYagenRuntime.require_cookie(request, ${field})` : `OpenapiYagenRuntime.cookie(request, ${field})`;
+  const fetch = required ? `Runtime.require_cookie(request, ${field})` : `Runtime.cookie(request, ${field})`;
   return {
     rubyName,
     wireName: p.name,
@@ -148,8 +148,8 @@ function buildQueryParam(registry, hintBase, p) {
     }
     const itemVar = `${rubyName}_item`;
     const itemConv = scalarConversionStatements(registry, itemResolved, hintBase + className(p.name) + "Item", itemVar, field);
-    const statements = [`${rubyName} = OpenapiYagenRuntime.query_array(request, ${field})`];
-    if (required) statements.push(`raise OpenapiYagenRuntime::ValidationError, "\\"${p.name}\\" is required" if ${rubyName}.empty?`);
+    const statements = [`${rubyName} = Runtime.query_array(request, ${field})`];
+    if (required) statements.push(`raise Runtime::ValidationError, "\\"${p.name}\\" is required" if ${rubyName}.empty?`);
     if (itemConv.statements.length > 0) {
       statements.push(`${rubyName} = ${rubyName}.map { |${itemVar}| ${itemConv.statements.join("; ")}; ${itemVar} }`);
     }
@@ -163,7 +163,7 @@ function buildQueryParam(registry, hintBase, p) {
     );
   }
   const conv = scalarConversionStatements(registry, resolved, hintBase + className(p.name), rubyName, field);
-  const fetch = required ? `OpenapiYagenRuntime.require_param(params, ${field})` : `OpenapiYagenRuntime.param(params, ${field})`;
+  const fetch = required ? `Runtime.require_param(params, ${field})` : `Runtime.param(params, ${field})`;
   return {
     rubyName,
     wireName: p.name,
@@ -234,14 +234,14 @@ function buildAuthSchemeParam(schemeName, required) {
   const scheme = resolveSecurityScheme(schemeName);
   const rubyName = paramName(schemeName);
   if (scheme.kind === "bearer") {
-    const fetch = required ? "OpenapiYagenRuntime.require_bearer_token(request)" : "OpenapiYagenRuntime.bearer_token(request)";
+    const fetch = required ? "Runtime.require_bearer_token(request)" : "Runtime.bearer_token(request)";
     return { rubyName, required, label: "String", statements: [`${rubyName} = ${fetch}`] };
   }
   const loc = API_KEY_LOCATIONS[scheme.location];
   const nameLiteral = toStringLiteral(scheme.name);
   const fetch = required
-    ? `OpenapiYagenRuntime.require_api_key(request, location: ${loc}, name: ${nameLiteral})`
-    : `OpenapiYagenRuntime.api_key(request, location: ${loc}, name: ${nameLiteral})`;
+    ? `Runtime.require_api_key(request, location: ${loc}, name: ${nameLiteral})`
+    : `Runtime.api_key(request, location: ${loc}, name: ${nameLiteral})`;
   return { rubyName, required, label: "String", statements: [`${rubyName} = ${fetch}`] };
 }
 
@@ -269,7 +269,7 @@ function buildAuthParams(security) {
     statements: [
       "auth_matched = false",
       ...conditions.map((cond) => `auth_matched ||= ${cond}`),
-      'raise OpenapiYagenRuntime::MissingAuthenticationError, "no security requirement satisfied" unless auth_matched',
+      'raise Runtime::MissingAuthenticationError, "no security requirement satisfied" unless auth_matched',
     ],
   };
   return [...schemeParams, resolution];
@@ -323,7 +323,7 @@ function requireFlatObjectSchema(bodySchema, mediaType) {
 // (see scalarConversionStatements) - a form field needs the identical coercion before <Model>.
 // from_h ever sees it, or e.g. a `type: boolean` field stays the literal string "true"/"false"
 // forever instead of becoming a real Ruby boolean. Mutates the raw wire Hash in place (each
-// statement is `_body_raw["field"] = OpenapiYagenRuntime.parse_X(_body_raw["field"], "field")`)
+// statement is `_body_raw["field"] = Runtime.parse_X(_body_raw["field"], "field")`)
 // so <Model>.from_h(_body_raw) downstream still does everything else it normally does (wire-name
 // mapping, defaults, nested enum/ref dispatch) unchanged - only scalar type coercion needed
 // patching in ahead of it. Enum-typed fields are deliberately skipped here: a string enum's wire
@@ -482,7 +482,7 @@ export function collectOperationsByTag(registry) {
             // multipart/urlencoded fields need per-field string coercion BEFORE from_h (see
             // buildFormFieldCoercions) - json doesn't (coercionStatements is empty there).
             bodyStatements = [
-              "_body_raw = OpenapiYagenRuntime.body_params(request)",
+              "_body_raw = Runtime.body_params(request)",
               ...body.coercionStatements,
               `body = ${body.label}.from_h(_body_raw)`,
               "body&.validate!",

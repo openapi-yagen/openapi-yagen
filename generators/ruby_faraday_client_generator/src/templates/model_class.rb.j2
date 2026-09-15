@@ -21,12 +21,10 @@ module {{ moduleName }}
 {% endfor %}      )
     end
 {% if validate %}
-    # Raises ArgumentError if any property violates the schema's own constraints (minLength/
-    # maxLength/pattern/minimum/maximum/.../enum membership/nested models' own validate!) - called
-    # automatically by to_wire before a request body is sent (see AGENTS.md's "a generator for a
-    # dynamically-typed target language must generate its own runtime checks" convention: Ruby has
-    # no compiler to catch any of this the way the TypeScript/Kotlin generators' static types do).
-    # Also callable directly to check a value earlier. Returns self so it can be chained.
+    # Raises ArgumentError (or TypeError for a basic type mismatch) if any property violates the
+    # schema's own constraints (minLength/maxLength/pattern/minimum/maximum/.../enum membership/
+    # nested models' own validate!) - called automatically by to_wire before a request body is
+    # sent. Also callable directly to check a value earlier. Returns self so it can be chained.
     # @return [{{ model.name }}]
     def validate!
 {% for p in model.properties %}{% for stmt in p.validateStatements %}      {{ stmt }}

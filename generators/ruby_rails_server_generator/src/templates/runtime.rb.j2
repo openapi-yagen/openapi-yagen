@@ -1,35 +1,24 @@
-# Shared runtime for generated Rails server code - copied into the output directory verbatim (no
-# per-spec substitution needed, same as ruby_faraday_client_generator's runtime.rb). Every
-# generated model and controller/concern calls into this module instead of duplicating
-# parameter-parsing/constraint-checking/auth-verification logic per operation.
+# Shared runtime for the generated Rails server: validates path/query/header/cookie parameters
+# and request bodies against the spec's constraints, and raises ValidationError (422) or
+# MissingAuthenticationError (401) on failure - every generated model/controller/concern calls
+# into this module instead of duplicating that logic per operation.
 #
-# Part of this generator's answer to AGENTS.md's "a generator for a dynamically-typed target
-# language must generate its own runtime checks" convention: Ruby has no compiler to reject a
-# wrong-shaped or out-of-spec value the way the TypeScript/Kotlin generators' static types do for
-# free - and unlike ruby_faraday_client_generator (which only ever constructs an outgoing request
-# from values the caller's own code already produced), a server receives values from an untrusted
-# client, so these checks are load-bearing, not a nice-to-have. Mirrors
-# python_tornado_server_generator's runtime.py closely - same split between ValidationError (a
-# malformed request) and MissingAuthenticationError (an unauthenticated one), same constraint-check
-# helper family - adapted to Ruby idiom (raise/rescue, Date/Time instead of datetime.date/
-# datetime.datetime).
-#
-# This module is a plain top-level constant (not namespaced under the generated moduleName),
-# exactly like ruby_faraday_client_generator's own OpenapiYagenRuntime - see that generator's
-# runtime.rb and templates for the same convention. Generating two different APIs' worth of code
-# into the same app both pick up this same top-level module, which is fine: it's stateless and
-# identical either way.
+# Namespaced under {{ moduleName }} (not a plain top-level module) so a server and any number of
+# API clients generated into the same app can coexist without their runtime helpers clashing.
 
 require "date"
 require "time"
 require "uri"
 
-module OpenapiYagenRuntime
+# Opens (and, if this is the first generated file loaded, creates) module {{ moduleName }} empty,
+# so the compact declaration below can nest Runtime under it.
+module {{ moduleName }}
+end
+
+module {{ moduleName }}::Runtime
   # Raised when an incoming request parameter or body value fails validation - either a basic type
-  # check or an OpenAPI-level constraint (minLength/pattern/minimum/.../format:uuid). Deliberately
-  # generic and app-agnostic: the generated controller/concern maps this to a 422 JSON response -
-  # see each generated controller.rb.j2/controller_concern.rb.j2 and the generator's README
-  # "Integrating the generated code".
+  # check or an OpenAPI-level constraint (minLength/pattern/minimum/.../format:uuid). Mapped to a
+  # 422 JSON response by every generated controller/concern.
   class ValidationError < StandardError; end
 
   # Raised when an operation's required security-scheme credentials (a bearer token or apiKey) are
@@ -40,17 +29,16 @@ module OpenapiYagenRuntime
 
   module_function
 
-  # Constraint-check helpers used by each generated model's validate! (see model_class.rb.j2 and
-  # lib/serialization.js's buildValidateStatements), and by the generated controller/concern layer
-  # for path/query/header/cookie parameters. Each is a no-op when `value` is nil (an absent
-  # optional field/parameter has nothing to check) and raises ValidationError, naming the field, on
-  # violation. Only generated/called at all when the `validate` generator variable is "true" (the
-  # default) - see model_class.rb.j2/controller.rb.j2/controller_concern.rb.j2.
+  # Constraint-check helpers used by each generated model's validate! and by the generated
+  # controller/concern layer for path/query/header/cookie parameters. Each is a no-op when `value`
+  # is nil (an absent optional field/parameter has nothing to check) and raises ValidationError,
+  # naming the field, on violation. Only generated/called at all when the `validate` generator
+  # variable is "true" (the default).
 
-  # Basic type check, generated for every scalar property regardless of whether the schema
-  # declares any constraintsOf() keywords - without this, a property with no minLength/minimum/...
-  # at all would get an empty (looks-broken) validate!, since every other check here is opt-in per
-  # constraint keyword. `klass` is String/Integer/Numeric/Date/Time - see buildValidateStatements.
+  # Basic type check, generated for every scalar property regardless of which other constraints
+  # the schema declares - without this, a property with no minLength/minimum/... at all would get
+  # an empty (looks-broken) validate!, since every other check here is opt-in per constraint
+  # keyword. `klass` is String/Integer/Numeric/Date/Time.
   def require_type(value, klass, field)
     raise ValidationError, "\"#{field}\" has the wrong type: expected #{klass}, got #{value.class}" if value && !value.is_a?(klass)
   end
@@ -131,23 +119,17 @@ module OpenapiYagenRuntime
   end
 
   # Canonical 8-4-4-4-12 hyphenated hex form (RFC 4122 section 3) - version/variant bits aren't
-  # checked, matching how require_max/require_max_length/require_pattern above are also shape
-  # checks only, not full semantic validation. Mirrors python_tornado_server_generator's
-  # require_uuid. `format: date`/`date-time` need no analogous check here - they're already typed
-  # as Date/Time (see lib/types.js), so parse_date/parse_datetime below already reject a malformed
-  # value at from_h time, the same way a plain String property/parameter never happens for
-  # format: date/date-time the way it still does for format: uuid. The pattern is an inline
-  # literal, not a module constant - OpenapiYagenRuntime is a plain top-level module (see this
-  # file's header comment), so generating two different APIs' worth of code into the same app
-  # reopens it twice; a Regexp literal silently recompiles either time, but a `CONST =` reassignment
-  # would print a "already initialized constant" warning on the second load.
+  # checked, a shape check only, like require_max/require_max_length/require_pattern above. The
+  # pattern is an inline literal rather than a module constant, since Runtime can be loaded more
+  # than once per process (once per generated bundle) and a plain Regexp literal just silently
+  # recompiles on a second load, unlike a `CONST =` reassignment.
   def require_uuid(value, field)
     pattern = /\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/
     raise ValidationError, "\"#{field}\" must be a valid UUID" if value && !pattern.match?(value)
   end
 
-  # Parsing IS the validation for format:date/date-time (see lib/serialization.js's
-  # buildFromHExpr) - nil-safe (an absent/explicitly-null property has nothing to parse).
+  # Parsing IS the validation for format:date/date-time - nil-safe (an absent/explicitly-null
+  # property has nothing to parse).
   def parse_date(value)
     return nil if value.nil?
 
@@ -257,14 +239,12 @@ module OpenapiYagenRuntime
   end
 
   # A query parameter serialized as OpenAPI 3's default array style (`style: form, explode: true`
-  # - a repeated key, e.g. "tags=a&tags=b", NOT bracket-suffixed "tags[]=a&tags[]=b") is what
-  # ruby_faraday_client_generator's own build_query sends - but Rails' `params` does NOT collect
-  # plain repeated non-bracket keys into an array (Rack::Utils.parse_nested_query only arrayifies
+  # - a repeated key, e.g. "tags=a&tags=b", NOT bracket-suffixed "tags[]=a&tags[]=b") isn't
+  # collected into an array by Rails' own `params` (Rack::Utils.parse_nested_query only arrayifies
   # the "[]"-suffixed form; a bare repeated key is last-one-wins). This walks the raw query string
   # directly (URI.decode_www_form preserves every pair, duplicates included) to recover every value
-  # for `name`, in request order - the only way to correctly receive the wire format this project's
-  # own client generator (and OpenAPI's own default) actually produces. Returns [] (not nil) when
-  # absent, since an empty repeated-key list has no distinct "explicitly null" wire form anyway.
+  # for `name`, in request order. Returns [] (not nil) when absent, since an empty repeated-key
+  # list has no distinct "explicitly null" wire form anyway.
   def query_array(request, name)
     URI.decode_www_form(request.query_string.to_s).select { |k, _| k == name }.map { |_, v| v }
   end
@@ -272,10 +252,9 @@ module OpenapiYagenRuntime
   # Nil-safe: returns the bearer token (without the "Bearer " prefix), or nil if `request` carries
   # no (or a malformed) `Authorization: Bearer <token>` header - used for an OR-alternative security
   # requirement, where the credential's ABSENCE isn't an error by itself (a different alternative
-  # might be satisfied instead - see lib/operations.js's buildAuthResolution). Covers http/bearer,
-  # oauth2, and openIdConnect security schemes alike (RFC 6750: an OAuth2/OIDC access token travels
-  # as a bearer token regardless of how it was obtained), mirrors ruby_faraday_client_generator's
-  # own treatment of those three schemes as equivalent.
+  # might be satisfied instead). Covers http/bearer, oauth2, and openIdConnect security schemes
+  # alike (RFC 6750: an OAuth2/OIDC access token travels as a bearer token regardless of how it
+  # was obtained).
   def bearer_token(request, header: "Authorization")
     value = header(request, header)
     match = value && /\ABearer (.+)\z/i.match(value)

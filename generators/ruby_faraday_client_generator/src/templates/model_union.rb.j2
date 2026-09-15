@@ -25,8 +25,7 @@ module {{ moduleName }}
 {% endif %}{% if model.kind == "union_dispatch" %}{% if model.description %}{{ model.description | indent("  # ", true) }}
 {% endif %}  # Dispatches on the raw JSON value's own shape - no discriminator property here, so
   # this checks object variants' distinguishing field first, then any array/string/number/
-  # boolean-shaped variant, then falls back to whatever's left (see the generator's
-  # lib/types.js:registerUnionDispatch for the exact ordering rules).
+  # boolean-shaped variant, then falls back to whatever's left.
   module {{ model.name }}
     # @param value [Object, nil] a parsed-JSON value (Hash/Array/String/Numeric/true/false/nil)
     # @return [Object, nil] an instance of whichever variant matched

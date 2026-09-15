@@ -57,7 +57,7 @@ class ClientTest < Minitest::Test
   # connection's base path rather than appending to it - `Faraday.new(url:
   # "https://api.example.com/v1").build_url("/pets")` resolved to
   # "https://api.example.com/pets" (v1 silently lost) before this was fixed in
-  # OpenapiYagenRuntime.resolve_request_path (see runtime.rb). This test fails on the pre-fix
+  # Kitchensink::Runtime.resolve_request_path (see runtime.rb). This test fails on the pre-fix
   # code with `Faraday::Adapter::Test::Stubs::NotFound: no stubbed request for get
   # https://api.example.com/pets` (the stub below is only registered at "/v1/pets").
   def test_list_pets_preserves_the_connections_own_base_path
@@ -105,7 +105,7 @@ class ClientTest < Minitest::Test
     end
     api = Kitchensink::PetsClient.new(connection: conn)
 
-    error = assert_raises(OpenapiYagenRuntime::ApiError) { api.get_pet_by_id(pet_id: "999") }
+    error = assert_raises(Kitchensink::Runtime::ApiError) { api.get_pet_by_id(pet_id: "999") }
 
     assert_equal 404, error.status
     assert_equal "not found", error.response_body["message"]

@@ -37,7 +37,7 @@ openapi-yagen g -o out -g ruby_faraday_client_generator openapi.yaml -v moduleNa
 lib/<module>/models/<name>.rb   one file per schema (class / enum module / union dispatch module)
 lib/<module>/apis/<tag>_client.rb   one client class per OpenAPI tag
 lib/<module>/api_client.rb      ApiClient - bundles one instance of every tag's client class
-lib/<module>/runtime.rb         OpenapiYagenRuntime - the shared request()/query/auth/error helper
+lib/<module>/runtime.rb         <module>::Runtime - the shared request()/query/auth/error helper
 lib/<module>.rb                 aggregator - requires every file above, in a safe order
 ```
 
@@ -64,12 +64,12 @@ pets_api = PetStore::PetsClient.new(connection: connection) # only need one tag?
 ```
 
 A connection's own base path (e.g. the `/v1` above) is preserved on every request regardless of
-what each operation's own path is - `OpenapiYagenRuntime` resolves the two itself rather than
-leaning on Faraday's own URL-merging, which (per RFC 3986) would otherwise silently discard a
-base path whenever an operation's path starts with `/` (as every OpenAPI `paths:` key does).
+what each operation's own path is - `Runtime` resolves the two itself rather than leaning on
+Faraday's own URL-merging, which (per RFC 3986) would otherwise silently discard a base path
+whenever an operation's path starts with `/` (as every OpenAPI `paths:` key does).
 
 Do **not** install a JSON-parsing response middleware (e.g. `faraday-json`'s
-`Faraday::Response::Json`) on the connection you inject - `OpenapiYagenRuntime.request` parses the
+`Faraday::Response::Json`) on the connection you inject - `Runtime.request` parses the
 raw response body itself, and a response body that's already been parsed into a Hash by your own
 middleware would make it try to `JSON.parse` a Hash and fail.
 
@@ -228,13 +228,14 @@ Calling a method where **no** alternative is fully configured raises `ArgumentEr
 (before any request is sent), naming every alternative's required provider(s)
 (`auth[:bearer]`/`auth[:api_key]`).
 
-On any non-2xx response, `OpenapiYagenRuntime.request` raises `OpenapiYagenRuntime::ApiError`
-(`#status`, `#response_body` - the best-effort-parsed response body):
+On any non-2xx response, `Runtime.request` raises `Runtime::ApiError` (namespaced under your
+`moduleName`, e.g. `PetStore::Runtime::ApiError`) with `#status`/`#response_body` (the
+best-effort-parsed response body):
 
 ```ruby
 begin
   api.pets.get_pet_by_id(pet_id: "missing")
-rescue OpenapiYagenRuntime::ApiError => e
+rescue PetStore::Runtime::ApiError => e
   raise unless e.status == 404
   # handle not-found
 end

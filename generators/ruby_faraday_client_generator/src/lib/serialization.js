@@ -90,31 +90,31 @@ export function buildValidateStatements(descriptor, schema, expr, fieldLabel, de
     // object (anything an UploadIO wraps), none of which are a Ruby String. require_string_or_file
     // accepts any of those instead of requiring String specifically - see runtime.rb.
     if (resolved.type === "string" && resolved.format === "binary") {
-      statements.push(`OpenapiYagenRuntime.require_string_or_file(${expr}, ${field})`);
-    } else if (resolved.type === "string") statements.push(`OpenapiYagenRuntime.require_type(${expr}, String, ${field})`);
-    else if (resolved.type === "integer") statements.push(`OpenapiYagenRuntime.require_type(${expr}, Integer, ${field})`);
-    else if (resolved.type === "number") statements.push(`OpenapiYagenRuntime.require_type(${expr}, Numeric, ${field})`);
-    else if (resolved.type === "boolean") statements.push(`OpenapiYagenRuntime.require_boolean(${expr}, ${field})`);
+      statements.push(`Runtime.require_string_or_file(${expr}, ${field})`);
+    } else if (resolved.type === "string") statements.push(`Runtime.require_type(${expr}, String, ${field})`);
+    else if (resolved.type === "integer") statements.push(`Runtime.require_type(${expr}, Integer, ${field})`);
+    else if (resolved.type === "number") statements.push(`Runtime.require_type(${expr}, Numeric, ${field})`);
+    else if (resolved.type === "boolean") statements.push(`Runtime.require_boolean(${expr}, ${field})`);
   }
 
-  if (c.minLength != null) statements.push(`OpenapiYagenRuntime.require_min_length(${expr}, ${c.minLength}, ${field})`);
-  if (c.maxLength != null) statements.push(`OpenapiYagenRuntime.require_max_length(${expr}, ${c.maxLength}, ${field})`);
-  if (c.pattern != null) statements.push(`OpenapiYagenRuntime.require_pattern(${expr}, ${toStringLiteral(c.pattern)}, ${field})`);
-  if (c.minimum != null) statements.push(`OpenapiYagenRuntime.require_min(${expr}, ${c.minimum}, ${field})`);
-  if (c.maximum != null) statements.push(`OpenapiYagenRuntime.require_max(${expr}, ${c.maximum}, ${field})`);
-  if (c.exclusiveMinimum != null) statements.push(`OpenapiYagenRuntime.require_exclusive_min(${expr}, ${c.exclusiveMinimum}, ${field})`);
-  if (c.exclusiveMaximum != null) statements.push(`OpenapiYagenRuntime.require_exclusive_max(${expr}, ${c.exclusiveMaximum}, ${field})`);
-  if (c.multipleOf != null) statements.push(`OpenapiYagenRuntime.require_multiple_of(${expr}, ${c.multipleOf}, ${field})`);
-  if (c.minItems != null) statements.push(`OpenapiYagenRuntime.require_min_items(${expr}, ${c.minItems}, ${field})`);
-  if (c.maxItems != null) statements.push(`OpenapiYagenRuntime.require_max_items(${expr}, ${c.maxItems}, ${field})`);
-  if (c.uniqueItems) statements.push(`OpenapiYagenRuntime.require_unique_items(${expr}, ${field})`);
+  if (c.minLength != null) statements.push(`Runtime.require_min_length(${expr}, ${c.minLength}, ${field})`);
+  if (c.maxLength != null) statements.push(`Runtime.require_max_length(${expr}, ${c.maxLength}, ${field})`);
+  if (c.pattern != null) statements.push(`Runtime.require_pattern(${expr}, ${toStringLiteral(c.pattern)}, ${field})`);
+  if (c.minimum != null) statements.push(`Runtime.require_min(${expr}, ${c.minimum}, ${field})`);
+  if (c.maximum != null) statements.push(`Runtime.require_max(${expr}, ${c.maximum}, ${field})`);
+  if (c.exclusiveMinimum != null) statements.push(`Runtime.require_exclusive_min(${expr}, ${c.exclusiveMinimum}, ${field})`);
+  if (c.exclusiveMaximum != null) statements.push(`Runtime.require_exclusive_max(${expr}, ${c.exclusiveMaximum}, ${field})`);
+  if (c.multipleOf != null) statements.push(`Runtime.require_multiple_of(${expr}, ${c.multipleOf}, ${field})`);
+  if (c.minItems != null) statements.push(`Runtime.require_min_items(${expr}, ${c.minItems}, ${field})`);
+  if (c.maxItems != null) statements.push(`Runtime.require_max_items(${expr}, ${c.maxItems}, ${field})`);
+  if (c.uniqueItems) statements.push(`Runtime.require_unique_items(${expr}, ${field})`);
 
   if (descriptor.kind === "ref") {
     const kind = kindOf(resolved);
     if (kind === "Object" || kind === "AllOf") {
       statements.push(`${expr}&.validate!`);
     } else if (kind === "Enum") {
-      statements.push(`OpenapiYagenRuntime.require_enum(${expr}, ${descriptor.refName}::ALL_VALUES, ${field})`);
+      statements.push(`Runtime.require_enum(${expr}, ${descriptor.refName}::ALL_VALUES, ${field})`);
     }
   } else if (descriptor.kind === "array") {
     const itemVar = `item${depth}`;

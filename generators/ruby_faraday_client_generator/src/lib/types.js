@@ -44,7 +44,7 @@ function isNullable(schema) {
 
 // Turns a property's `default` schema keyword into a Ruby literal for its `initialize` keyword
 // parameter's default value - `from_h` uses the very same literal (via
-// OpenapiYagenRuntime.field_with_default, see runtime.rb) so both entry points (direct
+// Runtime.field_with_default, see runtime.rb) so both entry points (direct
 // construction and JSON deserialization) apply it identically. Returns null for any shape not
 // recognized (e.g. an object/array default, or an enum value that doesn't match one of its own
 // entries) - the property then falls back to its ordinary `nil` default, same as if `default` were

@@ -32,12 +32,11 @@ export function buildFromHExpr(descriptor, expr, depth = 0) {
     case "ref":
       return `${descriptor.refName}.from_h(${expr})`;
     case "date":
-      // Parsing IS the validation (mirrors python_tornado_server_generator's runtime.py
-      // parse_date) - a malformed value raises OpenapiYagenRuntime::ValidationError here, at
+      // Parsing IS the validation - a malformed value raises Runtime::ValidationError here, at
       // deserialization time, rather than silently becoming a plain unparsed String.
-      return `OpenapiYagenRuntime.parse_date(${expr})`;
+      return `Runtime.parse_date(${expr})`;
     case "datetime":
-      return `OpenapiYagenRuntime.parse_datetime(${expr})`;
+      return `Runtime.parse_datetime(${expr})`;
     case "array": {
       const v = `item${depth}`;
       return `${expr}&.map { |${v}| ${buildFromHExpr(descriptor.item, v, depth + 1)} }`;
@@ -100,47 +99,47 @@ export function buildValidateStatements(descriptor, schema, expr, fieldLabel, de
   // parses the wire String into one), a value handed straight to `.new(...)` could be anything, so
   // this is the only place a wrong-shaped date/date-time value passed by hand is ever caught.
   if (descriptor.kind === "date") {
-    statements.push(`OpenapiYagenRuntime.require_type(${expr}, Date, ${field})`);
+    statements.push(`Runtime.require_type(${expr}, Date, ${field})`);
   } else if (descriptor.kind === "datetime") {
-    statements.push(`OpenapiYagenRuntime.require_type(${expr}, Time, ${field})`);
+    statements.push(`Runtime.require_type(${expr}, Time, ${field})`);
   } else if (descriptor.kind === "primitive") {
     // `format: binary` means "arbitrary file/binary content" (OpenAPI's convention for a
     // multipart file field) - a plain String is still one legitimate way to supply that (e.g. an
     // in-memory buffer), but so is a File/IO/StringIO or an UploadedFile-shaped object. See
     // runtime.rb's require_string_or_file.
     if (resolved.type === "string" && resolved.format === "binary") {
-      statements.push(`OpenapiYagenRuntime.require_string_or_file(${expr}, ${field})`);
+      statements.push(`Runtime.require_string_or_file(${expr}, ${field})`);
     } else if (resolved.type === "string") {
-      statements.push(`OpenapiYagenRuntime.require_type(${expr}, String, ${field})`);
+      statements.push(`Runtime.require_type(${expr}, String, ${field})`);
       // format:uuid stays a plain String (see lib/types.js) - its shape is checked here instead of
       // needing its own descriptor kind the way date/date-time do, since Ruby's stdlib has no
       // built-in UUID class to parse into. Mirrors python_tornado_server_generator's require_uuid
       // - closes the gap ruby_faraday_client_generator's own README calls out ("only server
       // generators in this project validate format:uuid").
-      if (resolved.format === "uuid") statements.push(`OpenapiYagenRuntime.require_uuid(${expr}, ${field})`);
-    } else if (resolved.type === "integer") statements.push(`OpenapiYagenRuntime.require_type(${expr}, Integer, ${field})`);
-    else if (resolved.type === "number") statements.push(`OpenapiYagenRuntime.require_type(${expr}, Numeric, ${field})`);
-    else if (resolved.type === "boolean") statements.push(`OpenapiYagenRuntime.require_boolean(${expr}, ${field})`);
+      if (resolved.format === "uuid") statements.push(`Runtime.require_uuid(${expr}, ${field})`);
+    } else if (resolved.type === "integer") statements.push(`Runtime.require_type(${expr}, Integer, ${field})`);
+    else if (resolved.type === "number") statements.push(`Runtime.require_type(${expr}, Numeric, ${field})`);
+    else if (resolved.type === "boolean") statements.push(`Runtime.require_boolean(${expr}, ${field})`);
   }
 
-  if (c.minLength != null) statements.push(`OpenapiYagenRuntime.require_min_length(${expr}, ${c.minLength}, ${field})`);
-  if (c.maxLength != null) statements.push(`OpenapiYagenRuntime.require_max_length(${expr}, ${c.maxLength}, ${field})`);
-  if (c.pattern != null) statements.push(`OpenapiYagenRuntime.require_pattern(${expr}, ${toStringLiteral(c.pattern)}, ${field})`);
-  if (c.minimum != null) statements.push(`OpenapiYagenRuntime.require_min(${expr}, ${c.minimum}, ${field})`);
-  if (c.maximum != null) statements.push(`OpenapiYagenRuntime.require_max(${expr}, ${c.maximum}, ${field})`);
-  if (c.exclusiveMinimum != null) statements.push(`OpenapiYagenRuntime.require_exclusive_min(${expr}, ${c.exclusiveMinimum}, ${field})`);
-  if (c.exclusiveMaximum != null) statements.push(`OpenapiYagenRuntime.require_exclusive_max(${expr}, ${c.exclusiveMaximum}, ${field})`);
-  if (c.multipleOf != null) statements.push(`OpenapiYagenRuntime.require_multiple_of(${expr}, ${c.multipleOf}, ${field})`);
-  if (c.minItems != null) statements.push(`OpenapiYagenRuntime.require_min_items(${expr}, ${c.minItems}, ${field})`);
-  if (c.maxItems != null) statements.push(`OpenapiYagenRuntime.require_max_items(${expr}, ${c.maxItems}, ${field})`);
-  if (c.uniqueItems) statements.push(`OpenapiYagenRuntime.require_unique_items(${expr}, ${field})`);
+  if (c.minLength != null) statements.push(`Runtime.require_min_length(${expr}, ${c.minLength}, ${field})`);
+  if (c.maxLength != null) statements.push(`Runtime.require_max_length(${expr}, ${c.maxLength}, ${field})`);
+  if (c.pattern != null) statements.push(`Runtime.require_pattern(${expr}, ${toStringLiteral(c.pattern)}, ${field})`);
+  if (c.minimum != null) statements.push(`Runtime.require_min(${expr}, ${c.minimum}, ${field})`);
+  if (c.maximum != null) statements.push(`Runtime.require_max(${expr}, ${c.maximum}, ${field})`);
+  if (c.exclusiveMinimum != null) statements.push(`Runtime.require_exclusive_min(${expr}, ${c.exclusiveMinimum}, ${field})`);
+  if (c.exclusiveMaximum != null) statements.push(`Runtime.require_exclusive_max(${expr}, ${c.exclusiveMaximum}, ${field})`);
+  if (c.multipleOf != null) statements.push(`Runtime.require_multiple_of(${expr}, ${c.multipleOf}, ${field})`);
+  if (c.minItems != null) statements.push(`Runtime.require_min_items(${expr}, ${c.minItems}, ${field})`);
+  if (c.maxItems != null) statements.push(`Runtime.require_max_items(${expr}, ${c.maxItems}, ${field})`);
+  if (c.uniqueItems) statements.push(`Runtime.require_unique_items(${expr}, ${field})`);
 
   if (descriptor.kind === "ref") {
     const kind = kindOf(resolved);
     if (kind === "Object" || kind === "AllOf") {
       statements.push(`${expr}&.validate!`);
     } else if (kind === "Enum") {
-      statements.push(`OpenapiYagenRuntime.require_enum(${expr}, ${descriptor.refName}::ALL_VALUES, ${field})`);
+      statements.push(`Runtime.require_enum(${expr}, ${descriptor.refName}::ALL_VALUES, ${field})`);
     }
   } else if (descriptor.kind === "array") {
     const itemVar = `item${depth}`;

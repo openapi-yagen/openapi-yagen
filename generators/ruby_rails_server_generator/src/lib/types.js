@@ -84,13 +84,13 @@ function registerClass(registry, name, schema) {
     // itself says `type: [X, null]`, since then an explicit null is legitimate, not a bug.
     const validateStatements = buildValidateStatements(t.descriptor, propSchema, `@${f.rubyName}`, f.rubyName);
     if (isRequired && !nullable) {
-      // Raises OpenapiYagenRuntime::ValidationError, NOT a bare ArgumentError (unlike
+      // Raises Runtime::ValidationError, NOT a bare ArgumentError (unlike
       // ruby_faraday_client_generator's own types.js) - a required property missing from an
       // incoming request body must be catchable by the same rescue_from a constraint violation
       // is (see controller.rb.j2/controller_concern.rb.j2), so every validate! failure raises the
       // same exception class, mirroring python_tornado_server_generator's uniform ValidationError.
       validateStatements.unshift(
-        `raise OpenapiYagenRuntime::ValidationError, "\\"${f.rubyName}\\" is required" if @${f.rubyName}.nil?`
+        `raise Runtime::ValidationError, "\\"${f.rubyName}\\" is required" if @${f.rubyName}.nil?`
       );
     }
     // Only an optional property gets a default literal - a `default` alongside a required property
@@ -281,7 +281,7 @@ function registerUnionDispatch(registry, name, schema) {
 // staying a plain String, since a server benefits from parsing-as-validation on untrusted wire
 // input the same way python_tornado_server_generator's runtime.py does for datetime.date/
 // datetime.datetime. `format: uuid` deliberately stays kind "primitive" (a plain String) - its
-// shape is checked separately (OpenapiYagenRuntime.require_uuid, see buildValidateStatements)
+// shape is checked separately (Runtime.require_uuid, see buildValidateStatements)
 // rather than needing its own Ruby class the way Date/Time already exist in the stdlib for.
 function primitiveDescriptor(s) {
   if (s.type === "string" && s.format === "date") return { kind: "date" };

@@ -6,8 +6,8 @@ module {{ moduleName }}
     extend ActiveSupport::Concern
 
     included do
-      rescue_from OpenapiYagenRuntime::ValidationError, with: :render_openapi_validation_error
-      rescue_from OpenapiYagenRuntime::MissingAuthenticationError, with: :render_openapi_missing_authentication_error
+      rescue_from Runtime::ValidationError, with: :render_openapi_validation_error
+      rescue_from Runtime::MissingAuthenticationError, with: :render_openapi_missing_authentication_error
     end
 {% for op in group.operations %}
     def {{ op.name }}

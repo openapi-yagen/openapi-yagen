@@ -1,22 +1,27 @@
-# Shared runtime for the generated API client - copied into the output directory verbatim (no
-# per-spec substitution needed, so this is emitted via copyFile rather than a template, same as
-# the TypeScript generator's runtime.ts). Every generated <Tag>Client class calls
-# OpenapiYagenRuntime.request instead of duplicating the query/header/auth/JSON/error-handling
-# sequence per operation.
+# Shared runtime for the generated API client. Every generated <Tag>Client class calls
+# Runtime.request instead of duplicating the query/header/auth/JSON/error-handling sequence per
+# operation.
 #
 # This module never picks (or creates) an HTTP engine: every generated client class takes an
-# already-configured Faraday::Connection from its caller (see api_client.rb.j2/api_bundle.rb.j2),
-# the Ruby analogue of the Kotlin Ktor client generator's caller-supplied HttpClient - so it works
-# with whichever Faraday adapter (net_http, Typhoeus, httpx, ...) the caller's own Gemfile already
-# uses. It does, however, own JSON encoding/decoding itself (there's no equivalent to Ktor's
-# installed ContentNegotiation plugin to lean on) - do NOT install a JSON-parsing response
-# middleware (e.g. faraday-json's Faraday::Response::Json) on the connection you inject, or
-# response bodies will already be parsed Hashes by the time this module tries to parse them again.
+# already-configured Faraday::Connection from its caller, so it works with whichever Faraday
+# adapter (net_http, Typhoeus, httpx, ...) the caller's own Gemfile already uses. It does,
+# however, own JSON encoding/decoding itself - do NOT install a JSON-parsing response middleware
+# (e.g. faraday-json's Faraday::Response::Json) on the connection you inject, or response bodies
+# will already be parsed Hashes by the time this module tries to parse them again.
+#
+# Namespaced under {{ moduleName }} (not a plain top-level module) so this client and any number
+# of other generated clients/servers in the same app can coexist without their runtime helpers
+# clashing.
 
 require "json"
 require "uri"
 
-module OpenapiYagenRuntime
+# Opens (and, if this is the first generated file loaded, creates) module {{ moduleName }} empty,
+# so the compact declaration below can nest Runtime under it.
+module {{ moduleName }}
+end
+
+module {{ moduleName }}::Runtime
   # Raised whenever a response status is not in the 2xx range.
   class ApiError < StandardError
     attr_reader :status, :response_body
@@ -32,31 +37,27 @@ module OpenapiYagenRuntime
 
   # Static value, or a zero-arg callable re-invoked on every request - the callable form is what
   # makes a rotating/expiring bearer token actually correct, since a value captured once at
-  # construction would go stale. Mirrors the TypeScript generator's HeaderProvider/AuthProvider.
+  # construction would go stale.
   def resolve(value)
     value.respond_to?(:call) ? value.call : value
   end
 
   # Percent-encodes a single path segment's interpolated value (RFC 3986 unreserved characters
-  # only pass through unescaped) - the Ruby equivalent of the TypeScript generator's
-  # `encodeURIComponent(String(value))` call in its own generated path expressions.
+  # only pass through unescaped).
   def escape_path_segment(value)
     URI::DEFAULT_PARSER.escape(value.to_s, /[^a-zA-Z0-9\-_.~]/)
   end
 
-  # `path` always starts with "/" (straight from the OpenAPI `paths:` key - see operations.js's
-  # buildPathExpr), which Faraday treats as an RFC 3986 absolute-path reference: merging it against
-  # `connection`'s own base URL (`Connection#build_url`/`#run_request`) REPLACES the base's own path
-  # component instead of appending to it - a connection configured as
+  # An operation's own path always starts with "/", which Faraday treats as an RFC 3986
+  # absolute-path reference: merging it against `connection`'s own base URL REPLACES the base's
+  # own path component instead of appending to it - a connection configured as
   # `Faraday.new(url: "https://api.example.com/v1")` would have `/v1` silently discarded on every
   # request, resolving to "https://api.example.com/current.json" instead of ".../v1/current.json".
-  # Resolved here instead, via plain string concatenation (matching how the Go/Kotlin generators'
-  # own generated code already builds request URLs, sidestepping this same RFC 3986 merge
-  # entirely) - only when `connection.url_prefix.host` is present, i.e. a real base URL was
-  # configured. A bare `Faraday.new { |f| f.adapter :test, stubs }` (no `url:` at all - the
-  # pattern this generator's own test suite uses throughout) has a nil host and a degenerate
-  # `url_prefix` ("http:/"); concatenating that would produce a broken, doubly-prefixed URL once
-  # Faraday re-merges it, so `path` is left untouched in that case, preserving today's behavior.
+  # Resolved here instead, via plain string concatenation, only when `connection.url_prefix.host`
+  # is present, i.e. a real base URL was configured. A bare `Faraday.new { |f| f.adapter :test,
+  # stubs }` (no `url:` at all) has a nil host and a degenerate `url_prefix` ("http:/");
+  # concatenating that would produce a broken, doubly-prefixed URL once Faraday re-merges it, so
+  # `path` is left untouched in that case.
   def resolve_request_path(connection, path)
     return path unless connection.url_prefix.host
 
@@ -85,21 +86,15 @@ module OpenapiYagenRuntime
     pairs.map { |k, v| "#{URI.encode_www_form_component(k)}=#{URI.encode_www_form_component(v.to_s)}" }.join("&")
   end
 
-  # Constraint-check helpers used by each generated model's validate! (see model_class.rb.j2 and
-  # lib/serialization.js's buildValidateStatements) - part of this generator's answer to
-  # AGENTS.md's "a generator for a dynamically-typed target language must generate its own runtime
-  # checks" convention: Ruby has no compiler to reject an out-of-spec value the way the
-  # TypeScript/Kotlin generators' static types do. Each is a no-op when `value` is nil (an absent
-  # optional field has nothing to check) and raises ArgumentError, naming the field, on violation -
-  # mirrors kotlin_ktor_server_generator's Validation.kt (requireMin/requireMax/requireMinLength/
-  # requireMaxLength/requirePattern) closely, just validating outgoing client data here instead of
-  # incoming server data. Only generated/called at all when the `validate` generator variable is
-  # "true" (the default) - see model_class.rb.j2.
+  # Constraint-check helpers used by each generated model's validate!. Each is a no-op when
+  # `value` is nil (an absent optional field has nothing to check) and raises ArgumentError,
+  # naming the field, on violation - validating outgoing data before it's sent. Only
+  # generated/called at all when the `validate` generator variable is "true" (the default).
 
-  # Basic type check, generated for every scalar property regardless of whether the schema
-  # declares any constraintsOf() keywords - without this, a property with no minLength/minimum/...
-  # at all would get an empty (looks-broken) validate!, since every other check here is opt-in per
-  # constraint keyword. `klass` is String/Integer/Numeric - see buildValidateStatements.
+  # Basic type check, generated for every scalar property regardless of which other constraints
+  # the schema declares - without this, a property with no minLength/minimum/... at all would get
+  # an empty (looks-broken) validate!, since every other check here is opt-in per constraint
+  # keyword. `klass` is String/Integer/Numeric.
   def require_type(value, klass, field)
     raise TypeError, "\"#{field}\" has the wrong type: expected #{klass}, got #{value.class}" if value && !value.is_a?(klass)
   end
@@ -114,7 +109,7 @@ module OpenapiYagenRuntime
   # File/IO/StringIO (anything responding to :read), or a Faraday::Multipart::FilePart/other
   # UploadIO-shaped object (anything responding to :content_type) - deliberately not checked
   # against Faraday::Multipart::FilePart directly, since faraday-multipart is an optional gem this
-  # generator's own runtime has no hard dependency on (see README's "multipart/form-data" section).
+  # module has no hard dependency on.
   def require_string_or_file(value, field)
     return if value.nil? || value.is_a?(String) || value.respond_to?(:read) || value.respond_to?(:content_type)
 
@@ -173,15 +168,15 @@ module OpenapiYagenRuntime
 
   # Resolves `auth_alternatives` (if the operation needs auth - see each generated method's
   # `auth:` argument) against `auth_config` (the `auth:` Hash passed to the client's own
-  # constructor - see api_client.rb.j2). `auth_alternatives` is an Array of OR-alternatives, each
-  # itself an Array of AND-combined requirement Hashes (`{kind:, location:, name:}`) - this picks
-  # the first alternative (in the spec's own declared order) whose every scheme has a configured
-  # provider, then applies each of that alternative's credentials: an Authorization header
-  # (:bearer) or wherever the apiKey scheme's :location says (header/query/cookie). This is a
-  # one-time credential-availability check, not a series of trial HTTP requests - exactly one
-  # request is ever sent, using whichever alternative was picked. Mutates `headers` and `cookies`
-  # and returns a possibly-extended `query` Hash (an apiKey in query position can't be added to
-  # `headers`, so it's merged into the query Hash instead, before build_query runs).
+  # constructor). `auth_alternatives` is an Array of OR-alternatives, each itself an Array of
+  # AND-combined requirement Hashes (`{kind:, location:, name:}`) - this picks the first
+  # alternative (in the spec's own declared order) whose every scheme has a configured provider,
+  # then applies each of that alternative's credentials: an Authorization header (:bearer) or
+  # wherever the apiKey scheme's :location says (header/query/cookie). This is a one-time
+  # credential-availability check, not a series of trial HTTP requests - exactly one request is
+  # ever sent, using whichever alternative was picked. Mutates `headers` and `cookies` and returns
+  # a possibly-extended `query` Hash (an apiKey in query position can't be added to `headers`, so
+  # it's merged into the query Hash instead, before build_query runs).
   def apply_auth(auth_alternatives, auth_config, headers, query, cookies)
     return query if auth_alternatives.nil? || auth_alternatives.empty?
 
@@ -226,22 +221,21 @@ module OpenapiYagenRuntime
   # Performs one HTTP request over the caller-supplied Faraday::Connection and returns the parsed
   # JSON response body (a plain Hash/Array/String/Numeric/true/false/nil, exactly as JSON.parse
   # would return it - the generated operation method is what turns this into a typed model via its
-  # response's own from_h, see api_client.rb.j2). Raises ApiError for any non-2xx response - the
-  # parsed (or raw-text) body is still attached to the error, so callers can inspect it (e.g. a
-  # structured error payload) without a second request.
+  # response's own from_h). Raises ApiError for any non-2xx response - the parsed (or raw-text)
+  # body is still attached to the error, so callers can inspect it (e.g. a structured error
+  # payload) without a second request.
   #
   # `content_type:` picks how `body` (already wire-shaped - a Hash, from the generated model's own
-  # to_wire, or already a plain String for :text/:bytes - see the generator's operations.js) gets
-  # encoded:
+  # to_wire, or already a plain String for :text/:bytes) gets encoded:
   #   :json        - JSON.generate, Content-Type: application/json (default).
   #   :urlencoded  - URI.encode_www_form (stdlib), Content-Type: application/x-www-form-urlencoded.
   #   :multipart   - passed straight through as the Faraday request body, UNMODIFIED, with no
   #                  Content-Type set here at all - the caller's own installed
   #                  Faraday::Multipart::Middleware (gem "faraday-multipart") performs the actual
   #                  MIME encoding (boundary generation, per-part headers) once the request reaches
-  #                  it. This module never hand-rolls multipart encoding itself - see the
-  #                  generator's README for why (same "caller owns Faraday-specific concerns"
-  #                  reasoning as never creating the Faraday::Connection itself).
+  #                  it. This module never hand-rolls multipart encoding itself, the same "caller
+  #                  owns Faraday-specific concerns" reasoning as never creating the
+  #                  Faraday::Connection itself.
   #   :text/:bytes - passed straight through as the Faraday request body, UNMODIFIED (already a
   #                  plain Ruby String either way - Ruby has no separate byte-array type for an HTTP
   #                  body), Content-Type set to `media_type:` (the operation's exact declared media

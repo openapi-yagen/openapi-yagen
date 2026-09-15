@@ -19,7 +19,7 @@ module {{ moduleName }}
 {% endif %}{% if op.hasHeaderParams %}      headers = { {% for p in op.headerParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
 {% endif %}{% if op.hasCookieParams %}      cookies = { {% for p in op.cookieParams %}{{ toStringLiteral(p.wireName) }} => {{ p.rubyName }}{% if not loop.is_last %}, {% endif %}{% endfor %} }
 {% endif %}{% if op.body %}      body = {{ op.bodyWireExpr }}
-{% endif %}      parsed = OpenapiYagenRuntime.request(
+{% endif %}      parsed = Runtime.request(
         connection: @connection,
         method: :{{ op.method }},
         path: "#{@base_url}{{ op.pathExpr }}",

@@ -48,7 +48,7 @@ for (const [, group] of groups) {
 // one tag.
 const apiDescription = (schema.info && schema.info.description) || null;
 
-copyFile("runtime.rb", `${moduleSnake}/runtime.rb`);
+renderTemplate("templates/runtime.rb.j2", { moduleName }, `${moduleSnake}/runtime.rb`);
 renderTemplate("templates/api_bundle.rb.j2", { moduleName, apiDescription, tagGroups }, `${moduleSnake}/api_client.rb`);
 renderTemplate(
   "templates/index.rb.j2",

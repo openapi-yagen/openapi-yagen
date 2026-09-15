@@ -129,7 +129,7 @@ function buildCookieParam(registry, hintBase, p) {
 
 // Turns "/pets/{petId}/ratings" into a Ruby double-quoted string-interpolation path expression
 // referencing the already-computed path parameter Ruby names, e.g.
-// "/pets/#{OpenapiYagenRuntime.escape_path_segment(pet_id)}/ratings". Uses the engine's
+// "/pets/#{Runtime.escape_path_segment(pet_id)}/ratings". Uses the engine's
 // splitPathTemplate() instead of hand-rolling the same "/"-split + `{param}` regex every
 // path-based generator otherwise needs; literal segments still need their own escaping for safe
 // embedding inside a Ruby double-quoted string (", #, and \\).
@@ -142,7 +142,7 @@ function buildPathExpr(pathStr, pathParams) {
         if ("param" in seg) {
           const p = byWireName.get(seg.param);
           if (!p) throw Error(`<c1a9e6c2> Path parameter "{${seg.param}}" in "${pathStr}" has no matching parameter definition`);
-          return "#{OpenapiYagenRuntime.escape_path_segment(" + p.rubyName + ")}";
+          return "#{Runtime.escape_path_segment(" + p.rubyName + ")}";
         }
         return seg.literal.replace(/["#\\]/g, "\\$&");
       })
@@ -248,7 +248,7 @@ function requireFlatObjectSchema(bodySchema, mediaType) {
 // those, a single remaining media type is still accepted as a raw body: "text/*" and anything else
 // (application/octet-stream, application/zip, image/*, ...) are both just a plain Ruby `String` on
 // the wire (Ruby has no separate byte-array type for an HTTP body - the difference is only which
-// Content-Type header OpenapiYagenRuntime.request sends, see buildRequestBody below) - the wire
+// Content-Type header Runtime.request sends, see buildRequestBody below) - the wire
 // content-type, not the declared schema, decides. Returns null only when `content` has entries but
 // none of the above applies - more than one non-JSON/form media type is ambiguous (which one would
 // the generated method actually send?) and the caller turns that into a generation error instead of
@@ -281,7 +281,7 @@ function buildRequestBody(registry, hintBase, requestBody) {
         `type, or a single other media type (sent as raw bytes) are supported`
     );
   }
-  // "text"/"bytes": the wire content-type alone decides how it's sent (see OpenapiYagenRuntime.
+  // "text"/"bytes": the wire content-type alone decides how it's sent (see Runtime.
   // request's content_type: handling) regardless of the declared schema - matches actual HTTP
   // semantics (the Content-Type header is what a real client/server keys its parsing on). A plain
   // "primitive" descriptor makes bodyWireExpr/responseFromHExpr identity passthroughs (see
@@ -305,7 +305,7 @@ function buildRequestBody(registry, hintBase, requestBody) {
 // else default" pick every response-handling generator otherwise needs. `application/json` gets a
 // real descriptor-driven type; a single remaining "text/*" or other media type both just become a
 // plain Ruby `String` (Ruby has no separate byte-array type - see buildRequestBody above), read via
-// OpenapiYagenRuntime.request's response_encoding: without attempting a JSON.parse. More than one
+// Runtime.request's response_encoding: without attempting a JSON.parse. More than one
 // remaining media type is still a loud error, not a guess (see README "Known limitations").
 function buildResponse(registry, hintBase, responses) {
   const picked = firstSuccessResponse(responses || {});

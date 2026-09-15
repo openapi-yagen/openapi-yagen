@@ -54,7 +54,7 @@ openapi-yagen g -o .generated -g ruby_rails_server_generator openapi.yaml -v mod
 <module>/controllers/openapi_spec_controller.rb     only if publishOpenApiSpec=true - serves ../openapi.json
 <module>/openapi.json                               only if publishOpenApiSpec=true - the effective OpenAPI document
 <module>/routes.rb                                  Routes.draw(mapper, handlers:) - call from config/routes.rb
-<module>/runtime.rb                                 OpenapiYagenRuntime - shared validation/parsing/auth helpers
+<module>/runtime.rb                                 <module>::Runtime - shared validation/parsing/auth helpers
 <module>.rb                                         aggregator - requires every file above, in a safe order
 ```
 
@@ -170,11 +170,12 @@ effect in this mode.
 ### Errors
 
 Both a request-validation failure and a constraint violation map to a single error class -
-`OpenapiYagenRuntime::ValidationError` - regardless of whether it surfaced while parsing a
-parameter, decoding the request body, or serializing your handler's return value; the generated
-controller's `rescue_from` maps it to `422 Unprocessable Content`. A missing/invalid
-authentication credential is a distinct class, `OpenapiYagenRuntime::MissingAuthenticationError`,
-mapped to `401 Unauthorized`. Both default response bodies are `{"error": "<message>"}` - override
+`Runtime::ValidationError` (namespaced under your `moduleName`, e.g. `PetStore::Runtime::ValidationError`)
+- regardless of whether it surfaced while parsing a parameter, decoding the request body, or
+serializing your handler's return value; the generated controller's `rescue_from` maps it to
+`422 Unprocessable Content`. A missing/invalid authentication credential is a distinct class,
+`Runtime::MissingAuthenticationError`, mapped to `401 Unauthorized`. Both default response bodies
+are `{"error": "<message>"}` - override
 `render_openapi_validation_error`/`render_openapi_missing_authentication_error` in your own
 `baseController` to change the shape, or to add logging/request-id correlation.
 
@@ -203,7 +204,7 @@ a flat object (scalar/enum properties, or arrays of either), same as the client 
 - **Query/header/cookie**: read from Rails' `params`/`request.headers`/`request.cookies` and
   parsed/validated according to the schema (`Integer`/`Float`/`true`-or-`false`/`Date`/`Time`,
   `format: uuid` shape-checked, an enum's membership checked) before your handler ever sees it -
-  raises `OpenapiYagenRuntime::ValidationError` on a malformed value. Restricted to a primitive
+  raises `Runtime::ValidationError` on a malformed value. Restricted to a primitive
   scalar or enum, same restriction `ruby_faraday_client_generator` applies to path/header/cookie
   (query has no such restriction there, since a client only ever *sends* a query value - a server
   has to *parse* one, so this generator can't accept an arbitrary shape it has no generic parsing
@@ -272,7 +273,7 @@ format-level validation is out of scope there - see that generator's README), th
 validates/parses them, since a server receives untrusted wire input:
 
 - `format: uuid` stays a plain `String`, shape-checked (canonical 8-4-4-4-12 hex form) via
-  `OpenapiYagenRuntime.require_uuid`.
+  `Runtime.require_uuid`.
 - `format: date`/`date-time` become a real Ruby `Date`/`Time` - parsing *is* the validation
   (`Date.iso8601`/`Time.iso8601`), raising `ValidationError` on a malformed value.
 
@@ -281,7 +282,7 @@ validates/parses them, since a server receives untrusted wire input:
 Same discriminated/undiscriminated dispatch rules as `ruby_faraday_client_generator` - see that
 generator's README. One difference: every `from_h`/`to_wire` failure here (an unknown
 discriminator value, no variant matching an undiscriminated union's shape, an invalid enum value)
-raises `OpenapiYagenRuntime::ValidationError`, not a bare `ArgumentError` - so it's caught by the
+raises `Runtime::ValidationError`, not a bare `ArgumentError` - so it's caught by the
 same `rescue_from` a constraint violation is, and mapped to the same `422`, no matter which model
 file it originated in.
 

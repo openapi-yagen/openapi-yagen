@@ -80,7 +80,7 @@ renderTemplate(
   `${moduleSnake}/routes.rb`
 );
 
-copyFile("runtime.rb", `${moduleSnake}/runtime.rb`);
+renderTemplate("templates/runtime.rb.j2", { moduleName }, `${moduleSnake}/runtime.rb`);
 renderTemplate(
   "templates/index.rb.j2",
   { moduleName, moduleSnake, models: registry.order.map((n) => toSnakeCase(n)), tagGroups, controllerMode, publishOpenApiSpec },

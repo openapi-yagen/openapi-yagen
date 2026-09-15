@@ -7,8 +7,8 @@ module {{ moduleName }}
         attr_accessor :handler
       end
 
-      rescue_from OpenapiYagenRuntime::ValidationError, with: :render_openapi_validation_error
-      rescue_from OpenapiYagenRuntime::MissingAuthenticationError, with: :render_openapi_missing_authentication_error
+      rescue_from Runtime::ValidationError, with: :render_openapi_validation_error
+      rescue_from Runtime::MissingAuthenticationError, with: :render_openapi_missing_authentication_error
 {% for op in group.operations %}
       def {{ op.name }}
 {% for stmt in op.statements %}        {{ stmt }}
