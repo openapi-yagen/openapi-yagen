@@ -1,3 +1,15 @@
+# 1.0.0 (2026-09-21)
+
+- Add ruby_rails_server_generator: a Ruby/Rails server generator (routing, controllers, models) shipped as a builtin (`builtin:ruby_rails_server`) and emitting an eager_load-safe integration file
+- Support `explode: false`, `spaceDelimited`, and `pipeDelimited` array query parameter serialization in all four client generators
+- Add an opt-in `publishOpenApiSpec` option to all four server generators so they can serve the resolved OpenAPI document as JSON
+- Add typed YARD `@param`/`@return` doc comments to ruby_faraday_client_generator operations
+- Auto-inject a "do not edit" header into every generated file, overridable via a new `--header` CLI flag (or disabled entirely with `--no-header`)
+- Fall back to an untyped value instead of failing when a oneOf/anyOf union's variants can't be disambiguated, with a warning
+- Fix relative/same-origin `baseUrl` support in ruby_faraday_client_generator and typescript_fetch_client_generator, which previously threw a `TypeError`
+- Fix loading generated Ruby server and client bundles in the same process colliding on a shared flat runtime module
+- Fix ruby_faraday_client_generator silently dropping a connection's base path on every request
+
 # 0.11.0 (2026-08-31)
 
 - Add a Docker runtime image and Linux arm64/macOS release binaries
