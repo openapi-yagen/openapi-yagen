@@ -3,4 +3,5 @@ package models
 {% if model.needsTime %}import "time"
 
 {% endif %}{% if model.description %}{{ buildDocComment(model.name + " - " + model.description, null, [], "//") }}
-{% endif %}type {{ model.name }} {{ model.targetType }}
+{% endif %}{% if model.targetType == "time.Time" %}// An alias rather than a defined type, which would lose time.Time's methods (JSON encoding included).
+type {{ model.name }} = {{ model.targetType }}{% else %}type {{ model.name }} {{ model.targetType }}{% endif %}

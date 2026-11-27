@@ -169,7 +169,8 @@ variants with no property that distinguishes them).
 A closed `enum` schema generates a defined string/int type with one constant per value, an `IsValid()
 bool` method, and `MarshalJSON`/`UnmarshalJSON` that reject an unrecognized value.
 
-`format: date-time` properties/parameters generate `time.Time`. `format: date` and `format: uuid`
+`format: date-time` properties/parameters generate `time.Time`, and a named schema of that format
+generates an alias (`type Timestamp = time.Time`), so its values are plain `time.Time` values. `format: date` and `format: uuid`
 generate a plain `string` - there is no dependency-free stdlib type for either - but a struct
 property with one of those formats is still shape-checked by
 `Validate()`: `format: uuid` requires the canonical 8-4-4-4-12 hyphenated hex form, `format: date`

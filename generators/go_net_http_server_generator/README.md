@@ -222,6 +222,9 @@ See [`go_net_http_client`](../go_net_http_client_generator/README.md)'s README "
 types" section - struct/enum/union/pointer representation is identical, since both generators
 share the same `models` output.
 
+`format: date-time` properties/parameters generate `time.Time`, and a named schema of that format
+generates an alias (`type Timestamp = time.Time`), so its values are plain `time.Time` values.
+
 #### Required properties
 
 A struct with `required` properties gets an `UnmarshalJSON` that rejects a JSON object lacking one

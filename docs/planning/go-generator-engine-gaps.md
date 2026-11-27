@@ -159,7 +159,5 @@ Found while type-checking the output for `test/resources/ghes-3.15.yaml` and sma
 - Enum values differing only in characters lost by name conversion (`+1`/`-1`) produce duplicate
   constant names; the same pair as property names produces two struct fields named `_1`.
 - A schema named `ValidationError` collides with the runtime's own `models.ValidationError`.
-- A named `format: date-time` schema generates `type X time.Time`, which drops `time.Time`'s
-  methods, JSON marshaling included.
 - The constraints of urlencoded/multipart fields are never checked.
 - `minLength`/`maxLength` count bytes, not Unicode characters.

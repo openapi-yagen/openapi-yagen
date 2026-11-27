@@ -586,6 +586,52 @@ paths:
             text/plain:
               schema:
                 type: string
+  /timelines/{since}:
+    put:
+      operationId: putTimeline
+      tags: [extras]
+      parameters:
+        - name: since
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+        - name: until
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Timestamp"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Timeline"
+      responses:
+        "200":
+          description: Echo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Timeline"
+  /timestamp:
+    post:
+      operationId: echoTimestamp
+      tags: [extras]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Timestamp"
+      responses:
+        "200":
+          description: Echo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Timestamp"
   /person:
     post:
       operationId: echoPerson
@@ -640,6 +686,25 @@ paths:
                 type: string
 components:
   schemas:
+    Timestamp:
+      type: string
+      format: date-time
+    Timeline:
+      type: object
+      required: [createdAt]
+      properties:
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/Timestamp"
+        marker:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: integer
     Quantity:
       type: integer
       format: int32
@@ -651,6 +716,8 @@ components:
       type: object
       required: [owner]
       properties:
+        at:
+          $ref: "#/components/schemas/Timestamp"
         owner:
           $ref: "#/components/schemas/Identifier"
         alias:
