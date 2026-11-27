@@ -8,7 +8,8 @@
 // only work up to that point.
 
 import { typeName, fieldName, paramName, operationName } from "./naming.js";
-import { goType } from "./types.js";
+import { goType, openEnumValues } from "./types.js";
+import { underlyingType } from "./validation.js";
 import { toGoStringLiteral } from "./keywords.js";
 import { withResilience } from "./strict.js";
 
@@ -88,6 +89,8 @@ const RUNTIME_DECLARED_NAMES = [
   "UnsupportedMediaTypeError",
   "RequireBearerToken",
   "RequireAPIKey",
+  "RequestFromContext",
+  "ResponseWriterFromContext",
   "OpenAPISpec",
   "RegisterOpenApiSpecRoute",
 ];
@@ -104,18 +107,55 @@ function qualifyModelType(t) {
   return isModelType(t) ? "models." + t : t;
 }
 
+// A named scalar schema (e.g. `type TenantID string`) used by a parameter is passed as the scalar
+// it's defined over - parameters have no use for the named type's own methods (it has none).
+function resolveScalarAlias(registry, type) {
+  const model = registry.models.get(type);
+  return model && model.kind === "alias" ? underlyingType(registry, model.targetType) : type;
+}
+
+// ECMA-262 regex constructs Go's regexp (RE2) rejects: lookarounds, backreferences, \u and \c escapes.
+const RE2_UNSUPPORTED_PATTERN = /\(\?<?[=!]|\\[1-9]|\\u|\\c/;
+
+// The extra arguments a parameter helper (server/runtime.go) takes to validate the converted value
+// against the schema's constraints - the same set models' Validate() checks.
+function paramCheckArgs(registry, name, schema, type) {
+  const c = constraintsOf(schema);
+  const underlying = underlyingType(registry, type);
+  const goTypeArg = qualifyModelType(type);
+  const checks = [];
+  if (["int", "int32", "int64", "float32", "float64"].includes(underlying)) {
+    if (c.minimum !== undefined) checks.push(`checkMin[${goTypeArg}](${c.minimum})`);
+    if (c.maximum !== undefined) checks.push(`checkMax[${goTypeArg}](${c.maximum})`);
+  }
+  if (underlying === "string") {
+    if (c.minLength !== undefined) checks.push(`checkMinLength[${goTypeArg}](${c.minLength})`);
+    if (c.maxLength !== undefined) checks.push(`checkMaxLength[${goTypeArg}](${c.maxLength})`);
+    if (c.pattern !== undefined) {
+      if (RE2_UNSUPPORTED_PATTERN.test(c.pattern)) {
+        dump(`WARNING: parameter "${name}": pattern ${c.pattern} isn't supported by Go's regexp package, so it isn't checked`);
+      } else {
+        checks.push(`checkPattern[${goTypeArg}](${toGoStringLiteral(c.pattern)})`);
+      }
+    }
+    if (schema.format === "uuid") checks.push(`checkUUID[${goTypeArg}]`);
+    if (schema.format === "date") checks.push(`checkDate[${goTypeArg}]`);
+  }
+  return checks.map((check) => ", " + check).join("");
+}
+
 // A query param whose (unwrapped) schema is Array-kind - serialized as repeated `?name=a&name=b`
 // keys (OpenAPI 3's default `style: form, explode: true`).
 function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
-  const itemT = goType(registry, itemSchema, hintBase + typeName(p.name) + "Item");
-  const isSupported = isEnumType(registry, itemT.type) || SUPPORTED_SCALAR_PARAM_TYPES.has(itemT.type);
+  const itemType = resolveScalarAlias(registry, goType(registry, itemSchema, hintBase + typeName(p.name) + "Item").type);
+  const isSupported = isEnumType(registry, itemType) || SUPPORTED_SCALAR_PARAM_TYPES.has(itemType);
   if (!isSupported) {
     throw Error(
       `<01534acc> Unsupported query parameter array item type for "${p.name}": array items must be ` +
-        `primitive scalar types (string/integer/number/boolean/date-time) or enums, got "${itemT.type}"`
+        `primitive scalar types (string/integer/number/boolean/date-time) or enums, got "${itemType}"`
     );
   }
-  const qualifiedItemType = qualifyModelType(itemT.type);
+  const qualifiedItemType = qualifyModelType(itemType);
   return {
     goName: paramName(p.name),
     wireName: p.name,
@@ -126,7 +166,8 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
     isArray: true,
     required: !!p.required,
     pointer: false,
-    converter: converterFor(registry, itemT.type),
+    converter: converterFor(registry, itemType),
+    checkArgs: paramCheckArgs(registry, p.name, unwrapSchema(itemSchema), itemType),
     description: p.description || null,
   };
 }
@@ -137,12 +178,13 @@ function buildParam(registry, hintBase, p) {
   if (p.in === "query" && kindOf(resolved) === "Array") {
     return buildArrayQueryParam(registry, hintBase, p, resolved.items || { type: "string" });
   }
-  const t = isPrimitiveLikeUnion(resolved) ? { type: "string" } : goType(registry, schema, hintBase + typeName(p.name));
-  const isSupported = isEnumType(registry, t.type) || SUPPORTED_SCALAR_PARAM_TYPES.has(t.type);
+  const isPlainString = isPrimitiveLikeUnion(resolved) && !openEnumValues(resolved);
+  const type = isPlainString ? "string" : resolveScalarAlias(registry, goType(registry, schema, hintBase + typeName(p.name)).type);
+  const isSupported = isEnumType(registry, type) || SUPPORTED_SCALAR_PARAM_TYPES.has(type);
   if (!isSupported) {
     throw Error(
       `<394d7fec> Unsupported parameter type for "${p.name}" (in: ${p.in}): only primitive scalar ` +
-        `types (string/integer/number/boolean/date-time) or enums are supported in path/query/header position, got "${t.type}"`
+        `types (string/integer/number/boolean/date-time) or enums are supported in path/query/header position, got "${type}"`
     );
   }
   const isPath = p.in === "path";
@@ -152,12 +194,13 @@ function buildParam(registry, hintBase, p) {
     wireName: p.name,
     wireNameLiteral: toGoStringLiteral(p.name),
     in: p.in,
-    type: qualifyModelType(t.type),
+    type: qualifyModelType(type),
     itemType: null,
     isArray: false,
     required,
     pointer: !required,
-    converter: converterFor(registry, t.type),
+    converter: converterFor(registry, type),
+    checkArgs: isPlainString ? "" : paramCheckArgs(registry, p.name, resolved, type),
     description: p.description || null,
   };
 }

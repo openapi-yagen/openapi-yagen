@@ -55,7 +55,7 @@ server/runtime.go         parameter parsing/validation helpers, Router/Route, Bi
 server/openapi.json       only if publishOpenApiSpec=true - the effective OpenAPI document
 server/openapi_spec.go    only if publishOpenApiSpec=true - OpenAPISpec() and RegisterOpenApiSpecRoute,
                           embeds openapi.json
-models/validation.go      ValidationError plus requireMin/requireMax/requireMinLength/requireMaxLength/requirePattern
+models/validation.go      ValidationError plus the internal checks and JSON helpers generated models use
 models/union_helpers.go   internal helpers used by generated oneOf/anyOf wrapper types
 ```
 
@@ -128,6 +128,36 @@ func (l loggingRouter) HandleFunc(pattern string, handler func(http.ResponseWrit
 server.RegisterPetsRoutes(loggingRouter{mux}, &petsHandler{}, nil)
 ```
 
+### Accessing the request and response
+
+A handler method receives only the operation's declared inputs. For anything else, take the
+`*http.Request` and `http.ResponseWriter` from its context:
+
+```go
+func (h *petsHandler) GetPetById(ctx context.Context, petId string) (models.Pet, error) {
+    r := server.RequestFromContext(ctx)
+    w := server.ResponseWriterFromContext(ctx)
+    w.Header().Set("Cache-Control", "no-store")
+    log.Print(r.Header.Get("X-Request-ID"))
+    // ...
+}
+```
+
+Headers set this way are sent along with the generated response (which sets `Content-Type` itself).
+Once the handler calls `WriteHeader`, `Write` or `Flush`, or hijacks the connection, the response
+is the handler's: its return value is ignored, and `DefaultErrorHandler` writes nothing for a
+returned error (a custom `ErrorHandler` is still called). That allows streaming, or delegating to
+an existing `http.Handler`:
+
+```go
+func (h *serviceHandler) GetMetrics(ctx context.Context) (string, error) {
+    h.metrics.ServeHTTP(server.ResponseWriterFromContext(ctx), server.RequestFromContext(ctx))
+    return "", nil
+}
+```
+
+The request's body may already have been consumed to decode the operation's request body.
+
 ### Publishing the OpenAPI spec
 
 Set `-v publishOpenApiSpec=true` to have the generated server publish its own spec:
@@ -179,6 +209,9 @@ order, using the first one whose every scheme is present:
 func (h *widgetsHandler) FavoriteWidget(ctx context.Context, widgetId string, oauth2AuthToken *string, apiKeyAuthKey *string) error
 ```
 
+A bearer token must arrive as `Authorization: Bearer <token>` (scheme name case-insensitive);
+another scheme or an empty token counts as missing.
+
 A missing credential (single requirement) or no satisfied alternative (OR-alternatives) returns a
 `*server.MissingAuthenticationError` from `RegisterXRoutes`'s wrapper before the handler is ever
 called, mapped to 401 by `DefaultErrorHandler`.
@@ -188,6 +221,30 @@ called, mapped to 401 by `DefaultErrorHandler`.
 See [`go_net_http_client`](../go_net_http_client_generator/README.md)'s README "Model
 types" section - struct/enum/union/pointer representation is identical, since both generators
 share the same `models` output.
+
+#### Required properties
+
+A struct with `required` properties gets an `UnmarshalJSON` that rejects a JSON object lacking one
+of them with a `*models.ValidationError` (`is required`), and an explicit `null` for one whose
+schema doesn't allow it (`must not be null` - an array or map property tolerates `null`, which is
+how Go encodes a nil slice/map). Property names are matched exactly. A `readOnly` or `writeOnly`
+property is not enforced, since the same model serves requests and responses. `Validate()` also
+rejects a required enum property holding a value outside the enum (e.g. in a struct built by hand).
+
+#### Additional properties
+
+An object declaring `properties` together with `additionalProperties: true` (or a schema) gets an
+extra `AdditionalProperties map[string]any` (or `map[string]T`) field holding every other property,
+both ways: it's filled when decoding and written back when encoding. A map entry named like a
+declared property is ignored when encoding. If the schema has its own property that takes that Go
+name, the map field is called `AdditionalPropertiesWrapper`.
+
+#### Open enums
+
+An enum meant to grow - `anyOf`/`oneOf` of a string `enum` and an unrestricted `type: string`, or a
+string schema with `x-extensible-enum: [...]` - generates a string type with one constant per known
+value, an `IsKnown() bool` method, and no rejection of unknown values. `x-extensible-enum` is only
+honored in an OpenAPI 3.1+ document (converting a 3.0 document drops `x-*` keywords).
 
 ### Request body content types
 
@@ -313,9 +370,13 @@ signature.
 ### Path/query/header/cookie parameters
 
 Same supported shapes as the client generator - see its README "Path/query/header/cookie
-parameters" section. A required parameter that's absent, or any parameter that fails to parse into
-its declared type, returns a `*models.ValidationError` before the handler is called, mapped to 400
-by `DefaultErrorHandler`.
+parameters" section. A parameter referencing a named scalar schema is passed as that scalar. A
+required parameter that's absent, any parameter that fails to parse into its declared type, or one
+breaking its schema's `minimum`/`maximum`/`minLength`/`maxLength`/`pattern`/`format: uuid`/
+`format: date` constraint (each item of an array parameter) returns a `*models.ValidationError`
+before the handler is called, mapped to 400 by `DefaultErrorHandler`. A `pattern` using syntax Go's
+`regexp` package lacks (lookarounds, backreferences) isn't checked on parameters, and generation
+prints a warning.
 
 ## Formatting generated sources
 
@@ -342,7 +403,9 @@ openapi-yagen g -o out -g builtin:go_net_http_server openapi.yaml \
   (non-form) request body is streamed.
 - Only explicitly numbered `2xx` responses become separate response variants; a range (`2XX`) or
   `default` response is used only when no numbered `2xx` response exists. Response headers declared
-  in the spec are not generated - set them in middleware wrapping the mux.
+  in the spec are not generated - set them through `server.ResponseWriterFromContext`.
+- Constraints of `multipart/form-data` and `application/x-www-form-urlencoded` body fields are not
+  checked.
 - `Validate()` (called automatically on a JSON request body before the handler runs; recurses into
   nested struct/`oneOf`/`anyOf`-typed fields - see the client generator README's "Model types"
   section) has non-recursive checks limited to `minimum`/`maximum`/`minLength`/`maxLength`/

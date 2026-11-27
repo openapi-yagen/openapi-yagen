@@ -8,7 +8,8 @@
 // only work up to that point.
 
 import { typeName, fieldName, paramName, operationName } from "./naming.js";
-import { goType } from "./types.js";
+import { goType, openEnumValues } from "./types.js";
+import { underlyingType } from "./validation.js";
 import { toGoStringLiteral } from "./keywords.js";
 import { withResilience } from "./strict.js";
 
@@ -41,16 +42,23 @@ function isEnumType(registry, typeStr) {
 // otherwise, in which case the template calls addQueryParamJoined instead (see runtime.go).
 const ARRAY_QUERY_SEPARATORS = { form: ",", spaceDelimited: " ", pipeDelimited: "|" };
 
+// A named scalar schema (e.g. `type TenantID string`) used by a parameter is passed as the scalar
+// it's defined over - parameters have no use for the named type's own methods (it has none).
+function resolveScalarAlias(registry, type) {
+  const model = registry.models.get(type);
+  return model && model.kind === "alias" ? underlyingType(registry, model.targetType) : type;
+}
+
 // A query param whose (unwrapped) schema is Array-kind - serialized as repeated `?name=a&name=b`
 // keys (OpenAPI 3's default `style: form, explode: true`) - path/header positions have no
 // standard "repeated value" serialization, so those stay scalar-only.
 function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
-  const itemT = goType(registry, itemSchema, hintBase + typeName(p.name) + "Item");
-  const isSupported = isEnumType(registry, itemT.type) || SUPPORTED_SCALAR_PARAM_TYPES.has(itemT.type);
+  const itemType = resolveScalarAlias(registry, goType(registry, itemSchema, hintBase + typeName(p.name) + "Item").type);
+  const isSupported = isEnumType(registry, itemType) || SUPPORTED_SCALAR_PARAM_TYPES.has(itemType);
   if (!isSupported) {
     throw Error(
       `<01534acc> Unsupported query parameter array item type for "${p.name}": array items must be ` +
-        `primitive scalar types (string/integer/number/boolean/date-time) or enums, got "${itemT.type}"`
+        `primitive scalar types (string/integer/number/boolean/date-time) or enums, got "${itemType}"`
     );
   }
   const style = p.style || "form";
@@ -71,8 +79,8 @@ function buildArrayQueryParam(registry, hintBase, p, itemSchema) {
     wireName: p.name,
     wireNameLiteral: toGoStringLiteral(p.name),
     in: p.in,
-    type: `[]${qualifyModelType(itemT.type)}`,
-    itemType: qualifyModelType(itemT.type),
+    type: `[]${qualifyModelType(itemType)}`,
+    itemType: qualifyModelType(itemType),
     isArray: true,
     required: !!p.required,
     // A nil slice ranges zero times, so an absent optional array param needs no separate nil
@@ -90,12 +98,13 @@ function buildParam(registry, hintBase, p) {
   if (p.in === "query" && kindOf(resolved) === "Array") {
     return buildArrayQueryParam(registry, hintBase, p, resolved.items || { type: "string" });
   }
-  const t = isPrimitiveLikeUnion(resolved) ? { type: "string" } : goType(registry, schema, hintBase + typeName(p.name));
-  const isSupported = isEnumType(registry, t.type) || SUPPORTED_SCALAR_PARAM_TYPES.has(t.type);
+  const isPlainString = isPrimitiveLikeUnion(resolved) && !openEnumValues(resolved);
+  const type = isPlainString ? "string" : resolveScalarAlias(registry, goType(registry, schema, hintBase + typeName(p.name)).type);
+  const isSupported = isEnumType(registry, type) || SUPPORTED_SCALAR_PARAM_TYPES.has(type);
   if (!isSupported) {
     throw Error(
       `<394d7fec> Unsupported parameter type for "${p.name}" (in: ${p.in}): only primitive scalar ` +
-        `types (string/integer/number/boolean/date-time) or enums are supported in path/query/header position, got "${t.type}"`
+        `types (string/integer/number/boolean/date-time) or enums are supported in path/query/header position, got "${type}"`
     );
   }
   const isPath = p.in === "path";
@@ -105,13 +114,52 @@ function buildParam(registry, hintBase, p) {
     wireName: p.name,
     wireNameLiteral: toGoStringLiteral(p.name),
     in: p.in,
-    type: qualifyModelType(t.type),
+    type: qualifyModelType(type),
     itemType: null,
     isArray: false,
     required,
     pointer: !required,
     description: p.description || null,
   };
+}
+
+// One securityScheme as a client/runtime.go securityRequirement literal, or null if the client
+// can't supply its credentials.
+function securityRequirementLiteral(schemeName, scheme) {
+  const fields = [`scheme: ${toGoStringLiteral(schemeName)}`];
+  const isBearerLike =
+    (scheme.type === "http" && (scheme.scheme || "").toLowerCase() === "bearer") || scheme.type === "oauth2" || scheme.type === "openIdConnect";
+  if (isBearerLike) fields.push("bearer: true");
+  else if (scheme.type === "apiKey") fields.push(`in: ${toGoStringLiteral(scheme.in)}`, `name: ${toGoStringLiteral(scheme.name)}`);
+  else return null;
+  return `{${fields.join(", ")}}`;
+}
+
+// The arguments of an operation's authorize() call, or null if it needs no credentials the client
+// can supply. An alternative using an unsupported scheme (e.g. http/basic, mutualTLS) is left to the
+// caller's own *http.Client, which makes the requirement optional from the generated code's side -
+// as does an explicit anonymous (`{}`) alternative.
+function buildSecurity(operationLabel, security) {
+  if (!security || security.length === 0) return null;
+  const schemes = (schema.components && schema.components.securitySchemes) || {};
+  const alternatives = [];
+  let optional = false;
+  for (const requirement of security) {
+    const literals = Object.keys(requirement).map((name) => securityRequirementLiteral(name, schemes[name] || {}));
+    if (literals.length === 0) {
+      optional = true;
+    } else if (literals.includes(null)) {
+      optional = true;
+      dump(
+        `WARNING: ${operationLabel}: security requirement [${Object.keys(requirement).join(", ")}] uses a scheme other than ` +
+          `http/bearer, oauth2, openIdConnect, or apiKey - authenticate it through the *http.Client`
+      );
+    } else {
+      alternatives.push(`{${literals.join(", ")}}`);
+    }
+  }
+  if (alternatives.length === 0) return null;
+  return { optional, alternativesLiteral: `[][]securityRequirement{${alternatives.join(", ")}}` };
 }
 
 function paramSig(p) {
@@ -358,7 +406,7 @@ const NON_MODEL_TYPES = new Set([FILE_TYPE, "io.Reader"]);
 
 // Names already declared at package level in client/runtime.go and client/ApiClient.go - a
 // generated response variant type must never reuse one.
-const RUNTIME_DECLARED_NAMES = ["File", "ResponseError", "ApiClient", "NewApiClient"];
+const RUNTIME_DECLARED_NAMES = ["File", "ResponseError", "MaxErrorBodySize", "Auth", "Option", "WithAuth", "ApiClient", "NewApiClient"];
 
 function isModelType(t) {
   return !!t && !NON_MODEL_TYPES.has(t) && !BUILTIN_TYPES.has(baseGoType(t));
@@ -477,6 +525,7 @@ export function collectOperationsByTag(registry) {
           response,
           returnsValue: response.type !== null,
           signature,
+          security: buildSecurity(`operation ${op.method.toUpperCase()} ${op.path}`, op.security),
         });
       },
       () => {} // permissive mode: drop this operation, keep the rest of the group as-is

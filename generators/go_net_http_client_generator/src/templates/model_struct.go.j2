@@ -1,7 +1,7 @@
 package models
 
-{% if model.needsTime or model.needsFmt or model.needsDefaults %}import (
-{% if model.needsDefaults %}	"encoding/json"
+{% if model.needsTime or model.needsFmt or model.needsUnmarshal %}import (
+{% if model.needsUnmarshal %}	"encoding/json"
 {% endif %}{% if model.needsFmt %}	"fmt"
 {% endif %}{% if model.needsTime %}	"time"
 {% endif %})
@@ -10,31 +10,60 @@ package models
 {% endif %}type {{ model.name }} struct {
 {% filter indent("\t", true) %}{% for p in model.properties %}{% if p.description %}{{ buildDocComment(p.description, null, [], "//") }}
 {% endif %}{{ p.goName }} {% if p.pointer %}*{% endif %}{{ p.type }} `json:"{{ p.wireName }}{% if p.omitempty %},omitempty{% endif %}"`
-{% endfor %}{% endfilter %}}
+{% endfor %}{% if model.additional %}// {{ model.additional.goName }} holds the properties the schema doesn't declare by name.
+{{ model.additional.goName }} map[string]{{ model.additional.valueType }} `json:"-"`
+{% endif %}{% endfilter %}}
 
 // Validate checks {{ model.name }}'s own declared constraints (minimum/maximum/minLength/
-// maxLength/pattern/format: uuid/format: date), and recurses into any struct- or oneOf/anyOf-typed
-// field (directly, or through every element of a slice/map) by calling that field's own Validate().
+// maxLength/pattern/format: uuid/format: date, and required enum values), and recurses into any
+// struct- or oneOf/anyOf-typed field (directly, or through every element of a slice/map) by
+// calling that field's own Validate().
 func (v *{{ model.name }}) Validate() error {
 {% filter indent("\t", true) %}{% for p in model.properties %}{% for call in p.validationCalls %}{{ call }}
-{% endfor %}{% endfor %}return nil{% endfilter %}
+{% endfor %}{% endfor %}{% if model.additionalValidationCall %}{{ model.additionalValidationCall }}
+{% endif %}return nil{% endfilter %}
 }
-{% if model.needsDefaults %}
-// UnmarshalJSON fills every field with a declared `default` first, then decodes over it - a field
+{% if model.needsUnmarshal %}
+{% if model.requiredProperties %}// UnmarshalJSON rejects an object that lacks a required property with a *ValidationError.
+{% endif %}{% if model.needsDefaults %}// UnmarshalJSON fills every field with a declared `default` first, then decodes over it - a field
 // whose wire key is absent keeps its default; one explicitly sent as JSON null overwrites it back
-// to nil (encoding/json always sets a destination to the zero value for an explicit null, even a
-// pre-populated one), the same "explicit null wins" distinction UnmarshalJSON gives every other
-// field for free.
-func (v *{{ model.name }}) UnmarshalJSON(data []byte) error {
-	type {{ model.name }}Alias {{ model.name }}
-{% for p in model.properties %}{% if p.defaultLiteral %}	yagenDefault{{ p.goName }} := {{ p.defaultLiteral }}
-{% endif %}{% endfor %}	aux := {{ model.name }}Alias{
-{% for p in model.properties %}{% if p.defaultLiteral %}		{{ p.goName }}: &yagenDefault{{ p.goName }},
-{% endif %}{% endfor %}	}
-	if err := json.Unmarshal(data, &aux); err != nil {
+// to nil.
+{% endif %}{% if model.additional %}// UnmarshalJSON collects undeclared properties into {{ model.additional.goName }}.
+{% endif %}func (v *{{ model.name }}) UnmarshalJSON(data []byte) error {
+	type yagenAlias {{ model.name }}
+{% if model.needsFields %}	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
-	*v = {{ model.name }}(aux)
+	if fields == nil { // JSON null
+		return nil
+	}
+{% for p in model.requiredProperties %}	if err := requireProperty(fields, {{ p.wireNameLiteral }}, {% if p.nullAllowed %}true{% else %}false{% endif %}); err != nil {
+		return err
+	}
+{% endfor %}{% endif %}{% if model.additional %}	declared, err := splitProperties(fields{% for n in model.additional.declaredLiterals %}, {{ n }}{% endfor %})
+	if err != nil {
+		return err
+	}
+{% endif %}{% for p in model.properties %}{% if p.defaultLiteral %}	yagenDefault{{ p.goName }} := {{ p.defaultLiteral }}
+{% endif %}{% endfor %}	aux := yagenAlias{
+{% for p in model.properties %}{% if p.defaultLiteral %}		{{ p.goName }}: &yagenDefault{{ p.goName }},
+{% endif %}{% endfor %}	}
+	if err := json.Unmarshal({% if model.additional %}declared{% else %}data{% endif %}, &aux); err != nil {
+		return err
+	}
+{% if model.additional %}	additional, err := decodeAdditionalProperties[{{ model.additional.valueType }}](fields)
+	if err != nil {
+		return err
+	}
+	aux.{{ model.additional.goName }} = additional
+{% endif %}	*v = {{ model.name }}(aux)
 	return nil
+}
+{% endif %}{% if model.additional %}
+// MarshalJSON writes the declared properties together with {{ model.additional.goName }}.
+func (v {{ model.name }}) MarshalJSON() ([]byte, error) {
+	type yagenAlias {{ model.name }}
+	return marshalWithAdditionalProperties(yagenAlias(v), v.{{ model.additional.goName }}{% for n in model.additional.declaredLiterals %}, {{ n }}{% endfor %})
 }
 {% endif %}

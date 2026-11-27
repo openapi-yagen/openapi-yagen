@@ -6,8 +6,9 @@ description: >-
   Go net/http client generator. Generates a models package (one struct/type per schema, with
   Validate() methods) and, per OpenAPI tag, a client type with one method per operation. Each
   tag client takes a caller-supplied *http.Client and base URL in its constructor - no HTTP
-  transport or authentication is chosen by the generated code, so callers configure timeouts,
-  retries, and auth (e.g. via a custom http.RoundTripper) on the *http.Client itself.
+  transport is chosen by the generated code, so callers configure timeouts and retries on the
+  *http.Client itself. Credentials for secured operations are supplied with the WithAuth option, or
+  by the *http.Client's own Transport.
 
 # Main JavaScript file (entrypoint).
 mainScriptPath: main.js

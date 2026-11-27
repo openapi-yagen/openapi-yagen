@@ -1,13 +1,17 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -55,48 +59,125 @@ func parseRFC3339(s string) (time.Time, error) {
 	return time.Parse(time.RFC3339, s)
 }
 
-func convertParam[T any](raw string, field string, convert func(string) (T, error)) (T, error) {
+func convertParam[T any](raw string, field string, convert func(string) (T, error), checks ...func(T) error) (T, error) {
+	var zero T
 	v, err := convert(raw)
 	if err != nil {
-		var zero T
 		return zero, &models.ValidationError{Field: field, Message: fmt.Sprintf("is not a valid value: %v", err)}
+	}
+	for _, check := range checks {
+		if err := check(v); err != nil {
+			return zero, &models.ValidationError{Field: field, Message: err.Error()}
+		}
 	}
 	return v, nil
 }
 
-func pathParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (T, error) {
-	return convertParam(r.PathValue(name), name, convert)
+// The check* functions below build the schema-constraint checks the parameter helpers apply to a
+// converted value.
+
+type numericParam interface {
+	~int | ~int32 | ~int64 | ~float32 | ~float64
 }
 
-func queryParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (*T, error) {
+func checkMin[T numericParam](limit float64) func(T) error {
+	return func(v T) error {
+		if float64(v) < limit {
+			return fmt.Errorf("must be >= %v", limit)
+		}
+		return nil
+	}
+}
+
+func checkMax[T numericParam](limit float64) func(T) error {
+	return func(v T) error {
+		if float64(v) > limit {
+			return fmt.Errorf("must be <= %v", limit)
+		}
+		return nil
+	}
+}
+
+func checkMinLength[T ~string](limit int) func(T) error {
+	return func(v T) error {
+		if len(v) < limit {
+			return fmt.Errorf("must have length >= %d", limit)
+		}
+		return nil
+	}
+}
+
+func checkMaxLength[T ~string](limit int) func(T) error {
+	return func(v T) error {
+		if len(v) > limit {
+			return fmt.Errorf("must have length <= %d", limit)
+		}
+		return nil
+	}
+}
+
+func checkPattern[T ~string](pattern string) func(T) error {
+	re, compileErr := regexp.Compile(pattern)
+	return func(v T) error {
+		if compileErr != nil {
+			return fmt.Errorf("cannot be checked, invalid pattern %q: %v", pattern, compileErr)
+		}
+		if !re.MatchString(string(v)) {
+			return fmt.Errorf("does not match pattern %s", pattern)
+		}
+		return nil
+	}
+}
+
+var uuidParamPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+func checkUUID[T ~string](v T) error {
+	if !uuidParamPattern.MatchString(string(v)) {
+		return errors.New("must be a valid UUID")
+	}
+	return nil
+}
+
+func checkDate[T ~string](v T) error {
+	if _, err := time.Parse(time.DateOnly, string(v)); err != nil {
+		return errors.New("must be a valid date (YYYY-MM-DD)")
+	}
+	return nil
+}
+
+func pathParamAs[T any](r *http.Request, name string, convert func(string) (T, error), checks ...func(T) error) (T, error) {
+	return convertParam(r.PathValue(name), name, convert, checks...)
+}
+
+func queryParamAs[T any](r *http.Request, name string, convert func(string) (T, error), checks ...func(T) error) (*T, error) {
 	if !r.URL.Query().Has(name) {
 		return nil, nil
 	}
-	v, err := convertParam(r.URL.Query().Get(name), name, convert)
+	v, err := convertParam(r.URL.Query().Get(name), name, convert, checks...)
 	if err != nil {
 		return nil, err
 	}
 	return &v, nil
 }
 
-func requireQueryParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (T, error) {
+func requireQueryParamAs[T any](r *http.Request, name string, convert func(string) (T, error), checks ...func(T) error) (T, error) {
 	var zero T
 	if !r.URL.Query().Has(name) {
 		return zero, &models.ValidationError{Field: name, Message: "is required"}
 	}
-	return convertParam(r.URL.Query().Get(name), name, convert)
+	return convertParam(r.URL.Query().Get(name), name, convert, checks...)
 }
 
 // OpenAPI 3's default array-typed query parameter serialization (`style: form, explode: true`):
 // one repeated `name=` key per element, e.g. `?ids=1&ids=2`.
-func queryParamListAs[T any](r *http.Request, name string, convert func(string) (T, error)) ([]T, error) {
+func queryParamListAs[T any](r *http.Request, name string, convert func(string) (T, error), checks ...func(T) error) ([]T, error) {
 	raws := r.URL.Query()[name]
 	if raws == nil {
 		return nil, nil
 	}
 	result := make([]T, 0, len(raws))
 	for _, raw := range raws {
-		v, err := convertParam(raw, name, convert)
+		v, err := convertParam(raw, name, convert, checks...)
 		if err != nil {
 			return nil, err
 		}
@@ -105,46 +186,46 @@ func queryParamListAs[T any](r *http.Request, name string, convert func(string) 
 	return result, nil
 }
 
-func headerParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (*T, error) {
+func headerParamAs[T any](r *http.Request, name string, convert func(string) (T, error), checks ...func(T) error) (*T, error) {
 	values := r.Header.Values(name)
 	if len(values) == 0 {
 		return nil, nil
 	}
-	v, err := convertParam(values[0], name, convert)
+	v, err := convertParam(values[0], name, convert, checks...)
 	if err != nil {
 		return nil, err
 	}
 	return &v, nil
 }
 
-func requireHeaderParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (T, error) {
+func requireHeaderParamAs[T any](r *http.Request, name string, convert func(string) (T, error), checks ...func(T) error) (T, error) {
 	var zero T
 	values := r.Header.Values(name)
 	if len(values) == 0 {
 		return zero, &models.ValidationError{Field: name, Message: "is required"}
 	}
-	return convertParam(values[0], name, convert)
+	return convertParam(values[0], name, convert, checks...)
 }
 
-func cookieParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (*T, error) {
+func cookieParamAs[T any](r *http.Request, name string, convert func(string) (T, error), checks ...func(T) error) (*T, error) {
 	c, err := r.Cookie(name)
 	if err != nil {
 		return nil, nil
 	}
-	v, err := convertParam(c.Value, name, convert)
+	v, err := convertParam(c.Value, name, convert, checks...)
 	if err != nil {
 		return nil, err
 	}
 	return &v, nil
 }
 
-func requireCookieParamAs[T any](r *http.Request, name string, convert func(string) (T, error)) (T, error) {
+func requireCookieParamAs[T any](r *http.Request, name string, convert func(string) (T, error), checks ...func(T) error) (T, error) {
 	var zero T
 	c, err := r.Cookie(name)
 	if err != nil {
 		return zero, &models.ValidationError{Field: name, Message: "is required"}
 	}
-	return convertParam(c.Value, name, convert)
+	return convertParam(c.Value, name, convert, checks...)
 }
 
 // formFieldAs/requireFormFieldAs read a urlencoded or multipart request body field - Go's
@@ -221,11 +302,21 @@ func formFileAs(r *http.Request, name string) ([]byte, error) {
 	return data, nil
 }
 
+// bodyDecodeError keeps a model's own *models.ValidationError (e.g. a missing required property)
+// as is, and reports any other decoding failure as an invalid body.
+func bodyDecodeError(err error) error {
+	var validationErr *models.ValidationError
+	if errors.As(err, &validationErr) {
+		return validationErr
+	}
+	return &models.ValidationError{Field: "body", Message: fmt.Sprintf("invalid JSON: %v", err)}
+}
+
 func decodeJSONBody[T any](r *http.Request) (T, error) {
 	var v T
 	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
 		var zero T
-		return zero, &models.ValidationError{Field: "body", Message: fmt.Sprintf("invalid JSON: %v", err)}
+		return zero, bodyDecodeError(err)
 	}
 	return v, nil
 }
@@ -242,7 +333,7 @@ func decodeOptionalJSONBody[T any](r *http.Request) (*T, error) {
 	}
 	var v T
 	if err := json.Unmarshal(data, &v); err != nil {
-		return nil, &models.ValidationError{Field: "body", Message: fmt.Sprintf("invalid JSON: %v", err)}
+		return nil, bodyDecodeError(err)
 	}
 	return &v, nil
 }
@@ -268,7 +359,10 @@ func (b *BinaryBody) Read(p []byte) (int, error) { return b.r.Body.Read(p) }
 // Limit caps how many bytes can still be read from the body: reading past n bytes fails with an
 // *http.MaxBytesError (mapped to 413 by DefaultErrorHandler when returned from the handler) and
 // closes the connection once the response is written. Call it before reading.
-func (b *BinaryBody) Limit(n int64) { b.r.Body = http.MaxBytesReader(b.w, b.r.Body, n) }
+func (b *BinaryBody) Limit(n int64) {
+	// MaxBytesReader only closes the connection through net/http's own ResponseWriter.
+	b.r.Body = http.MaxBytesReader(unwrapResponseWriter(b.w), b.r.Body, n)
+}
 
 // Bytes reads the whole remaining body into memory.
 func (b *BinaryBody) Bytes() ([]byte, error) { return io.ReadAll(b) }
@@ -389,18 +483,20 @@ type MissingAuthenticationError struct {
 
 func (e *MissingAuthenticationError) Error() string { return e.msg }
 
-// RequireBearerToken extracts a bearer token from the given header for an `http`/`bearer`
-// securityScheme, stripping a "Bearer " prefix if present.
+// RequireBearerToken extracts the token of an `Authorization: Bearer <token>`-style header for an
+// `http`/`bearer`, oauth2, or openIdConnect securityScheme. The scheme name is case-insensitive; a
+// missing header, another scheme, or an empty token is a *MissingAuthenticationError.
 func RequireBearerToken(r *http.Request, headerName string) (string, error) {
 	raw := r.Header.Get(headerName)
 	if raw == "" {
 		return "", &MissingAuthenticationError{msg: fmt.Sprintf("missing required %q header", headerName)}
 	}
-	const prefix = "Bearer "
-	if strings.HasPrefix(raw, prefix) {
-		return strings.TrimPrefix(raw, prefix), nil
+	scheme, token, _ := strings.Cut(raw, " ")
+	token = strings.TrimSpace(token)
+	if !strings.EqualFold(scheme, "Bearer") || token == "" {
+		return "", &MissingAuthenticationError{msg: fmt.Sprintf("%q header doesn't carry a Bearer token", headerName)}
 	}
-	return raw, nil
+	return token, nil
 }
 
 // RequireAPIKey extracts an apiKey securityScheme's value from wherever its `in` says it lives.
@@ -430,8 +526,11 @@ type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
 
 // DefaultErrorHandler maps *models.ValidationError to 400, *MissingAuthenticationError to 401,
 // *http.MaxBytesError (a BinaryBody read past its Limit) to 413, *UnsupportedMediaTypeError to 415,
-// and anything else to 500.
+// and anything else to 500. It writes nothing if the handler already started the response itself.
 func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
+	if responseStarted(w) {
+		return
+	}
 	var validationErr *models.ValidationError
 	if errors.As(err, &validationErr) {
 		http.Error(w, validationErr.Error(), http.StatusBadRequest)
@@ -453,4 +552,104 @@ func DefaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	http.Error(w, "internal server error", http.StatusInternalServerError)
+}
+
+type exchangeKey struct{}
+
+type exchange struct {
+	w http.ResponseWriter
+	r *http.Request
+}
+
+// RequestFromContext returns the request being handled, given the context a handler method received
+// - nil for any other context. Its body may already have been consumed to decode the operation's
+// request body.
+func RequestFromContext(ctx context.Context) *http.Request {
+	if e, ok := ctx.Value(exchangeKey{}).(*exchange); ok {
+		return e.r
+	}
+	return nil
+}
+
+// ResponseWriterFromContext returns the writer of the response being produced, given the context a
+// handler method received - nil for any other context. Headers set on it are sent along with the
+// generated response (which sets Content-Type itself). Once a handler has called WriteHeader, Write
+// or Flush on it, or hijacked the connection, the response is the handler's: its return value is
+// ignored and DefaultErrorHandler writes nothing for a returned error.
+func ResponseWriterFromContext(ctx context.Context) http.ResponseWriter {
+	if e, ok := ctx.Value(exchangeKey{}).(*exchange); ok {
+		return e.w
+	}
+	return nil
+}
+
+// trackingResponseWriter remembers whether the response has been started.
+type trackingResponseWriter struct {
+	http.ResponseWriter
+	started bool
+}
+
+func (w *trackingResponseWriter) WriteHeader(statusCode int) {
+	// An informational (1xx) status leaves the final response still to be written.
+	if statusCode >= http.StatusOK || statusCode == http.StatusSwitchingProtocols {
+		w.started = true
+	}
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *trackingResponseWriter) Write(data []byte) (int, error) {
+	w.started = true
+	return w.ResponseWriter.Write(data)
+}
+
+// ReadFrom keeps the underlying writer's optimized copy (e.g. sendfile) available to io.Copy.
+func (w *trackingResponseWriter) ReadFrom(src io.Reader) (int64, error) {
+	w.started = true
+	return io.Copy(w.ResponseWriter, src)
+}
+
+// Flush implements http.Flusher; it does nothing if the underlying writer can't flush.
+func (w *trackingResponseWriter) Flush() {
+	if http.NewResponseController(w.ResponseWriter).Flush() == nil {
+		w.started = true
+	}
+}
+
+// Hijack implements http.Hijacker; it fails if the underlying writer can't be hijacked.
+func (w *trackingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, buf, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err == nil {
+		w.started = true
+	}
+	return conn, buf, err
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (w *trackingResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func unwrapResponseWriter(w http.ResponseWriter) http.ResponseWriter {
+	if tracking, ok := w.(*trackingResponseWriter); ok {
+		return tracking.ResponseWriter
+	}
+	return w
+}
+
+func responseStarted(w http.ResponseWriter) bool {
+	tracking, ok := w.(*trackingResponseWriter)
+	return ok && tracking.started
+}
+
+// beginExchange makes the request and response reachable from the request's context. The returned
+// function must be called once the request is handled.
+func beginExchange(w http.ResponseWriter, r *http.Request) (http.ResponseWriter, *http.Request, func()) {
+	e := &exchange{w: &trackingResponseWriter{ResponseWriter: w}}
+	original := r
+	e.r = r.WithContext(context.WithValue(r.Context(), exchangeKey{}, e))
+	return e.w, e.r, func() {
+		// net/http only removes the temporary files of a multipart form parsed on the request it
+		// created itself, not on the copy made above.
+		if e.r.MultipartForm != nil && original.MultipartForm == nil {
+			e.r.MultipartForm.RemoveAll()
+		}
+	}
 }

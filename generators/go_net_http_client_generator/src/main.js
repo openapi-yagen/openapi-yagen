@@ -18,6 +18,7 @@ finalizeModels(registry);
 const MODEL_TEMPLATES = {
   object: "templates/model_struct.go.j2",
   enum: "templates/model_enum.go.j2",
+  openEnum: "templates/model_open_enum.go.j2",
   union: "templates/model_union.go.j2",
   alias: "templates/model_alias.go.j2",
 };
@@ -25,7 +26,7 @@ const MODEL_TEMPLATES = {
 if (generate !== "api") {
   for (const name of registry.order) {
     const model = registry.models.get(name);
-    const tmpl = MODEL_TEMPLATES[model.kind];
+    const tmpl = MODEL_TEMPLATES[model.open ? "openEnum" : model.kind];
     if (!tmpl) throw Error(`<0c2a7e4d> Unknown model kind: ${model.kind}`);
     renderTemplate(tmpl, { model }, `models/${name}.go`);
   }

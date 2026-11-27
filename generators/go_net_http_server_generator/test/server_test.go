@@ -891,7 +891,7 @@ func TestRoutesTable(t *testing.T) {
 		t.Fatalf("expected %+v in FilesRoutes(), got %+v", want, server.FilesRoutes())
 	}
 	all := server.Routes()
-	if len(all) != len(server.PetsRoutes())+len(server.WidgetsRoutes())+len(server.FilesRoutes())+len(server.JobsRoutes()) {
+	if len(all) != len(server.PetsRoutes())+len(server.WidgetsRoutes())+len(server.FilesRoutes())+len(server.JobsRoutes())+len(server.ExtrasRoutes()) {
 		t.Fatalf("expected Routes() to be the union of every tag's routes, got %d", len(all))
 	}
 

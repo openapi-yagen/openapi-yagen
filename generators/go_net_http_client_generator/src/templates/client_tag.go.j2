@@ -19,10 +19,11 @@ import (
 {% endif %}type {{ tagType }} struct {
 	httpClient *http.Client
 	baseURL    string
+	options    clientOptions
 }
 
-func New{{ tagType }}(httpClient *http.Client, baseURL string) *{{ tagType }} {
-	return &{{ tagType }}{httpClient: httpClient, baseURL: baseURL}
+func New{{ tagType }}(httpClient *http.Client, baseURL string, opts ...Option) *{{ tagType }} {
+	return &{{ tagType }}{httpClient: httpClient, baseURL: baseURL, options: newClientOptions(opts)}
 }
 
 {% macro wrap(variantType, expr) %}{% if variantType != "" %}{{ variantType }}{Body: {{ expr }}}{% else %}{{ expr }}{% endif %}{% endmacro %}{% macro decodeResponse(kind, type, variantType) %}{% if kind == "text" %}yagenRespBody, err := io.ReadAll(yagenResp.Body)
@@ -129,7 +130,10 @@ return {{ wrap(variantType, "yagenResult") }}, nil{% else %}return {{ variantTyp
 	}
 {% else %}	yagenHTTPReq.AddCookie(&http.Cookie{Name: {{ p.wireNameLiteral }}, Value: formatParam({{ p.goName }})})
 {% endif %}{% endfor %}
-	yagenResp, err := c.httpClient.Do(yagenHTTPReq)
+{% if op.security %}	if err := c.options.authorize(yagenHTTPReq, {% if op.security.optional %}true{% else %}false{% endif %}, {{ op.security.alternativesLiteral }}); err != nil {
+		return {% if op.returnsValue %}yagenZero, {% endif %}err
+	}
+{% endif %}	yagenResp, err := c.httpClient.Do(yagenHTTPReq)
 	if err != nil {
 		return {% if op.returnsValue %}yagenZero, {% endif %}err
 	}
@@ -143,7 +147,7 @@ return {{ wrap(variantType, "yagenResult") }}, nil{% else %}return {{ variantTyp
 {% else %}	defer yagenResp.Body.Close()
 {% endif %}
 	if yagenResp.StatusCode >= 400 {
-		yagenRespBody, _ := io.ReadAll(yagenResp.Body)
+		yagenRespBody, _ := io.ReadAll(io.LimitReader(yagenResp.Body, MaxErrorBodySize))
 		return {% if op.returnsValue %}yagenZero, {% endif %}&ResponseError{StatusCode: yagenResp.StatusCode, Body: yagenRespBody}
 	}
 
@@ -151,7 +155,7 @@ return {{ wrap(variantType, "yagenResult") }}, nil{% else %}return {{ variantTyp
 {% for v in op.response.variants %}	case {{ v.statusCode }}:
 {{ decodeResponse(v.kind, v.type, v.typeName) | indent("\t\t", true) }}
 {% endfor %}	default:
-		yagenRespBody, _ := io.ReadAll(yagenResp.Body)
+		yagenRespBody, _ := io.ReadAll(io.LimitReader(yagenResp.Body, MaxErrorBodySize))
 		return yagenZero, &ResponseError{StatusCode: yagenResp.StatusCode, Body: yagenRespBody}
 	}
 {% else if op.returnsValue %}{{ decodeResponse(op.response.kind, op.response.type, "") | indent("\t", true) }}

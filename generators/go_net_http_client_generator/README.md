@@ -11,10 +11,10 @@ Generates a Go API client using only the standard library (`net/http`, `encoding
 struct per OpenAPI schema in a `models` package, plus one client type per tag in a `client`
 package with one method per operation.
 
-The generated client never creates its own `*http.Client` or configures transport/auth - each tag
-client takes a caller-supplied `*http.Client` and base URL in its constructor. Configure timeouts,
-retries, and authentication (e.g. via a custom `http.RoundTripper`) on that `*http.Client` before
-passing it in.
+The generated client never creates its own `*http.Client` or configures its transport - each tag
+client takes a caller-supplied `*http.Client` and base URL in its constructor. Configure timeouts
+and retries on that `*http.Client` before passing it in; credentials are supplied with the
+`WithAuth` option (see "Authentication").
 
 ## Usage
 
@@ -93,7 +93,35 @@ petsClient := client.NewPetsClient(httpClient, "https://petstore.example.com/v1"
 ```
 
 A response with a 4xx/5xx status code is returned as a `*client.ResponseError` (`StatusCode`,
-`Body`), not decoded as a successful response.
+`Body`), not decoded as a successful response. Its `Error()` message carries only the status, so
+that logging it doesn't leak the response; `Body` holds at most `client.MaxErrorBodySize` bytes
+(64 KiB by default).
+
+### Authentication
+
+Pass `client.WithAuth` to a client constructor to have credentials added to every operation that
+declares a `security` requirement:
+
+```go
+api := client.NewApiClient(httpClient, baseURL, client.WithAuth(client.Auth{
+    Bearer: func(ctx context.Context, scheme string) (string, error) { return tokens.Get(ctx) },
+    APIKey: func(ctx context.Context, scheme string) (string, error) { return apiKeys[scheme], nil },
+}))
+```
+
+`Bearer` serves `http`/`bearer`, `oauth2`, and `openIdConnect` schemes (sent as
+`Authorization: Bearer <token>`); `APIKey` serves `apiKey` schemes, sent in the header, query
+parameter, or cookie the scheme declares. `scheme` is the securityScheme's name in the document.
+The funcs are called on every request, so they can refresh an expiring value.
+
+Of an operation's alternative requirements, the first one for which every needed func is set is
+used. If there is none, a func fails, or it returns an empty value, the call returns an error
+without sending the request - unless the operation also allows anonymous access (`{}`). Other
+scheme types (HTTP Basic, `mutualTLS`) are not handled: generation prints a warning, and an
+operation relying on one is sent as is if no other alternative is covered.
+
+Without `WithAuth` no credentials are added, so you can instead authenticate in the
+`*http.Client`'s `Transport`.
 
 ### Model types
 
@@ -138,14 +166,38 @@ discriminator property's value. An undiscriminated one dispatches on the raw JSO
 generation fails if the variants can't be unambiguously told apart this way (e.g. two object
 variants with no property that distinguishes them).
 
-An enum schema generates a defined string/int type with one constant per value, an `IsValid()
+A closed `enum` schema generates a defined string/int type with one constant per value, an `IsValid()
 bool` method, and `MarshalJSON`/`UnmarshalJSON` that reject an unrecognized value.
 
 `format: date-time` properties/parameters generate `time.Time`. `format: date` and `format: uuid`
 generate a plain `string` - there is no dependency-free stdlib type for either - but a struct
-property (not a path/query/header/cookie parameter) with one of those formats is still shape-checked by
+property with one of those formats is still shape-checked by
 `Validate()`: `format: uuid` requires the canonical 8-4-4-4-12 hyphenated hex form, `format: date`
 requires `YYYY-MM-DD`.
+
+#### Required properties
+
+A struct with `required` properties gets an `UnmarshalJSON` that rejects a JSON object lacking one
+of them with a `*models.ValidationError` (`is required`), and an explicit `null` for one whose
+schema doesn't allow it (`must not be null` - an array or map property tolerates `null`, which is
+how Go encodes a nil slice/map). Property names are matched exactly. A `readOnly` or `writeOnly`
+property is not enforced, since the same model serves requests and responses. `Validate()` also
+rejects a required enum property holding a value outside the enum (e.g. in a struct built by hand).
+
+#### Additional properties
+
+An object declaring `properties` together with `additionalProperties: true` (or a schema) gets an
+extra `AdditionalProperties map[string]any` (or `map[string]T`) field holding every other property,
+both ways: it's filled when decoding and written back when encoding. A map entry named like a
+declared property is ignored when encoding. If the schema has its own property that takes that Go
+name, the map field is called `AdditionalPropertiesWrapper`.
+
+#### Open enums
+
+An enum meant to grow - `anyOf`/`oneOf` of a string `enum` and an unrestricted `type: string`, or a
+string schema with `x-extensible-enum: [...]` - generates a string type with one constant per known
+value, an `IsKnown() bool` method, and no rejection of unknown values. `x-extensible-enum` is only
+honored in an OpenAPI 3.1+ document (converting a 3.0 document drops `x-*` keywords).
 
 ### Request body content types
 
@@ -282,6 +334,7 @@ openapi-yagen g -o out -g builtin:go_net_http_client openapi.yaml \
 - `Validate()`'s own (non-recursive) checks are limited to `minimum`/`maximum`/`minLength`/
   `maxLength`/`pattern`/`format: uuid`/`format: date` - no `multipleOf`, `minItems`/`maxItems`,
   `uniqueItems`, `minProperties`/`maxProperties`, or `additionalProperties: false` enforcement.
+- Parameter values are sent as given, without checking them against the schema's constraints.
 - Go's `encoding/json` cannot distinguish an absent field from an explicit JSON `null` for a
   pointer field - both decode to `nil` - except a property with a declared `default` (see "Model
   types"), where the two are deliberately told apart.
