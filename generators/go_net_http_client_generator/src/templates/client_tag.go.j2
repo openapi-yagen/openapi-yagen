@@ -36,7 +36,36 @@ if err := json.NewDecoder(yagenResp.Body).Decode(&yagenResult); err != nil {
 	return yagenZero, err
 }
 return {{ wrap(variantType, "yagenResult") }}, nil{% else %}return {{ variantType }}{}, nil{% endif %}{% endmacro %}
-{% for op in operations %}
+{% macro urlencodedForm(fields) %}yagenForm := url.Values{}
+{% for f in fields %}{% if f.isArray %}for _, yagenItem := range body.{{ f.goName }} {
+	yagenForm.Add({{ toStringLiteral(f.wireName) }}, formatParam(yagenItem))
+}
+{% else if f.pointer %}if body.{{ f.goName }} != nil {
+	yagenForm.Set({{ toStringLiteral(f.wireName) }}, formatParam(*body.{{ f.goName }}))
+}
+{% else %}yagenForm.Set({{ toStringLiteral(f.wireName) }}, formatParam(body.{{ f.goName }}))
+{% endif %}{% endfor %}{% endmacro %}{% macro multipartForm(fields, returnsValue) %}var yagenMultipartBuf bytes.Buffer
+yagenMultipartWriter := multipart.NewWriter(&yagenMultipartBuf)
+{% for f in fields %}{% if f.isFile %}if err := writeMultipartFile(yagenMultipartWriter, {{ toStringLiteral(f.wireName) }}, body.{{ f.goName }}); err != nil {
+	return {% if returnsValue %}yagenZero, {% endif %}err
+}
+{% else if f.isArray %}for _, yagenItem := range body.{{ f.goName }} {
+	if err := yagenMultipartWriter.WriteField({{ toStringLiteral(f.wireName) }}, formatParam(yagenItem)); err != nil {
+		return {% if returnsValue %}yagenZero, {% endif %}err
+	}
+}
+{% else if f.pointer %}if body.{{ f.goName }} != nil {
+	if err := yagenMultipartWriter.WriteField({{ toStringLiteral(f.wireName) }}, formatParam(*body.{{ f.goName }})); err != nil {
+		return {% if returnsValue %}yagenZero, {% endif %}err
+	}
+}
+{% else %}if err := yagenMultipartWriter.WriteField({{ toStringLiteral(f.wireName) }}, formatParam(body.{{ f.goName }})); err != nil {
+	return {% if returnsValue %}yagenZero, {% endif %}err
+}
+{% endif %}{% endfor %}if err := yagenMultipartWriter.Close(); err != nil {
+	return {% if returnsValue %}yagenZero, {% endif %}err
+}
+{% endmacro %}{% for op in operations %}
 {% if op.docComment %}{{ op.docComment }}
 {% endif %}func (c *{{ tagType }}) {{ op.name }}({{ op.signature }}) ({% if op.returnsValue %}{{ op.response.type }}, {% endif %}error) {
 {% if op.returnsValue %}	var yagenZero {{ op.response.type }}
@@ -70,38 +99,20 @@ return {{ wrap(variantType, "yagenResult") }}, nil{% else %}return {{ variantTyp
 		return {% if op.returnsValue %}yagenZero, {% endif %}err
 	}
 	yagenBodyReader := bytes.NewReader(yagenEncoded)
-{% endif %}{% else if op.body.encoding == "urlencoded" %}	yagenForm := url.Values{}
-{% for f in op.body.fields %}{% if f.isArray %}	for _, yagenItem := range body.{{ f.goName }} {
-		yagenForm.Add({{ toStringLiteral(f.wireName) }}, formatParam(yagenItem))
+{% endif %}{% else if op.body.encoding == "urlencoded" %}{% if op.body.pointer %}	var yagenBodyReader io.Reader
+	if body != nil {
+{{ urlencodedForm(op.body.fields) | indent("\t\t", true) }}		yagenBodyReader = strings.NewReader(yagenForm.Encode())
 	}
-{% else if f.pointer %}	if body.{{ f.goName }} != nil {
-		yagenForm.Set({{ toStringLiteral(f.wireName) }}, formatParam(*body.{{ f.goName }}))
+{% else %}{{ urlencodedForm(op.body.fields) | indent("\t", true) }}	yagenBodyReader := strings.NewReader(yagenForm.Encode())
+{% endif %}{% else if op.body.encoding == "multipart" %}{% if op.body.pointer %}	var yagenBodyReader io.Reader
+	var yagenContentType string
+	if body != nil {
+{{ multipartForm(op.body.fields, op.returnsValue) | indent("\t\t", true) }}
+		yagenBodyReader, yagenContentType = &yagenMultipartBuf, yagenMultipartWriter.FormDataContentType()
 	}
-{% else %}	yagenForm.Set({{ toStringLiteral(f.wireName) }}, formatParam(body.{{ f.goName }}))
-{% endif %}{% endfor %}	yagenBodyReader := strings.NewReader(yagenForm.Encode())
-{% else if op.body.encoding == "multipart" %}	var yagenMultipartBuf bytes.Buffer
-	yagenMultipartWriter := multipart.NewWriter(&yagenMultipartBuf)
-{% for f in op.body.fields %}{% if f.isFile %}	if err := writeMultipartFile(yagenMultipartWriter, {{ toStringLiteral(f.wireName) }}, body.{{ f.goName }}); err != nil {
-		return {% if op.returnsValue %}yagenZero, {% endif %}err
-	}
-{% else if f.isArray %}	for _, yagenItem := range body.{{ f.goName }} {
-		if err := yagenMultipartWriter.WriteField({{ toStringLiteral(f.wireName) }}, formatParam(yagenItem)); err != nil {
-			return {% if op.returnsValue %}yagenZero, {% endif %}err
-		}
-	}
-{% else if f.pointer %}	if body.{{ f.goName }} != nil {
-		if err := yagenMultipartWriter.WriteField({{ toStringLiteral(f.wireName) }}, formatParam(*body.{{ f.goName }})); err != nil {
-			return {% if op.returnsValue %}yagenZero, {% endif %}err
-		}
-	}
-{% else %}	if err := yagenMultipartWriter.WriteField({{ toStringLiteral(f.wireName) }}, formatParam(body.{{ f.goName }})); err != nil {
-		return {% if op.returnsValue %}yagenZero, {% endif %}err
-	}
-{% endif %}{% endfor %}	if err := yagenMultipartWriter.Close(); err != nil {
-		return {% if op.returnsValue %}yagenZero, {% endif %}err
-	}
-	yagenBodyReader := &yagenMultipartBuf
-{% else if op.body.encoding == "text" %}{% if op.body.pointer %}	var yagenBodyReader io.Reader
+{% else %}{{ multipartForm(op.body.fields, op.returnsValue) | indent("\t", true) }}
+	yagenBodyReader, yagenContentType := &yagenMultipartBuf, yagenMultipartWriter.FormDataContentType()
+{% endif %}{% else if op.body.encoding == "text" %}{% if op.body.pointer %}	var yagenBodyReader io.Reader
 	if body != nil {
 		yagenBodyReader = strings.NewReader(*body)
 	}
@@ -113,9 +124,15 @@ return {{ wrap(variantType, "yagenResult") }}, nil{% else %}return {{ variantTyp
 		return {% if op.returnsValue %}yagenZero, {% endif %}err
 	}
 {% if op.body.encoding == "json" %}	yagenHTTPReq.Header.Set("Content-Type", "application/json")
-{% else if op.body.encoding == "urlencoded" %}	yagenHTTPReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-{% else if op.body.encoding == "multipart" %}	yagenHTTPReq.Header.Set("Content-Type", yagenMultipartWriter.FormDataContentType())
-{% else %}	yagenHTTPReq.Header.Set("Content-Type", {{ op.body.mediaTypeLiteral }})
+{% else if op.body.encoding == "urlencoded" %}{% if op.body.pointer %}	if body != nil {
+		yagenHTTPReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+{% else %}	yagenHTTPReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+{% endif %}{% else if op.body.encoding == "multipart" %}{% if op.body.pointer %}	if body != nil {
+		yagenHTTPReq.Header.Set("Content-Type", yagenContentType)
+	}
+{% else %}	yagenHTTPReq.Header.Set("Content-Type", yagenContentType)
+{% endif %}{% else %}	yagenHTTPReq.Header.Set("Content-Type", {{ op.body.mediaTypeLiteral }})
 {% endif %}{% else %}	yagenHTTPReq, err := http.NewRequestWithContext(ctx, {{ toStringLiteral(op.method) }}, yagenReqURL, nil)
 	if err != nil {
 		return {% if op.returnsValue %}yagenZero, {% endif %}err

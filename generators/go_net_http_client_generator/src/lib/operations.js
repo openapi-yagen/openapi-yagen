@@ -288,9 +288,10 @@ function buildRequestBody(registry, hintBase, requestBody) {
         f.type = "[]byte";
         f.isArray = false;
         f.itemType = null;
-      } else if (f.type.startsWith("[]")) {
+      } else if (underlyingType(registry, f.type).startsWith("[]")) {
+        // Including a named array schema, sent one item per key like any other array.
         f.isArray = true;
-        f.itemType = f.type.slice(2);
+        f.itemType = underlyingType(registry, f.type).slice(2);
       } else {
         f.isArray = false;
         f.itemType = null;

@@ -34,6 +34,13 @@ function converterFor(registry, type) {
   if (CONVERTERS[type]) return CONVERTERS[type];
   const model = registry.models.get(type.replace(/^models\./, ""));
   if (model && model.kind === "enum") return `models.Parse${model.name}`;
+  // A named scalar (`type TenantID string`) converts like its underlying type, then to itself.
+  if (model && model.kind === "alias") {
+    const convert = converterFor(registry, underlyingType(registry, model.targetType));
+    if (convert) {
+      return `func(s string) (models.${model.name}, error) {\n\tv, err := ${convert}(s)\n\treturn models.${model.name}(v), err\n}`;
+    }
+  }
   return null;
 }
 
@@ -384,9 +391,10 @@ function buildRequestBody(registry, hintBase, requestBody) {
         f.isArray = false;
         f.itemType = null;
         f.converter = null;
-      } else if (f.type.startsWith("[]")) {
+      } else if (underlyingType(registry, f.type).startsWith("[]")) {
+        // Including a named array schema - the []T read from the form is assignable to it.
         f.isArray = true;
-        f.itemType = f.type.slice(2);
+        f.itemType = underlyingType(registry, f.type).slice(2);
         f.converter = converterFor(registry, f.itemType);
       } else {
         f.isArray = false;
@@ -517,8 +525,8 @@ function computeRoutesImportFlags(operations) {
   // package-qualified converter name means that package is referenced directly in this file.
   const noteConverter = (converter) => {
     if (!converter) return;
-    if (converter.startsWith("strconv.")) flags.strconv = true;
-    if (converter.startsWith("models.")) flags.models = true;
+    if (converter.includes("strconv.")) flags.strconv = true;
+    if (converter.includes("models.")) flags.models = true;
   };
   for (const op of operations) {
     for (const p of [...op.pathParams, ...op.queryParams, ...op.headerParams, ...op.cookieParams]) noteConverter(p.converter);

@@ -22,7 +22,19 @@ import (
 {% endmacro %}{% macro writeResponse(kind, statusCode, mediaTypeLiteral, value) %}{% if kind == "json" %}writeJSON(w, {{ statusCode }}, {{ value }}){% else if kind == "text" %}w.Header().Set("Content-Type", {{ mediaTypeLiteral }})
 w.WriteHeader({{ statusCode }})
 w.Write([]byte({{ value }})){% else if kind == "file" %}writeFile(w, r, {{ statusCode }}, {{ mediaTypeLiteral }}, {{ value }}){% else %}w.WriteHeader({{ statusCode }}){% endif %}{% endmacro %}
-// {{ routesFunc }} lists the routes {{ registerFunc }} registers, in registration order.
+{% macro formFields(fields) %}{% for f in fields %}{% if f.isFile %}{{ f.localName }}, err := formFileAs(r, {{ f.wireNameLiteral }})
+{% else if f.isArray %}{{ f.localName }}, err := formFieldListAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
+{% else if f.pointer %}{{ f.localName }}, err := formFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
+{% else %}{{ f.localName }}, err := requireFormFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
+{% endif %}if err != nil {
+	onError(w, r, err)
+	return
+}
+{% if f.required and (f.isFile or f.isArray) %}if {{ f.localName }} == nil {
+	onError(w, r, &models.ValidationError{Field: {{ f.wireNameLiteral }}, Message: "is required"})
+	return
+}
+{% endif %}{% endfor %}{% endmacro %}// {{ routesFunc }} lists the routes {{ registerFunc }} registers, in registration order.
 func {{ routesFunc }}() []Route {
 	return []Route{
 {% for op in operations %}		{Method: {{ op.methodLiteral }}, Path: {{ op.pathLiteral }}, OperationID: {{ op.operationIdLiteral }}, Tag: {{ tagLiteral }}},
@@ -104,26 +116,23 @@ if err != nil {
 	onError(w, r, err)
 	return
 }
-{% endif %}{% endif %}{% else if op.body.encoding == "urlencoded" or op.body.encoding == "multipart" %}{% for f in op.body.fields %}{% if f.isFile %}{{ f.localName }}, err := formFileAs(r, {{ f.wireNameLiteral }})
-{% else if f.isArray %}{{ f.localName }}, err := formFieldListAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
-{% else if f.pointer %}{{ f.localName }}, err := formFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
-{% else %}{{ f.localName }}, err := requireFormFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
-{% endif %}if err != nil {
-	onError(w, r, err)
-	return
+{% endif %}{% endif %}{% else if op.body.encoding == "urlencoded" or op.body.encoding == "multipart" %}{% if op.body.pointer %}var body *{{ op.body.type }}
+if r.ContentLength != 0 {
+{{ formFields(op.body.fields) | indent("\t", true) }}	body = &{{ op.body.type }}{ {% for f in op.body.fields %}{{ f.goName }}: {{ f.localName }}, {% endfor %}}
 }
-{% if f.required and (f.isFile or f.isArray) %}if {{ f.localName }} == nil {
-	onError(w, r, &models.ValidationError{Field: {{ f.wireNameLiteral }}, Message: "is required"})
-	return
-}
-{% endif %}{% endfor %}body := {{ op.body.type }}{ {% for f in op.body.fields %}{{ f.goName }}: {{ f.localName }}, {% endfor %}}
-{% else if op.body.encoding == "text" %}bodyBytes, err := io.ReadAll(r.Body)
+{% else %}{{ formFields(op.body.fields) }}body := {{ op.body.type }}{ {% for f in op.body.fields %}{{ f.goName }}: {{ f.localName }}, {% endfor %}}
+{% endif %}{% else if op.body.encoding == "text" %}bodyBytes, err := io.ReadAll(r.Body)
 if err != nil {
 	onError(w, r, err)
 	return
 }
-body := string(bodyBytes)
-{% else %}body, err := readBinaryBody(w, r, {{ op.body.mediaTypeLiteral }}, {% if op.body.required %}true{% else %}false{% endif %})
+{% if op.body.pointer %}var body *string
+if len(bodyBytes) > 0 {
+	yagenText := string(bodyBytes)
+	body = &yagenText
+}
+{% else %}body := string(bodyBytes)
+{% endif %}{% else %}body, err := readBinaryBody(w, r, {{ op.body.mediaTypeLiteral }}, {% if op.body.required %}true{% else %}false{% endif %})
 if err != nil {
 	onError(w, r, err)
 	return

@@ -201,6 +201,9 @@ honored in an OpenAPI 3.1+ document (converting a 3.0 document drops `x-*` keywo
 
 ### Request body content types
 
+A body that isn't `required` is a pointer (except a raw one, an `io.Reader`): pass `nil` to send
+the request without a body.
+
 Request-body content types are picked from whichever the spec declares, in priority order
 `application/json` > `multipart/form-data` > `application/x-www-form-urlencoded` > a single
 remaining media type (sent as `string` if `text/*`, streamed from an `io.Reader` otherwise). The first three build the

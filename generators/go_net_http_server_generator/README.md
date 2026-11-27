@@ -258,6 +258,9 @@ through the same code path (Go's `net/http` parses either one the same way once
 `r.FormFile` into a `[]byte` field (an actual uploaded file part) rather than `r.PostForm` (a text
 form value), since `application/x-www-form-urlencoded` has no file-part equivalent.
 
+A body that isn't `required` is a pointer (`*string`, `*models.<Name>`; a raw body is a
+`*server.BinaryBody` either way), `nil` when the request carries none.
+
 #### Raw request bodies
 
 Any other media type (`application/octet-stream`, `application/zip`, `image/png`, ...) reaches the
