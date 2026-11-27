@@ -37,11 +37,13 @@ void ConvertCommand::reg(CLI::App& app)
     cmd->add_option("-o,--out", outPath, "Output file path")->required();
     cmd->add_option("--format", outputFormat,
                     "Output format: \"yaml\" or \"json\" - inferred from --out's extension if omitted");
+    cmd->add_option("--ref-root", refRoot,
+                    "Directory that files referenced through $ref must lie in (default: the spec file's directory)");
 }
 
 void ConvertCommand::process()
 {
-    auto specNode = readSpecFile(specPath);
+    auto specNode = readSpecFile(specPath, refRoot);
 
     auto from = [&] {
         if (!fromVersion.empty()) {

@@ -1118,7 +1118,7 @@ void OpenApiGenerator::generate(const string& specPath)
     auto vars = getFinalVars(opts.vars, metadata);
 
     logger.debug("<5e2e9a47> Reading spec file: {}", specPath);
-    auto versioned = convertToGeneratorVersion(metadata, readSpecFile(specPath));
+    auto versioned = convertToGeneratorVersion(metadata, readSpecFile(specPath, opts.refRoot));
     auto& schemaNode = versioned.node;
 
     logger.debug("<d2e3f4a5> Parsing OpenAPI document");

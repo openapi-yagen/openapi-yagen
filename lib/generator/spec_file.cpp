@@ -10,12 +10,12 @@
 
 using namespace std;
 
-Node readSpecFile(const string& filePath)
+Node readSpecFile(const string& filePath, const string& refRoot)
 {
     try {
         auto specFile = FS::readFile(filePath);
         auto node = parseYamlOrJsonToNode(specFile);
-        resolveExternalRefs(node, filesystem::path(filePath).parent_path().string());
+        resolveExternalRefs(node, filePath, refRoot);
         return node;
     } catch (const exception& e) {
         throw runtime_error(format("<2b4ec139> Cannot read spec file \"{}\". Error: {}", filePath, e.what()));

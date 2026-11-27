@@ -24,6 +24,7 @@ Main features:
 - possibility to extend existing generators by overriding some files from a specified directory
 - post-processing of output files using custom tools (code formatters, linters, checkers...)
 - using generators available via HTTP/S (directly from GitHub, or other sources). The `curl` tool is required.
+- multi-file specs: external `$ref`s are bundled into one document
 - understands OpenAPI 3.0, 3.1, 3.2, and Swagger 2.0, converting between them automatically so a
   generator only needs to be written against one 3.x version (see `convert` below, and
   [`generator-format.md`](docs/generator-format.md#spec-versions-and-conversion))
@@ -129,6 +130,7 @@ Options:
   -c,--clear                  Clear output directory before generating
   -v,--var TEXT ...           Set variable. Syntax is: -v (var_name)=(var_value)
   -t,--tags TEXT ...          Only generate operations/models tagged with one of these tags (default: generate everything)
+  --ref-root TEXT             Directory that files referenced through $ref must lie in (default: the spec file's directory)
   --header TEXT               Override the auto-generated "do not edit" header text prepended to every generated file (default: names the generator; wrapped in whichever comment syntax the file's own extension/generator.yml commentStyle resolves to)
   --no-header                 Disable the auto-generated "do not edit" header entirely
 ```
@@ -177,6 +179,15 @@ dedicated directory for generated code.
 extension. Pass `-p` more than once to chain multiple tools (e.g. one for `.kt` files, a different
 one for everything else).
 
+#### Multi-file specs
+
+External `$ref`s (to other files) are resolved before generation; an unresolvable one is an error.
+They may only reach files inside the spec file's directory - pass `--ref-root <dir>` to widen that,
+e.g. `openapi-yagen generate apps/gateway/api.yaml --ref-root apps ...` for a spec referring to
+`../shared/models.yaml`. See
+[External $ref resolution](docs/generator-format.md#external-ref-resolution) for where the
+referenced content ends up.
+
 #### Filtering by tags
 
 `-t/--tags <tag>...` restricts generation to a subset of the spec's OpenAPI tags. With no `-t`
@@ -216,6 +227,7 @@ Options:
   --to TEXT REQUIRED          Target OpenAPI version (e.g. 2.0, 3.0, 3.1, 3.2)
   -o,--out TEXT REQUIRED      Output file path
   --format TEXT               Output format: "yaml" or "json" - inferred from --out's extension if omitted
+  --ref-root TEXT             Directory that files referenced through $ref must lie in (default: the spec file's directory)
 ```
 
 ```bash
