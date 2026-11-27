@@ -453,8 +453,351 @@ paths:
           description: Pong
         "204":
           description: Nothing to say
+  /sessions/{sessionId}:
+    put:
+      operationId: putSession
+      tags: [extras]
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Identifier"
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: count
+          in: query
+          schema:
+            $ref: "#/components/schemas/Counter"
+        - name: ids
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Identifier"
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: code
+          in: query
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 4
+        - name: ratio
+          in: query
+          schema:
+            type: number
+            maximum: 1
+        - name: lookahead
+          in: query
+          description: A pattern Go's regexp can't express - generated without the check.
+          schema:
+            type: string
+            pattern: "^(?=a).*$"
+        - name: channel
+          in: query
+          schema:
+            $ref: "#/components/schemas/Channel"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Session"
+      responses:
+        "200":
+          description: Echo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+  /forms/optional:
+    post:
+      operationId: optionalForm
+      tags: [extras]
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/NamedForm"
+      responses:
+        "200":
+          description: Echo of what arrived
+          content:
+            text/plain:
+              schema:
+                type: string
+  /forms/optional-upload:
+    post:
+      operationId: optionalUpload
+      tags: [extras]
+      requestBody:
+        required: false
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/NamedForm"
+      responses:
+        "200":
+          description: Echo of what arrived
+          content:
+            text/plain:
+              schema:
+                type: string
+  /forms/optional-note:
+    post:
+      operationId: optionalNote
+      tags: [extras]
+      requestBody:
+        required: false
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: Echo of what arrived
+          content:
+            text/plain:
+              schema:
+                type: string
+  /forms/named:
+    post:
+      operationId: namedForm
+      tags: [extras]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/NamedForm"
+      responses:
+        "200":
+          description: Echo of what arrived
+          content:
+            text/plain:
+              schema:
+                type: string
+  /timelines/{since}:
+    put:
+      operationId: putTimeline
+      tags: [extras]
+      parameters:
+        - name: since
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+        - name: until
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Timestamp"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Timeline"
+      responses:
+        "200":
+          description: Echo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Timeline"
+  /timestamp:
+    post:
+      operationId: echoTimestamp
+      tags: [extras]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Timestamp"
+      responses:
+        "200":
+          description: Echo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Timestamp"
+  /person:
+    post:
+      operationId: echoPerson
+      tags: [extras]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonData"
+      responses:
+        "200":
+          description: Echo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonData"
+  /scores:
+    post:
+      operationId: echoScores
+      tags: [extras]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Scores"
+      responses:
+        "200":
+          description: Echo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scores"
+  /raw:
+    get:
+      operationId: getRaw
+      tags: [extras]
+      description: Exercises a handler writing the response itself.
+      parameters:
+        - name: mode
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Raw text
+          content:
+            text/plain:
+              schema:
+                type: string
 components:
   schemas:
+    Timestamp:
+      type: string
+      format: date-time
+    Timeline:
+      type: object
+      required: [createdAt]
+      properties:
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/Timestamp"
+        marker:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: integer
+    Quantity:
+      type: integer
+      format: int32
+    IdentifierList:
+      type: array
+      items:
+        $ref: "#/components/schemas/Identifier"
+    NamedForm:
+      type: object
+      required: [owner]
+      properties:
+        at:
+          $ref: "#/components/schemas/Timestamp"
+        owner:
+          $ref: "#/components/schemas/Identifier"
+        alias:
+          $ref: "#/components/schemas/Identifier"
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+        members:
+          $ref: "#/components/schemas/IdentifierList"
+        quantities:
+          type: array
+          items:
+            $ref: "#/components/schemas/Quantity"
+    Identifier:
+      type: string
+      pattern: "^[a-z]+$"
+    Counter:
+      type: integer
+      minimum: 1
+    Channel:
+      description: Known channels, open to new ones.
+      anyOf:
+        - type: string
+          enum: [web, mobile]
+        - type: string
+    Operation:
+      type: string
+      enum: [identification]
+    Session:
+      type: object
+      required: [operation, channel, id, tags, serverId, secret, comment]
+      properties:
+        operation:
+          $ref: "#/components/schemas/Operation"
+        channel:
+          $ref: "#/components/schemas/Channel"
+        id:
+          $ref: "#/components/schemas/Identifier"
+        ownerId:
+          $ref: "#/components/schemas/Identifier"
+        attempts:
+          $ref: "#/components/schemas/Counter"
+        tags:
+          type: array
+          items:
+            type: string
+        serverId:
+          type: string
+          readOnly: true
+        secret:
+          type: string
+          writeOnly: true
+        comment:
+          type: string
+          nullable: true
+    PersonData:
+      type: object
+      additionalProperties: true
+      properties:
+        firstName:
+          type: string
+    Score:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: integer
+          maximum: 10
+    Scores:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        level:
+          type: integer
+          default: 3
+        AdditionalProperties:
+          type: string
+      additionalProperties:
+        $ref: "#/components/schemas/Score"
     Job:
       type: object
       required: [id]

@@ -43,6 +43,30 @@ function unwrapContainer(registry, type) {
   return { container: "scalar", elem: type };
 }
 
+// The builtin type a named (alias or enum) model is defined over; any other type unchanged.
+export function underlyingType(registry, type) {
+  const model = registry.models.get(type);
+  if (!model) return type;
+  if (model.kind === "alias") return underlyingType(registry, model.targetType);
+  if (model.kind === "enum") return model.isInt ? "int" : "string";
+  return type;
+}
+
+const NUMERIC_TYPES = new Set(["int", "int32", "int64", "float32", "float64"]);
+
+// Validate() recursion into the values of a struct's additionalProperties map, or null if the
+// value type has nothing to validate.
+export function additionalPropertiesValidationCall(registry, additional) {
+  if (!hasValidateMethod(registry.models.get(additional.valueType))) return null;
+  return (
+    `for k, item := range v.${additional.goName} {\n` +
+    `\tif err := item.Validate(); err != nil {\n` +
+    `\t\treturn prefixValidationField(err, k)\n` +
+    `\t}\n` +
+    `}`
+  );
+}
+
 // A struct-typed (or oneOf/anyOf-typed) property's own Validate() needs to run wherever this
 // property's declared type resolves to a model that has one - directly, or through every element
 // of a slice/map. `prefixValidationField` (models/validation.go) rewraps a nested *ValidationError
@@ -79,25 +103,33 @@ function nestedValidateCall(registry, prop) {
 export function attachValidationCalls(registry, prop) {
   const c = prop.constraints || {};
   const calls = [];
-  if (c.minimum !== undefined) {
+  const isNumber = NUMERIC_TYPES.has(prop.underlyingType);
+  const isString = prop.underlyingType === "string";
+  const enumModel = registry.models.get(prop.type);
+  if (enumModel && enumModel.kind === "enum" && !enumModel.open && prop.required && !prop.pointer && !prop.oneWay) {
+    calls.push(
+      `if !v.${prop.goName}.IsValid() {\n\treturn &ValidationError{Field: ${toGoStringLiteral(prop.wireName)}, Message: "is not a valid value"}\n}`
+    );
+  }
+  if (isNumber && c.minimum !== undefined) {
     calls.push(`if err := requireMin(${numExpr(prop)}, ${c.minimum}, ${toGoStringLiteral(prop.wireName)}); err != nil {\n\treturn err\n}`);
   }
-  if (c.maximum !== undefined) {
+  if (isNumber && c.maximum !== undefined) {
     calls.push(`if err := requireMax(${numExpr(prop)}, ${c.maximum}, ${toGoStringLiteral(prop.wireName)}); err != nil {\n\treturn err\n}`);
   }
-  if (c.minLength !== undefined) {
+  if (isString && c.minLength !== undefined) {
     calls.push(`if err := requireMinLength(${strExpr(prop)}, ${c.minLength}, ${toGoStringLiteral(prop.wireName)}); err != nil {\n\treturn err\n}`);
   }
-  if (c.maxLength !== undefined) {
+  if (isString && c.maxLength !== undefined) {
     calls.push(`if err := requireMaxLength(${strExpr(prop)}, ${c.maxLength}, ${toGoStringLiteral(prop.wireName)}); err != nil {\n\treturn err\n}`);
   }
-  if (c.pattern !== undefined) {
+  if (isString && c.pattern !== undefined) {
     calls.push(`if err := requirePattern(${strExpr(prop)}, ${toGoStringLiteral(c.pattern)}, ${toGoStringLiteral(prop.wireName)}); err != nil {\n\treturn err\n}`);
   }
-  if (prop.format === "uuid") {
+  if (isString && prop.format === "uuid") {
     calls.push(`if err := requireUUID(${strExpr(prop)}, ${toGoStringLiteral(prop.wireName)}); err != nil {\n\treturn err\n}`);
   }
-  if (prop.format === "date") {
+  if (isString && prop.format === "date") {
     calls.push(`if err := requireDate(${strExpr(prop)}, ${toGoStringLiteral(prop.wireName)}); err != nil {\n\treturn err\n}`);
   }
   const nested = nestedValidateCall(registry, prop);

@@ -126,12 +126,18 @@ fun <T> RoutingCall.requireCookieParamAs(name: String, typeName: String, convert
 // mapping (see this generator's README) should answer this with 401, not 400.
 class MissingAuthenticationException(message: String) : Exception(message)
 
-// Extracts a bearer token from the Authorization header for an `http`/`bearer` securityScheme,
-// stripping the "Bearer " prefix if present (some clients send just the raw token).
+// The token of an `Authorization: Bearer <token>` header value (the scheme name is
+// case-insensitive) - null if it uses another scheme or carries no token.
+private fun bearerTokenOf(header: String): String? {
+    val scheme = header.substringBefore(' ')
+    val token = header.substringAfter(' ', "").trim()
+    return token.takeIf { scheme.equals("Bearer", ignoreCase = true) && it.isNotEmpty() }
+}
+
+// Extracts a bearer token from the Authorization header for an `http`/`bearer` securityScheme.
 fun RoutingCall.requireBearerToken(headerName: String): String {
     val raw = request.headers[headerName] ?: throw MissingAuthenticationException("Missing required \"$headerName\" header")
-    val prefix = "Bearer "
-    return if (raw.startsWith(prefix, ignoreCase = true)) raw.substring(prefix.length) else raw
+    return bearerTokenOf(raw) ?: throw MissingAuthenticationException("\"$headerName\" header doesn't carry a Bearer token")
 }
 
 // Extracts an apiKey securityScheme's value from wherever its `in` says it lives.
@@ -147,11 +153,7 @@ fun RoutingCall.requireApiKey(location: String, name: String): String =
 // MissingAuthenticationException when absent) - used to resolve which of 2+ OR-alternative security
 // requirements (security: [{a}, {b}]) a request satisfies, trying each in turn (see
 // api_routes.kt.j2's authTry/authAlternative macros) rather than failing fast on the first one.
-fun RoutingCall.optionalBearerToken(headerName: String): String? {
-    val raw = request.headers[headerName] ?: return null
-    val prefix = "Bearer "
-    return if (raw.startsWith(prefix, ignoreCase = true)) raw.substring(prefix.length) else raw
-}
+fun RoutingCall.optionalBearerToken(headerName: String): String? = request.headers[headerName]?.let(::bearerTokenOf)
 
 fun RoutingCall.optionalApiKey(location: String, name: String): String? =
     when (location) {

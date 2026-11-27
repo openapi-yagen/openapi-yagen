@@ -34,7 +34,7 @@
 
 import { typeName, fieldName, paramName, enumConstantName } from "./naming.js";
 import { withResilience } from "./strict.js";
-import { attachValidationCalls } from "./validation.js";
+import { attachValidationCalls, additionalPropertiesValidationCall, underlyingType } from "./validation.js";
 import { toGoStringLiteral } from "./keywords.js";
 
 function newRegistry(reservedNames) {
@@ -63,6 +63,52 @@ function isNullable(schema) {
   return Array.isArray(schema.type) && schema.type.includes("null");
 }
 
+// Whether an explicit JSON null can be rejected for a property of this schema: only when the
+// schema itself names a type and neither that nor its enum admits null. A schema without a `type`
+// (free-form, or composed through oneOf/anyOf/allOf) is given the benefit of the doubt.
+function rejectsNull(schema) {
+  if (!schema.type || isNullable(schema)) return false;
+  if (schema.type === "null") return false;
+  return !(Array.isArray(schema.enum) && schema.enum.includes(null));
+}
+
+// The values of an "open" string enum - known values that don't restrict what's accepted - or null
+// if `schema` isn't one. Two spellings: `x-extensible-enum` on a plain string schema, or a
+// two-branch oneOf/anyOf of a string enum and an unrestricted string.
+export function openEnumValues(schema) {
+  const strings = (values) => {
+    const result = values.filter((v) => typeof v === "string");
+    return result.length ? result : null;
+  };
+  const extensible = schema["x-extensible-enum"];
+  if (Array.isArray(extensible) && !schema.enum && baseType(schema) === "string") return strings(extensible);
+
+  const variants = schema.oneOf || schema.anyOf;
+  if (!variants || variants.length !== 2) return null;
+  const known = variants.find(
+    (v) => Array.isArray(v.enum) && ["string", null].includes(baseType(v)) && v.enum.every((e) => e === null || typeof e === "string")
+  );
+  const open = variants.find((v) => baseType(v) === "string" && !v.enum && v.const === undefined && !v.format);
+  return known && open ? strings(known.enum) : null;
+}
+
+function registerOpenEnum(registry, name, schema, values) {
+  if (registry.models.has(name)) return;
+  const entries = values.map((v) => ({ goName: enumConstantName(name, v), wireValue: v }));
+  addModel(registry, name, { name, kind: "enum", open: true, isInt: false, entries, description: schema.description || null });
+}
+
+// The first `additionalProperties` that admits extra properties (true or a schema) declared by
+// `schema` itself or any of its allOf branches, or null.
+function findAdditionalProperties(schema) {
+  if (schema.additionalProperties) return schema.additionalProperties;
+  for (const branch of schema.allOf || []) {
+    const found = findAdditionalProperties(branch);
+    if (found) return found;
+  }
+  return null;
+}
+
 // The schema's own scalar type keyword, ignoring "null" - `type` may be a plain string or (OAS
 // 3.1) an array like ["string", "null"].
 function baseType(schema) {
@@ -86,25 +132,43 @@ function registerStruct(registry, name, schema, variantOpts) {
       type: t.type,
       required: required.has(propName),
       nullable: isNullable(propSchema),
-      description: propSchema.description || null,
+      rejectsNull: rejectsNull(propSchema),
+      // A readOnly property is absent from requests and a writeOnly one from responses, so
+      // `required` can't be enforced on a model shared by both directions.
+      oneWay: !!(propSchema.readOnly || propSchema.writeOnly),
+      description: propertyDescription(schema, propName),
       constraints: constraintsOf(propSchema),
-      // Only meaningful (and only ever set) for a plain `string` property - format: date-time
-      // already maps to time.Time via primitiveGoType, so a string-typed property's format here
-      // is always uuid/date/byte/binary/... (Validate()'s format-check codegen only recognizes
-      // uuid/date - see attachValidationCalls).
-      format: t.type === "string" ? propSchema.format || null : null,
+      // Only meaningful for a string-typed property (see attachValidationCalls, which recognizes
+      // uuid/date) - format: date-time already maps to time.Time via primitiveGoType.
+      format: propSchema.format || null,
       // Raw (not yet Go-literal-converted) `default` value, deferred to finalizeModels -
       // buildDefaultLiteral there needs the registry to resolve an enum default to its generated
       // constant name, and is skipped entirely for a required property (see finalizeModels).
       rawDefault: "default" in propSchema ? propSchema.default : undefined,
     });
   }
-  addModel(registry, name, {
+  const model = {
     name,
     kind: "object",
     description: schema.description || null,
     properties: props,
-  });
+    additional: null,
+  };
+  // Registered before the additionalProperties value type, which may refer back to this model.
+  addModel(registry, name, model);
+
+  const additional = Object.keys(schema.properties || {}).length ? findAdditionalProperties(schema) : null;
+  if (additional) {
+    const valueType =
+      typeof additional === "object" ? goType(registry, additional, name + "AdditionalProperty").type : "any";
+    // A discriminator property belongs to the enclosing union, so it's never an additional one.
+    const declared = props.map((p) => p.wireName).concat(skipProperty ? [skipProperty] : []);
+    model.additional = {
+      goName: disambiguateName("AdditionalProperties", props.map((p) => p.goName)),
+      valueType,
+      declaredLiterals: declared.map((n) => toGoStringLiteral(n)),
+    };
+  }
 }
 
 function registerEnum(registry, name, schema) {
@@ -124,7 +188,13 @@ function registerEnum(registry, name, schema) {
 function registerMerged(registry, name, schema, variantOpts) {
   if (registry.models.has(name)) return;
   const flat = flattenAllOf(schema);
-  const merged = { type: "object", properties: flat.properties, required: flat.required, description: schema.description || null };
+  const merged = {
+    type: "object",
+    properties: flat.properties,
+    required: flat.required,
+    additionalProperties: findAdditionalProperties(schema),
+    description: schema.description || null,
+  };
   registerStruct(registry, name, merged, variantOpts);
 }
 
@@ -247,6 +317,13 @@ export function goType(registry, schema, hintName) {
   const name = nameOf(s);
   if (name) return { type: typeName(name) };
 
+  const openValues = openEnumValues(s);
+  if (openValues) {
+    const n = disambiguateHintName(registry, hintName);
+    registerOpenEnum(registry, n, s, openValues);
+    return { type: n };
+  }
+
   const kind = kindOf(s);
   if (kind === "Enum") {
     const n = disambiguateHintName(registry, hintName);
@@ -298,6 +375,11 @@ export function goType(registry, schema, hintName) {
 
 function registerTopLevel(registry, name, schema, variantOpts) {
   const s = schema;
+  const openValues = openEnumValues(s);
+  if (openValues) {
+    registerOpenEnum(registry, name, s, openValues);
+    return;
+  }
   const kind = kindOf(s);
   if (kind === "Enum") {
     registerEnum(registry, name, s);
@@ -350,7 +432,7 @@ function isRefType(registry, typeStr) {
 
 // Every "object" and "union" model kind always gets a generated Validate() method (an object with
 // zero constraints, or a union with zero struct/union-typed variants, just returns nil) - "enum"
-// (already self-validating at UnmarshalJSON: an unrecognized value is rejected there) and "alias"
+// (a closed one is self-validating at UnmarshalJSON, an open one accepts anything) and "alias"
 // (a defined type over a builtin/container, nothing of its own to check) never do. Used both to
 // decide whether a struct property recursing into this type needs a Validate() call at all (see
 // validation.js's attachValidationCalls) and, for a union model itself, which of its variants its
@@ -401,16 +483,27 @@ export function finalizeModels(registry) {
       // context via fmt.Sprintf (see validation.js's nestedValidateCall) - the scalar/pointer
       // case doesn't need it, so this stays false unless at least one property actually needs it.
       model.needsFmt = false;
-      // A struct with 1+ defaulted property gets a generated UnmarshalJSON (see
-      // model_struct.go.j2) - needs "encoding/json", unlike a plain struct relying entirely on
-      // field tags for decoding.
+      // A struct with a defaulted or enforced-required property, or with additionalProperties,
+      // gets a generated UnmarshalJSON (see model_struct.go.j2) - unlike a plain struct relying
+      // entirely on field tags for decoding.
       model.needsDefaults = false;
+      model.requiredProperties = [];
       for (const p of model.properties) {
         const ref = isRefType(registry, p.type);
         p.isRef = ref;
         p.pointer = !ref && (p.nullable || !p.required);
         p.omitempty = !p.required;
+        // Checks which only make sense for a particular underlying Go type (string length on a
+        // string, minimum on a number) look through named types.
+        p.underlyingType = underlyingType(registry, p.type);
         attachValidationCalls(registry, p);
+        if (p.required && !p.oneWay) {
+          model.requiredProperties.push({
+            wireNameLiteral: toGoStringLiteral(p.wireName),
+            // A nil slice/map encodes as null, so null is tolerated for those.
+            nullAllowed: ref || !p.rejectsNull,
+          });
+        }
         if (p.type.includes("time.Time")) model.needsTime = true;
         if (p.validationCalls.some((c) => c.includes("fmt.Sprintf"))) model.needsFmt = true;
         // A required property is always present in valid JSON, so `default` has nothing to do -
@@ -418,6 +511,13 @@ export function finalizeModels(registry) {
         p.defaultLiteral = p.pointer ? buildDefaultLiteral(registry, p.type, p.rawDefault) : null;
         if (p.defaultLiteral) model.needsDefaults = true;
       }
+      model.additionalValidationCall = null;
+      if (model.additional) {
+        model.additionalValidationCall = additionalPropertiesValidationCall(registry, model.additional);
+        if (model.additional.valueType.includes("time.Time")) model.needsTime = true;
+      }
+      model.needsFields = model.requiredProperties.length > 0 || !!model.additional;
+      model.needsUnmarshal = model.needsFields || model.needsDefaults;
     } else if (model.kind === "alias") {
       model.needsTime = model.targetType.includes("time.Time");
     } else if (model.kind === "union") {

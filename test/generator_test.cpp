@@ -2,8 +2,13 @@
 
 #include <catch2/catch_all.hpp>
 
+#include <filesystem>
+#include <format>
+#include <fstream>
+#include <random>
 #include <sstream>
 
+#include <lib/common/finalize.h>
 #include <lib/filesystem/embedded_file_reader_backend.h>
 #include <lib/filesystem/file_reader.h>
 #include <lib/filesystem/file_writer.h>
@@ -1186,4 +1191,99 @@ TEST_CASE("Generate runs end-to-end against a built-in (embedded) generator", "[
     REQUIRE_THAT(fileWriter->files["apis/PetsApi.kt"], Catch::Matchers::ContainsSubstring("class PetsApi"));
     REQUIRE_THAT(fileWriter->files["apis/PetsApi.kt"], Catch::Matchers::ContainsSubstring("listPets"));
     REQUIRE_THAT(fileWriter->files["models/Pet.kt"], Catch::Matchers::ContainsSubstring("data class Pet"));
+}
+
+TEST_CASE("propertyDescription prefers the description written next to a property's $ref", "[generator]")
+{
+    auto fileWriter = make_shared<MockedFileWriter>();
+    auto templateRenderer = make_shared<MockedTemplateRenderer>();
+
+    MockedFileReaderBackend::Files files = {
+        { "main.js", R"JS(
+const s = schema.components.schemas;
+const d = (target, name) => String(propertyDescription(target, name));
+const flat = flattenAllOf(s.Combined);
+
+writeFile("outfile", [
+  "sibling=" + d(s.Session, "next"),
+  "again=" + d(s.Session, "later"),
+  "target=" + d(s.Session, "plain"),
+  "inline=" + d(s.Session, "id"),
+  "none=" + d(s.Session, "bare"),
+  "missing=" + d(s.Session, "nope"),
+  "noProps=" + d(s.Action, "nope"),
+  "sameObject=" + (s.Session.properties.next === s.Session.properties.plain),
+  "name=" + nameOf(s.Session.properties.next),
+  "flatInherited=" + d(flat, "next"),
+  "flatOverridden=" + d(flat, "later"),
+  "flatOwn=" + d(flat, "plain"),
+  "rewrapped=" + d({ properties: flat.properties }, "next"),
+  "synthetic=" + d({ properties: { x: { description: "Made in JS" } } }, "x"),
+].join("\n") + "\n");
+)JS" },
+        // 3.0 as the target would convert the spec and drop the keys next to $refs.
+        { "generator.yml", "name: test_generator\nopenApiVersion: \"3.1\"\n" },
+    };
+
+    auto fileReader = make_shared<FileReader>(FileReader::Opts {
+        .backends = { make_shared<MockedFileReaderBackend>(files) },
+    });
+    auto jsExecutor = make_shared<JS::Executor>(JS::Executor::Opts { .fileReader = fileReader });
+    Generator::OpenApiGenerator gen(Generator::OpenApiGenerator::Opts {
+        .fileReader = fileReader,
+        .fileWriter = fileWriter,
+        .jsExecutor = jsExecutor,
+        .templateRenderer = templateRenderer,
+        .defaultMainSciptPath = "main.js",
+        .metadataPath = "generator.yml",
+        .vars = { },
+        .tags = {},
+        .headerText = std::nullopt,
+        .noHeader = true,
+    });
+
+    auto specPath = filesystem::temp_directory_path() / format("openapi-yagen-desc-{}.yaml", random_device { }());
+    ofstream(specPath) << R"(openapi: 3.1.0
+info: {title: t, version: 1.0.0}
+paths: {}
+components:
+  schemas:
+    Action: {type: string, description: Target}
+    Alias: {$ref: '#/components/schemas/Action', description: Of the alias}
+    Session:
+      type: object
+      properties:
+        next: {$ref: '#/components/schemas/Action', description: Only while pending}
+        later: {$ref: '#/components/schemas/Alias', description: After that}
+        plain: {$ref: '#/components/schemas/Action'}
+        id: {type: string, description: Inline}
+        bare: {type: string}
+    Combined:
+      allOf:
+        - {$ref: '#/components/schemas/Session'}
+        - type: object
+          properties:
+            later: {$ref: '#/components/schemas/Action'}
+            plain: {$ref: '#/components/schemas/Action', description: Redeclared}
+)";
+    finalize { filesystem::remove(specPath); };
+
+    gen.generate(specPath.string());
+
+    REQUIRE(fileWriter->files["outfile"]
+            == "sibling=Only while pending\n"
+               "again=After that\n"
+               "target=Target\n"
+               "inline=Inline\n"
+               "none=null\n"
+               "missing=null\n"
+               "noProps=null\n"
+               "sameObject=true\n"
+               "name=Action\n"
+               "flatInherited=Only while pending\n"
+               // The later branch redeclares it without a description of its own.
+               "flatOverridden=Target\n"
+               "flatOwn=Redeclared\n"
+               "rewrapped=Only while pending\n"
+               "synthetic=Made in JS\n");
 }

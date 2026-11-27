@@ -24,4 +24,5 @@ private:
     bool clearOutDir = false;
     std::optional<std::string> headerText;
     bool noHeader = false;
+    std::string refRoot;
 };

@@ -24,6 +24,9 @@ generator or rework an existing one's templates - not just that the output compi
   their model templates for the reference implementation - when adding a new generator or
   reworking an existing one's templates, verify all of the above still holds, not just that the
   code compiles/runs.
+- **Take a property's description from `propertyDescription(schema, propName)`**, not from
+  `propSchema.description`: for a `$ref` property the latter is the target schema's, losing what the
+  property says next to the `$ref`.
 - **A generator for a dynamically-typed target language must generate its own runtime checks** -
   don't rely on "it'll fail somewhere eventually." TypeScript/Kotlin generators get a wrong-shaped
   value (wrong class, wrong property type) rejected for free by the target's own compiler; a

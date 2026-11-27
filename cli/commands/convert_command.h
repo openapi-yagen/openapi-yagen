@@ -16,4 +16,5 @@ private:
     std::string toVersion;
     std::string outPath;
     std::string outputFormat;
+    std::string refRoot;
 };

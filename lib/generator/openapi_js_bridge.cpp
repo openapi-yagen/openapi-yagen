@@ -47,6 +47,8 @@ JSValue OpenApiJsGraphBuilder::buildSchemaValue(const SchemaPtr& schema)
         checkForException(ctx, propsObj, "<ea587a26> Cannot create object");
         for (const auto& [name, prop] : schema->properties)
             setObjProperty(ctx, propsObj, name, buildSchemaValue(prop));
+        for (const auto& [name, description] : schema->propertyDescriptions)
+            setRefDescription(propsObj, name, description);
         setObjProperty(ctx, obj, "properties", propsObj);
     }
     if (schema->items)
@@ -487,6 +489,33 @@ optional<string> OpenApiJsGraphBuilder::nameOf(JSValueConst x) const
     if (it == componentNames.end())
         return nullopt;
     return it->second;
+}
+
+optional<string> OpenApiJsGraphBuilder::refDescriptionOf(JSValueConst properties, const string& name) const
+{
+    auto it = refDescriptions.find(JS_VALUE_GET_PTR(properties));
+    if (it == refDescriptions.end())
+        return nullopt;
+    auto description = it->second.byName.find(name);
+    if (description == it->second.byName.end())
+        return nullopt;
+    return description->second;
+}
+
+void OpenApiJsGraphBuilder::setRefDescription(JSValueConst properties, const string& name,
+                                              const optional<string>& description)
+{
+    const void* key = JS_VALUE_GET_PTR(properties);
+    if (!description) {
+        if (auto it = refDescriptions.find(key); it != refDescriptions.end())
+            it->second.byName.erase(name);
+        return;
+    }
+    auto it = refDescriptions.find(key);
+    if (it == refDescriptions.end())
+        it = refDescriptions.emplace(key, RefDescriptions { JSValueWrapper(ctx, JS_DupValue(ctx, properties)), { } })
+                 .first;
+    it->second.byName[name] = *description;
 }
 
 }

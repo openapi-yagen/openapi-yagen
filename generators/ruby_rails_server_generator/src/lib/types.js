@@ -104,7 +104,7 @@ function registerClass(registry, name, schema) {
       required: isRequired,
       nullable,
       defaultLiteral,
-      description: propSchema.description || null,
+      description: propertyDescription(schema, propName),
       // An absent key uses the default; an explicit JSON null (key present, value null) still goes
       // through the normal from_h transform below, which is nil-safe and correctly yields nil, not
       // the default - the same "absent vs. explicit null" distinction the Go/Kotlin generators'

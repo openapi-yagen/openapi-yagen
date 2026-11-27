@@ -186,6 +186,8 @@ class WidgetsApiRoutesTest {
         val neither = client.post("/widgets/w1/favorite")
         assertEquals(HttpStatusCode.Unauthorized, neither.status)
 
+        val withBasic = client.post("/widgets/w1/favorite") { header("Authorization", "Basic abc") }
+        assertEquals(HttpStatusCode.Unauthorized, withBasic.status)
         val withOauth2 = client.post("/widgets/w1/favorite") { header("Authorization", "Bearer sometoken") }
         assertEquals(HttpStatusCode.NoContent, withOauth2.status)
 

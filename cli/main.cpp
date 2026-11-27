@@ -8,6 +8,7 @@
 #include <lib/logger/console_logger.h>
 #include <lib/logger/logger.h>
 
+#include "commands/bundle_command.h"
 #include "commands/convert_command.h"
 #include "commands/extract_command.h"
 #include "commands/generate_command.h"
@@ -32,6 +33,7 @@ int main(int argc, char** argv)
         Commands commands = {
             make_shared<GenerateCommand>(),
             make_shared<ConvertCommand>(),
+            make_shared<BundleCommand>(),
             make_shared<ListGeneratorsCommand>(),
             make_shared<ExtractCommand>(),
             make_shared<InfoCommand>(),

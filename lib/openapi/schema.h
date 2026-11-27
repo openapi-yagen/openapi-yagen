@@ -103,6 +103,9 @@ struct Schema {
     SchemaPtr items;
 
     SchemaMap properties;
+    // Property name -> the `description` written next to that property's `$ref`, recorded by
+    // resolveAllRefs() before it repoints the property at the (shared) target schema.
+    std::map<Str, Str> propertyDescriptions;
     std::vector<Str> required;
     std::optional<int64_t> minProperties;
     std::optional<int64_t> maxProperties;

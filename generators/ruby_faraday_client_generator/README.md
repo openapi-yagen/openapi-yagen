@@ -5,7 +5,7 @@ slug: /generators/ruby-faraday-client
 description: Generate a Ruby API client that takes a caller-supplied Faraday::Connection.
 ---
 
-# ruby_faraday_client_generator
+# ruby_faraday_client
 
 Generates a Ruby API client: one plain Ruby class per OpenAPI object schema (hand-written
 `to_h`/`from_h` JSON (de)serialization - no runtime-reflection gem needed), one module per enum,
@@ -22,7 +22,7 @@ none of that is the generated code's concern.
 ## Usage
 
 ```bash
-openapi-yagen g -o out -g ruby_faraday_client_generator openapi.yaml -v moduleName=PetStore
+openapi-yagen g -o out -g builtin:ruby_faraday_client openapi.yaml -v moduleName=PetStore
 ```
 
 | Variable     | Required | Description                                                          |
@@ -319,7 +319,7 @@ Any other status - including a `2xx` the operation doesn't declare - raises `Run
   [rubocop](https://rubocop.org)'s `--autocorrect` or [rufo](https://github.com/ruby-formatter/rufo)
   yourself via `-p`/`--post-process` if you want one:
   ```bash
-  openapi-yagen g -o out -g ruby_faraday_client_generator openapi.yaml -v moduleName=PetStore \
+  openapi-yagen g -o out -g builtin:ruby_faraday_client openapi.yaml -v moduleName=PetStore \
       -p "rb:rufo %file%"
   ```
 

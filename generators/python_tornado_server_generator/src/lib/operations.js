@@ -425,14 +425,9 @@ function buildAuthParamForScheme(schemeName, scheme, required) {
   const isBearerLike = (scheme.type === "http" && (scheme.scheme || "").toLowerCase() === "bearer") || scheme.type === "oauth2" || scheme.type === "openIdConnect";
   const pyName = fieldName(schemeName + (isBearerLike ? "_token" : "_key"));
   if (isBearerLike) {
-    const lines = [`${pyName}_raw = self.request.headers.get("Authorization")`];
+    const lines = [`${pyName} = runtime.bearer_token(self.request.headers.get("Authorization"))`];
     if (required) {
-      lines.push(`if ${pyName}_raw is None: raise MissingAuthenticationError('missing required "Authorization" header')`);
-      lines.push(`${pyName} = ${pyName}_raw[7:] if ${pyName}_raw.lower().startswith("bearer ") else ${pyName}_raw`);
-    } else {
-      lines.push(
-        `${pyName} = (${pyName}_raw[7:] if ${pyName}_raw.lower().startswith("bearer ") else ${pyName}_raw) if ${pyName}_raw is not None else None`
-      );
+      lines.push(`if ${pyName} is None: raise MissingAuthenticationError('missing "Authorization: Bearer <token>" header')`);
     }
     return {
       pyName,

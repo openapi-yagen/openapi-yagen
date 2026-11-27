@@ -28,6 +28,9 @@ public:
         std::optional<std::string> headerText;
         // CLI --no-header: disables that header entirely for this run.
         bool noHeader = false;
+        // CLI --ref-root: the directory files referenced through $ref must lie in (empty = the
+        // spec file's own directory).
+        std::string refRoot { };
     };
 
     OpenApiGenerator(Opts&& opts);

@@ -80,27 +80,58 @@ without having to open its `generator.yml` by hand - see the root
 
 ## External $ref resolution
 
-Before your generator ever sees it, the engine resolves every **external** `$ref` (one pointing at
-a sibling file, as opposed to an in-document `#/...` pointer) found anywhere in the spec, sandboxed
-to the spec file's own directory tree. This is deliberately more permissive than OpenAPI itself,
-which only allows `$ref` in a handful of positions (Schema/Parameter/RequestBody/Header/Response/
-Example/Link/Callback/PathItem) - some real-world specs (DigitalOcean's public API source, for one)
-are pre-bundle documents that use `$ref` in other positions too (`tags[].description`, or a whole
-Operation standing in for `get:`/`post:`/...), pointing at sibling files a bundler would normally
-splice in before publishing. The engine resolves these the same way, on a pragmatic best-effort
-basis, so your generator always sees a single, already-merged document either way.
+Before your generator ever sees it, the engine bundles a multi-file spec into one document: every
+**external** `$ref` (one pointing at another file, as opposed to an in-document `#/...` pointer) is
+resolved, so your generator always sees a single, already-merged document. The
+[`bundle` command](../README.md#bundle-subcommand) writes that document out without generating
+anything.
 
-- Only files inside the spec's own directory tree can be read - a `$ref` that would resolve
-  outside it, or to a missing file, is treated as absent (with a warning logged), not an error.
-- A `#/json-pointer` fragment after the file path (`other.yml#/some/path`) is resolved into the
-  loaded file.
-- A bare `#/...` ref found *inside* an externally-loaded file (a local cross-reference within that
-  file, not back into your root spec) is hoisted into your document's own `components.schemas`
-  under a fresh name and rewritten to a normal local ref - this is what lets a self-referential
-  schema defined in a shared utility file (e.g. a recursive tree/graph-shaped type) work correctly
-  instead of failing on infinite recursion.
-- In-document `#/...` refs in your own root spec are untouched by any of this - they resolve the
-  standard way regardless.
+### Which files can be read
+
+- A `$ref` path is relative to the file it's written in. `../` is fine as long as the target stays
+  inside the **ref root** - by default the directory of the spec file you pass, or the directory
+  given with `--ref-root <dir>` (needed, for example, when the spec refers to a sibling directory).
+  Symlinks leading outside it don't count as inside.
+- Remote (`http://`, `https://`) refs aren't supported.
+- Any `$ref` that can't be resolved - missing file, outside the ref root, missing `#/...` fragment,
+  a cycle that can't be represented - is an error: the command exits with a non-zero code and names
+  the `$ref`, the file and place it's written at, and the reason.
+
+### Where the referenced content ends up
+
+- A **component** of another file (`other.yaml#/components/<section>/<Name>`, or
+  `#/definitions/<Name>`) is copied into the same section of the resulting document under the same
+  name, and the `$ref` becomes `#/components/<section>/<Name>`. Only what's reachable through refs
+  (including `discriminator.mapping`) is copied - the rest of that file is ignored.
+- A `$ref` placed directly in one of your own components (`components.schemas.Pet: {$ref:
+  'pet.yaml'}`) *defines* that component: other refs to the same target use the name `Pet`.
+- Two files providing a component with the **same name** end up as one component if the content is
+  identical; if it differs, that's an error naming both sources.
+- A **Path Item** (under `paths`, `webhooks`, `callbacks`) is inlined as a whole, including its
+  path-level `parameters`; keys written next to the `$ref` (such as `summary`) are added to it.
+  The same goes for `#/components/pathItems/<Name>`.
+- Anything referenced by a pointer **outside of components** - a whole file, `#/paths/~1items`,
+  `#/some/key` - is inlined at the place of the `$ref`. Some real-world specs (DigitalOcean's public
+  API source, for one) use `$ref` in positions OpenAPI doesn't allow (`tags[].description`, a whole
+  Operation standing in for `get:`/`post:`/...); these are spliced in on a best-effort basis.
+- A `#/...` ref written *inside* another file means "the root of that file". If it doesn't point
+  at a component (e.g. a recursive schema referring to `#/node` in a shared file), the fragment
+  becomes a schema component named after the pointer's last segment.
+- `#/...` refs written in your root spec are left as they are.
+
+### Operations taken from another API
+
+When operations come from a file that is a complete OpenAPI document (it has its own `openapi` or
+`swagger` field), they keep what that document says about them:
+
+- an operation without its own `security` gets that document's global `security` (or `[]` if there
+  is none), so your root spec's global `security` doesn't apply to it;
+- the security schemes those requirements name are copied into `components.securitySchemes`;
+- the descriptions of their tags are added to the top-level `tags`, unless your spec already
+  declares a tag with that name.
+
+A file without that field is a plain fragment: your root spec's `security` applies to the
+operations taken from it.
 
 ## Spec versions and conversion
 

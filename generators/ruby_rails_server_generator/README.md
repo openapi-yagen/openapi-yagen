@@ -5,7 +5,7 @@ slug: /generators/ruby-rails-server
 description: Generate Rails routing, controllers, and models from an OpenAPI spec.
 ---
 
-# ruby_rails_server_generator
+# ruby_rails_server
 
 Generates a Ruby on Rails server: one plain Ruby class per OpenAPI object schema (hand-written
 `to_h`/`from_h` JSON (de)serialization, no runtime-reflection gem needed), a controller per tag
@@ -30,7 +30,7 @@ generated code" below for both.
 ## Usage
 
 ```bash
-openapi-yagen g -o .generated -g ruby_rails_server_generator openapi.yaml -v moduleName=PetStore
+openapi-yagen g -o .generated -g builtin:ruby_rails_server openapi.yaml -v moduleName=PetStore
 ```
 
 | Variable | Required | Description |
@@ -376,7 +376,7 @@ mapped to the same `422`, no matter which model file it originated in.
 Set `-v publishOpenApiSpec=true` to have the generated server publish its own spec:
 
 ```bash
-openapi-yagen g -o .generated -g ruby_rails_server_generator openapi.yaml \
+openapi-yagen g -o .generated -g builtin:ruby_rails_server openapi.yaml \
   -v moduleName=PetStore -v publishOpenApiSpec=true
 ```
 

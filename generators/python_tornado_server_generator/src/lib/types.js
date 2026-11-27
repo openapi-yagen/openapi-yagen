@@ -148,7 +148,7 @@ function registerClass(registry, name, schema) {
       required: isRequired,
       nullable,
       optional: !isRequired || nullable,
-      description: propSchema.description || null,
+      description: propertyDescription(schema, propName),
       // runtime.field(d, key) instead of a bare d.get(key): mypy --strict infers dict.get()'s
       // no-default overload as returning "V | None" even when V is already Any, which then fails
       // an "arg-type" check against a required (non-Optional) property - wrapping through a

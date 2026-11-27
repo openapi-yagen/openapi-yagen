@@ -6,9 +6,11 @@ dump("Hello world", {"key":["value"]})
 // round-trips as a JSON `null` once inside a template-called function's arguments - and the
 // engine's inja bridge doesn't accept `null` there (only in plain render `data`). So build plain
 // objects below with only the fields that are actually present, never an `undefined`/`null` one.
-function toTemplateProp(propSchema) {
+function toTemplateProp(s, propName) {
+  const propSchema = s.properties[propName];
   const prop = { type: propSchema.type };
-  if (propSchema.description) prop.description = propSchema.description;
+  const description = propertyDescription(s, propName);
+  if (description) prop.description = description;
   return prop;
 }
 
@@ -24,8 +26,8 @@ for (const [name, s] of Object.entries(schema.components.schemas)) {
   const kind = kindOf(s);
   if (kind === "Object") {
     entry.properties = {};
-    for (const [propName, propSchema] of Object.entries(s.properties || {})) {
-      entry.properties[propName] = toTemplateProp(propSchema);
+    for (const propName of Object.keys(s.properties || {})) {
+      entry.properties[propName] = toTemplateProp(s, propName);
     }
     entry.required = s.required || [];
   } else if (kind === "Array") {

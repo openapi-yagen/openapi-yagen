@@ -22,7 +22,19 @@ import (
 {% endmacro %}{% macro writeResponse(kind, statusCode, mediaTypeLiteral, value) %}{% if kind == "json" %}writeJSON(w, {{ statusCode }}, {{ value }}){% else if kind == "text" %}w.Header().Set("Content-Type", {{ mediaTypeLiteral }})
 w.WriteHeader({{ statusCode }})
 w.Write([]byte({{ value }})){% else if kind == "file" %}writeFile(w, r, {{ statusCode }}, {{ mediaTypeLiteral }}, {{ value }}){% else %}w.WriteHeader({{ statusCode }}){% endif %}{% endmacro %}
-// {{ routesFunc }} lists the routes {{ registerFunc }} registers, in registration order.
+{% macro formFields(fields) %}{% for f in fields %}{% if f.isFile %}{{ f.localName }}, err := formFileAs(r, {{ f.wireNameLiteral }})
+{% else if f.isArray %}{{ f.localName }}, err := formFieldListAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
+{% else if f.pointer %}{{ f.localName }}, err := formFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
+{% else %}{{ f.localName }}, err := requireFormFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
+{% endif %}if err != nil {
+	onError(w, r, err)
+	return
+}
+{% if f.required and (f.isFile or f.isArray) %}if {{ f.localName }} == nil {
+	onError(w, r, &models.ValidationError{Field: {{ f.wireNameLiteral }}, Message: "is required"})
+	return
+}
+{% endif %}{% endfor %}{% endmacro %}// {{ routesFunc }} lists the routes {{ registerFunc }} registers, in registration order.
 func {{ routesFunc }}() []Route {
 	return []Route{
 {% for op in operations %}		{Method: {{ op.methodLiteral }}, Path: {{ op.pathLiteral }}, OperationID: {{ op.operationIdLiteral }}, Tag: {{ tagLiteral }}},
@@ -35,14 +47,16 @@ func {{ routesFunc }}() []Route {
 		onError = DefaultErrorHandler
 	}
 {% for op in operations %}	mux.HandleFunc({{ op.pattern }}, func(w http.ResponseWriter, r *http.Request) {
-{% filter indent("\t\t", true) %}var err error
+{% filter indent("\t\t", true) %}w, r, yagenDone := beginExchange(w, r)
+defer yagenDone()
+var err error
 
-{% for p in op.pathParams %}{{ p.goName }}, err := pathParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% for p in op.pathParams %}{{ p.goName }}, err := pathParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }}{{ p.checkArgs }})
 if err != nil {
 	onError(w, r, err)
 	return
 }
-{% endfor %}{% for p in op.queryParams %}{% if p.isArray %}{{ p.goName }}, err := queryParamListAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% endfor %}{% for p in op.queryParams %}{% if p.isArray %}{{ p.goName }}, err := queryParamListAs(r, {{ p.wireNameLiteral }}, {{ p.converter }}{{ p.checkArgs }})
 if err != nil {
 	onError(w, r, err)
 	return
@@ -51,20 +65,20 @@ if err != nil {
 	onError(w, r, &models.ValidationError{Field: {{ p.wireNameLiteral }}, Message: "is required"})
 	return
 }
-{% endif %}{% else %}{% if p.required %}{{ p.goName }}, err := requireQueryParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
-{% else %}{{ p.goName }}, err := queryParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% endif %}{% else %}{% if p.required %}{{ p.goName }}, err := requireQueryParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }}{{ p.checkArgs }})
+{% else %}{{ p.goName }}, err := queryParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }}{{ p.checkArgs }})
 {% endif %}if err != nil {
 	onError(w, r, err)
 	return
 }
-{% endif %}{% endfor %}{% for p in op.headerParams %}{% if p.required %}{{ p.goName }}, err := requireHeaderParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
-{% else %}{{ p.goName }}, err := headerParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% endif %}{% endfor %}{% for p in op.headerParams %}{% if p.required %}{{ p.goName }}, err := requireHeaderParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }}{{ p.checkArgs }})
+{% else %}{{ p.goName }}, err := headerParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }}{{ p.checkArgs }})
 {% endif %}if err != nil {
 	onError(w, r, err)
 	return
 }
-{% endfor %}{% for p in op.cookieParams %}{% if p.required %}{{ p.goName }}, err := requireCookieParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
-{% else %}{{ p.goName }}, err := cookieParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }})
+{% endfor %}{% for p in op.cookieParams %}{% if p.required %}{{ p.goName }}, err := requireCookieParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }}{{ p.checkArgs }})
+{% else %}{{ p.goName }}, err := cookieParamAs(r, {{ p.wireNameLiteral }}, {{ p.converter }}{{ p.checkArgs }})
 {% endif %}if err != nil {
 	onError(w, r, err)
 	return
@@ -102,26 +116,23 @@ if err != nil {
 	onError(w, r, err)
 	return
 }
-{% endif %}{% endif %}{% else if op.body.encoding == "urlencoded" or op.body.encoding == "multipart" %}{% for f in op.body.fields %}{% if f.isFile %}{{ f.localName }}, err := formFileAs(r, {{ f.wireNameLiteral }})
-{% else if f.isArray %}{{ f.localName }}, err := formFieldListAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
-{% else if f.pointer %}{{ f.localName }}, err := formFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
-{% else %}{{ f.localName }}, err := requireFormFieldAs(r, {{ f.wireNameLiteral }}, {{ f.converter }})
-{% endif %}if err != nil {
-	onError(w, r, err)
-	return
+{% endif %}{% endif %}{% else if op.body.encoding == "urlencoded" or op.body.encoding == "multipart" %}{% if op.body.pointer %}var body *{{ op.body.type }}
+if r.ContentLength != 0 {
+{{ formFields(op.body.fields) | indent("\t", true) }}	body = &{{ op.body.type }}{ {% for f in op.body.fields %}{{ f.goName }}: {{ f.localName }}, {% endfor %}}
 }
-{% if f.required and (f.isFile or f.isArray) %}if {{ f.localName }} == nil {
-	onError(w, r, &models.ValidationError{Field: {{ f.wireNameLiteral }}, Message: "is required"})
-	return
-}
-{% endif %}{% endfor %}body := {{ op.body.type }}{ {% for f in op.body.fields %}{{ f.goName }}: {{ f.localName }}, {% endfor %}}
-{% else if op.body.encoding == "text" %}bodyBytes, err := io.ReadAll(r.Body)
+{% else %}{{ formFields(op.body.fields) }}body := {{ op.body.type }}{ {% for f in op.body.fields %}{{ f.goName }}: {{ f.localName }}, {% endfor %}}
+{% endif %}{% else if op.body.encoding == "text" %}bodyBytes, err := io.ReadAll(r.Body)
 if err != nil {
 	onError(w, r, err)
 	return
 }
-body := string(bodyBytes)
-{% else %}body, err := readBinaryBody(w, r, {{ op.body.mediaTypeLiteral }}, {% if op.body.required %}true{% else %}false{% endif %})
+{% if op.body.pointer %}var body *string
+if len(bodyBytes) > 0 {
+	yagenText := string(bodyBytes)
+	body = &yagenText
+}
+{% else %}body := string(bodyBytes)
+{% endif %}{% else %}body, err := readBinaryBody(w, r, {{ op.body.mediaTypeLiteral }}, {% if op.body.required %}true{% else %}false{% endif %})
 if err != nil {
 	onError(w, r, err)
 	return
@@ -131,6 +142,9 @@ if err != nil {
 {% else %}err = handler.{{ op.name }}({{ op.callArgs }})
 {% endif %}if err != nil {
 	onError(w, r, err)
+	return
+}
+if responseStarted(w) {
 	return
 }
 

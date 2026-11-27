@@ -1,6 +1,8 @@
 package client
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -69,15 +71,128 @@ func writeMultipartFile(w *multipart.Writer, name string, data []byte) error {
 	return err
 }
 
+// MaxErrorBodySize caps how many bytes of an unsuccessful response's body are read into
+// ResponseError.Body. Set it before issuing requests.
+var MaxErrorBodySize int64 = 64 << 10
+
 // ResponseError is returned when a request completes but the server responded with an
-// unsuccessful (4xx/5xx) status code.
+// unsuccessful (4xx/5xx) status code, or a status the operation doesn't declare.
 type ResponseError struct {
 	StatusCode int
-	Body       []byte
+	// Body is the response body, truncated to MaxErrorBodySize.
+	Body []byte
 }
 
+// Error reports the status only - the body may carry personal data or secrets, so it's left to the
+// caller to decide what of it to log.
 func (e *ResponseError) Error() string {
-	return fmt.Sprintf("unexpected status %d: %s", e.StatusCode, string(e.Body))
+	return fmt.Sprintf("unexpected status %d", e.StatusCode)
+}
+
+// Auth supplies the credentials of operations that declare a security requirement. A func is called
+// for every request that needs it, so it can return a refreshed value; scheme is the name of the
+// securityScheme in the OpenAPI document. Leave a func nil if you have no credentials of its kind.
+type Auth struct {
+	// Bearer returns the token of an http/bearer, oauth2, or openIdConnect scheme, sent as
+	// `Authorization: Bearer <token>`.
+	Bearer func(ctx context.Context, scheme string) (string, error)
+	// APIKey returns the value of an apiKey scheme, sent in the header, query parameter, or cookie
+	// the scheme declares.
+	APIKey func(ctx context.Context, scheme string) (string, error)
+}
+
+// Option configures a client.
+type Option func(*clientOptions)
+
+// WithAuth makes the client add credentials to every operation that declares a security
+// requirement: the first of the operation's alternatives for which auth has all the needed funcs is
+// used, and a request none of them covers fails before being sent. Without this option the client
+// adds no credentials, leaving authentication to the *http.Client (e.g. its Transport).
+func WithAuth(auth Auth) Option {
+	return func(o *clientOptions) { o.auth = &auth }
+}
+
+type clientOptions struct {
+	auth *Auth
+}
+
+func newClientOptions(opts []Option) clientOptions {
+	var o clientOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
+// securityRequirement is one securityScheme an operation needs: a bearer token, or else an apiKey
+// sent as name in the location given by in.
+type securityRequirement struct {
+	scheme string
+	bearer bool
+	in     string
+	name   string
+}
+
+func (a *Auth) source(requirement securityRequirement) func(context.Context, string) (string, error) {
+	if requirement.bearer {
+		return a.Bearer
+	}
+	return a.APIKey
+}
+
+func (a *Auth) covers(alternative []securityRequirement) bool {
+	for _, requirement := range alternative {
+		if a.source(requirement) == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// authorize adds to req the credentials of the first alternative the configured Auth covers. If it
+// covers none, the request is left as is when optional, and is an error otherwise.
+func (o clientOptions) authorize(req *http.Request, optional bool, alternatives [][]securityRequirement) error {
+	if o.auth == nil {
+		return nil
+	}
+	for _, alternative := range alternatives {
+		if !o.auth.covers(alternative) {
+			continue
+		}
+		for _, requirement := range alternative {
+			if err := o.auth.apply(req, requirement); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if optional {
+		return nil
+	}
+	return errors.New("the configured Auth doesn't cover any of the operation's security requirements")
+}
+
+func (a *Auth) apply(req *http.Request, requirement securityRequirement) error {
+	value, err := a.source(requirement)(req.Context(), requirement.scheme)
+	if err != nil {
+		return fmt.Errorf("credentials for security scheme %q: %w", requirement.scheme, err)
+	}
+	if value == "" {
+		return fmt.Errorf("empty credentials for security scheme %q", requirement.scheme)
+	}
+	switch {
+	case requirement.bearer:
+		req.Header.Set("Authorization", "Bearer "+value)
+	case requirement.in == "query":
+		query := req.URL.Query()
+		query.Set(requirement.name, value)
+		req.URL.RawQuery = query.Encode()
+	case requirement.in == "cookie":
+		req.AddCookie(&http.Cookie{Name: requirement.name, Value: value})
+	default:
+		req.Header.Set(requirement.name, value)
+	}
+	return nil
 }
 
 // File is a raw (non-JSON, non-text) response body, still unread: stream it via Body, or call

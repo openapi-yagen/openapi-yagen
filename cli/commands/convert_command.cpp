@@ -1,13 +1,10 @@
 #include "convert_command.h"
 
 #include <format>
-#include <fstream>
 #include <stdexcept>
 
-#include <lib/common/yaml_or_json_parser.h>
 #include <lib/generator/spec_file.h>
 #include <lib/logger/logger.h>
-#include <lib/openapi/document_field_order.h>
 #include <lib/openapi/version.h>
 #include <lib/openapi/version_convert.h>
 
@@ -15,11 +12,6 @@ using namespace std;
 
 namespace {
 LogFacade::Logger logger("ConvertCommand");
-
-bool endsWith(const string& s, const string& suffix)
-{
-    return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
-}
 }
 
 ConvertCommand::ConvertCommand() { }
@@ -37,11 +29,13 @@ void ConvertCommand::reg(CLI::App& app)
     cmd->add_option("-o,--out", outPath, "Output file path")->required();
     cmd->add_option("--format", outputFormat,
                     "Output format: \"yaml\" or \"json\" - inferred from --out's extension if omitted");
+    cmd->add_option("--ref-root", refRoot,
+                    "Directory that files referenced through $ref must lie in (default: the spec file's directory)");
 }
 
 void ConvertCommand::process()
 {
-    auto specNode = readSpecFile(specPath);
+    auto specNode = readSpecFile(specPath, refRoot);
 
     auto from = [&] {
         if (!fromVersion.empty()) {
@@ -69,16 +63,7 @@ void ConvertCommand::process()
     // OpenApi::V3::Read/V2::Read) - a malformed input throws here, before anything is written.
     auto converted = OpenApi::convertVersion(specNode, from, *to);
 
-    auto fieldOrder = OpenApi::documentFieldOrder(*to);
-    bool asJson = outputFormat == "json" || (outputFormat.empty() && endsWith(outPath, ".json"));
-    auto text = asJson ? nodeToJsonText(converted, fieldOrder) : nodeToYamlText(converted, fieldOrder);
-
-    ofstream out(outPath, ios::binary);
-    if (!out)
-        throw runtime_error(format("<e5f6a7b8> Cannot open \"{}\" for writing", outPath));
-    out << text;
-    if (!out)
-        throw runtime_error(format("<f6a7b8c9> Failed writing to \"{}\"", outPath));
+    writeSpecFile(converted, *to, outPath, outputFormat);
 
     logger.info("<a7b8c9d0> Wrote {}", outPath);
 }

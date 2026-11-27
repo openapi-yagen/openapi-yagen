@@ -102,7 +102,7 @@ function registerInterface(registry, name, schema, variantOpts) {
       descriptor,
       required: isRequired,
       nullable,
-      description: [propSchema.description, defaultDoc].filter(Boolean).join("\n") || null,
+      description: [propertyDescription(schema, propName), defaultDoc].filter(Boolean).join("\n") || null,
     });
   }
   addModel(registry, name, { name, kind: "interface", description: schema.description || null, properties: props });

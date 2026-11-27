@@ -1,0 +1,10 @@
+openapi: 3.1.0
+info:
+  title: x-extensible-enum (only reaches a generator from a 3.1+ document)
+  version: "1.0"
+paths: {}
+components:
+  schemas:
+    Priority:
+      type: string
+      x-extensible-enum: [low, high]

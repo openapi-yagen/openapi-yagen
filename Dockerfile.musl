@@ -9,10 +9,12 @@ RUN --mount=type=cache,target=/root/.conan2 \
     conan profile detect --force
 
 COPY conanfile.txt /sources/
+COPY scripts/pin-kuba-zip-checksum.sh /sources/scripts/
 
 RUN --mount=type=cache,target=/root/.conan2 set -x && \
     mkdir -p /build && \
     cd /build && \
+    sh /sources/scripts/pin-kuba-zip-checksum.sh && \
     conan install /sources -s compiler.cppstd=20 --output-folder=. --build=missing
 
 COPY . /sources/

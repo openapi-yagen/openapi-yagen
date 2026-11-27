@@ -1,0 +1,25 @@
+package models
+
+{% if model.description %}{{ buildDocComment(model.name + " - " + model.description, null, [], "//") }}
+{% endif %}// {{ model.name }} is an open enumeration: the constants below are the known values, but any string
+// is accepted.
+type {{ model.name }} string
+
+const (
+{% filter indent("\t", true) %}{% for e in model.entries %}{{ e.goName }} {{ model.name }} = {{ toStringLiteral(e.wireValue) }}
+{% endfor %}{% endfilter %})
+
+// IsKnown reports whether v is one of the declared constants.
+func (v {{ model.name }}) IsKnown() bool {
+	switch v {
+	case {% for e in model.entries %}{{ e.goName }}{% if not loop.is_last %}, {% endif %}{% endfor %}:
+		return true
+	}
+	return false
+}
+
+// Parse{{ model.name }} converts a wire-format string (e.g. a path/query/header parameter value)
+// to a {{ model.name }}. It never fails - unknown values are accepted.
+func Parse{{ model.name }}(s string) ({{ model.name }}, error) {
+	return {{ model.name }}(s), nil
+}

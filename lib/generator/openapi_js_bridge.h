@@ -53,6 +53,14 @@ public:
     // not name-string-based - works uniformly across all component kinds.
     std::optional<std::string> nameOf(JSValueConst x) const;
 
+    // The description written next to the $ref of property `name` of the `properties` object
+    // `properties` (a built schema's, or one filled by flattenAllOf), if there is one. Kept beside
+    // the graph because the property value itself is the shared target schema.
+    std::optional<std::string> refDescriptionOf(JSValueConst properties, const std::string& name) const;
+    // Sets (or, with nullopt, forgets) what refDescriptionOf returns for `properties`.`name`.
+    void setRefDescription(JSValueConst properties, const std::string& name,
+                           const std::optional<std::string>& description);
+
 private:
     JSValue getOrCreateChildObject(JSValue obj, const std::string& key);
     void overwriteParameterArray(JSValue parentObj, const std::string& key,
@@ -72,6 +80,12 @@ private:
     std::map<const void*, JS::JSValueWrapper> headerMemo;
     std::map<const void*, JS::JSValueWrapper> callbackMemo;
     std::map<const void*, std::string> componentNames; // JS heap pointer -> components.* name
+
+    struct RefDescriptions {
+        JS::JSValueWrapper properties; // keeps the object alive, so its address stays its own
+        std::map<std::string, std::string> byName;
+    };
+    std::map<const void*, RefDescriptions> refDescriptions; // keyed by `properties` object pointer
 };
 
 // Builds a plain array from OpenApi::collectOperations()'s result: each operation is a computed,

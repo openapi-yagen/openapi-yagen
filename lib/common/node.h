@@ -24,6 +24,9 @@ struct Node {
     using Value = std::variant<Null, Bool, Int, String, Vec, Map>;
     Value value;
 
+    // Deep structural equality.
+    bool operator==(const Node& other) const;
+
     template <typename T>
     inline const T* getIf() const
     {

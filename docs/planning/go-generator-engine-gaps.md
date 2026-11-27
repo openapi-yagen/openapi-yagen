@@ -125,3 +125,41 @@ just don't match any candidate property and fall through to the pre-existing err
 this fix, not a new incorrect result. **Field-type dispatch** (`status: string` in one variant vs.
 `status: integer` in another, with no shared literal) is still unimplemented - nobody's hit a real
 spec needing it yet, so it stays logged here rather than spec-built.
+
+## 4. Keywords next to `$ref` never reach a generator (`description` of a property fixed)
+
+`OpenApi::resolveAllRefs` (`lib/openapi/resolve.cpp`) replaces a `$ref` slot with the target
+schema, so that object identity (and with it `nameOf()`) holds - which used to drop an OAS 3.1
+sibling such as a per-property `description`. Reported by a Go generator user.
+
+**Fixed** for that case: the resolver records it in `Schema::propertyDescriptions`, and the
+`propertyDescription` built-in (also across `flattenAllOf`) hands it to generators; all built-in
+ones use it. Siblings elsewhere (`items`, an alias in `components.schemas`) and other keywords
+(`deprecated`, `readOnly`, ...) are still lost - nobody has needed them yet.
+
+## 5. Version conversion drops `x-*` keywords (open)
+
+Converting a 3.0 document for a generator that declares `openApiVersion: "3.1"` goes through the
+typed model, whose writer doesn't emit schema vendor extensions. A generator therefore sees
+`x-extensible-enum` (honored by the Go generators as an open enum) only in a 3.1+ document.
+
+## 6. Response headers are not generated (open)
+
+`responses.<code>.headers` have no representation in the Go server's handler signatures; a handler
+sets them through `server.ResponseWriterFromContext`. Returning them as typed fields would change
+every affected signature.
+
+## 7. `additionalProperties` next to `properties` outside Go (open)
+
+Only the Go generators keep the undeclared properties of an object that declares both. The other
+generators emit the declared fields alone.
+
+## 8. Known Go generator defects (open)
+
+Found while type-checking the output for `test/resources/ghes-3.15.yaml` and small probe specs:
+
+- Enum values differing only in characters lost by name conversion (`+1`/`-1`) produce duplicate
+  constant names; the same pair as property names produces two struct fields named `_1`.
+- A schema named `ValidationError` collides with the runtime's own `models.ValidationError`.
+- The constraints of urlencoded/multipart fields are never checked.
+- `minLength`/`maxLength` count bytes, not Unicode characters.

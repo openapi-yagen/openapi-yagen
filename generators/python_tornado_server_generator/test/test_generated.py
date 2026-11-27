@@ -403,6 +403,20 @@ class GeneratedTornadoAppTest(AsyncHTTPTestCase):
         response = self.fetch("/widgets/1", method="DELETE")
         assert response.code == 401
 
+    def test_delete_widget_rejects_a_non_bearer_authorization_header(self) -> None:
+        for header in ["Basic abc", "sometoken", "Bearer", "Bearer ", "Bearerabc"]:
+            response = self.fetch("/widgets/1", method="DELETE", headers={"Authorization": header})
+            assert response.code == 401, header
+        assert 1 in self.handler_impl.widgets
+
+    def test_delete_widget_accepts_a_lowercase_bearer_scheme(self) -> None:
+        response = self.fetch("/widgets/1", method="DELETE", headers={"Authorization": "bearer sometoken"})
+        assert response.code == 204
+
+    def test_favorite_widget_rejects_a_basic_authorization_header(self) -> None:
+        response = self.fetch("/widgets/1/favorite", method="POST", body=b"", headers={"Authorization": "Basic abc"})
+        assert response.code == 401
+
     def test_delete_widget_with_bearer_token_succeeds(self) -> None:
         response = self.fetch("/widgets/1", method="DELETE", headers={"Authorization": "Bearer sometoken"})
         assert response.code == 204

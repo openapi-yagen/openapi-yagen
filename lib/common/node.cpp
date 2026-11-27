@@ -1,6 +1,22 @@
 #include "node.h"
 
 #include <ostream>
+#include <type_traits>
+
+bool Node::operator==(const Node& other) const
+{
+    if (value.index() != other.value.index())
+        return false;
+    return std::visit(
+        [&other](const auto& v) {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, Null>)
+                return true;
+            else
+                return v == std::get<T>(other.value);
+        },
+        value);
+}
 
 template <>
 std::string_view getTypeName<std::string>()

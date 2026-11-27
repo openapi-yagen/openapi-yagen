@@ -37,6 +37,17 @@ it off explicitly. It roughly doubles full-rebuild time.
 `-DBUILD_TESTS=OFF` so they don't compile tests they never run; keep that flag on any new
 release/distribution build script.
 
+## kuba-zip source checksum
+
+The ConanCenter recipe of `kuba-zip/0.3.2` carries a sha256 that GitHub's current source archive no
+longer matches (the files inside are unchanged), so building the package from source fails with
+`sha256 hash failed`. `scripts/pin-kuba-zip-checksum.sh` replaces the sha256 in the cached recipe;
+the Dockerfiles run it in the same `RUN` as `conan install` (a cache mount can be emptied between
+steps), and `build-macos.sh` runs it too. Run it by hand if a local `conan install` hits the error.
+If GitHub's archive changes again, compare its files with a previously verified copy before
+updating the sha256. Remove the script once
+[conan-center-index#31536](https://github.com/conan-io/conan-center-index/issues/31536) is fixed.
+
 ## Release binaries
 
 Static, statically-linked release binaries (as shipped in `dist/` and CI) are built via Docker:

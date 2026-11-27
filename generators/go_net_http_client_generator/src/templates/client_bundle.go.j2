@@ -9,8 +9,8 @@ import "net/http"
 {% for g in groups %}	{{ g.fieldName }} *{{ g.tagType }}
 {% endfor %}}
 
-func NewApiClient(httpClient *http.Client, baseURL string) *ApiClient {
+func NewApiClient(httpClient *http.Client, baseURL string, opts ...Option) *ApiClient {
 	return &ApiClient{
-{% for g in groups %}		{{ g.fieldName }}: New{{ g.tagType }}(httpClient, baseURL),
+{% for g in groups %}		{{ g.fieldName }}: New{{ g.tagType }}(httpClient, baseURL, opts...),
 {% endfor %}	}
 }

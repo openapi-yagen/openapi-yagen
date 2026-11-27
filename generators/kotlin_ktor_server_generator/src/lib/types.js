@@ -198,7 +198,7 @@ function registerObject(registry, name, schema, variantOpts) {
       serializerAnnotation: t.serializerAnnotation || null,
       nullable,
       defaultLiteral,
-      description: propSchema.description || null,
+      description: propertyDescription(schema, propName),
       constraints,
       // Untagged (plain-string) pass-1 constraint calls have no cross-type dependency; tag them
       // uniformly with buildNestedValidationCalls's {text, requiresType} shape so pass 3 (see

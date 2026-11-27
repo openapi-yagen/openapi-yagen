@@ -115,7 +115,7 @@ function registerObject(registry, name, schema, variantOpts) {
       serializerAnnotation: t.serializerAnnotation || null,
       nullable,
       defaultLiteral,
-      description: propSchema.description || null,
+      description: propertyDescription(schema, propName),
     });
   }
   addModel(registry, name, {
