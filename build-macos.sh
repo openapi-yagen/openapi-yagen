@@ -14,6 +14,7 @@ APP_NAME=openapi-yagen
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 conan profile detect --force
+"$REPO_ROOT/scripts/pin-kuba-zip-checksum.sh"
 
 build_arch() {
     local conan_arch=$1

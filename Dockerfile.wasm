@@ -10,10 +10,12 @@ RUN --mount=type=cache,target=/root/.conan2 \
     conan profile detect --force
 
 COPY wasm/conanfile.txt wasm/conan-emscripten.profile /sources/wasm/
+COPY scripts/pin-kuba-zip-checksum.sh /sources/scripts/
 
 RUN --mount=type=cache,target=/root/.conan2 set -x && \
     mkdir -p /build && \
     cd /build && \
+    sh /sources/scripts/pin-kuba-zip-checksum.sh && \
     conan install /sources/wasm -s compiler.cppstd=20 --output-folder=. --build=missing \
         --profile:build=default --profile:host=/sources/wasm/conan-emscripten.profile
 
