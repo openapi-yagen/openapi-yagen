@@ -126,14 +126,16 @@ this fix, not a new incorrect result. **Field-type dispatch** (`status: string` 
 `status: integer` in another, with no shared literal) is still unimplemented - nobody's hit a real
 spec needing it yet, so it stays logged here rather than spec-built.
 
-## 4. Keywords next to `$ref` never reach a generator (open)
+## 4. Keywords next to `$ref` never reach a generator (`description` of a property fixed)
 
-`OpenApi::resolveAllRefs` (`lib/openapi/resolve.cpp`, `deref` in `lib/openapi/schema.cpp`) replaces
-a `$ref` slot with the target schema, so an OAS 3.1 sibling such as a per-property `description`
-next to `$ref` is gone before the JS graph is built - every generator documents the property with
-the target schema's description instead. A fix has to keep object identity working for `nameOf()`,
-so it belongs in the engine (e.g. a lookup for a slot's own siblings), not in one generator.
-Reported by a Go generator user; the embedded OpenAPI document still carries the sibling.
+`OpenApi::resolveAllRefs` (`lib/openapi/resolve.cpp`) replaces a `$ref` slot with the target
+schema, so that object identity (and with it `nameOf()`) holds - which used to drop an OAS 3.1
+sibling such as a per-property `description`. Reported by a Go generator user.
+
+**Fixed** for that case: the resolver records it in `Schema::propertyDescriptions`, and the
+`propertyDescription` built-in (also across `flattenAllOf`) hands it to generators; all built-in
+ones use it. Siblings elsewhere (`items`, an alias in `components.schemas`) and other keywords
+(`deprecated`, `readOnly`, ...) are still lost - nobody has needed them yet.
 
 ## 5. Version conversion drops `x-*` keywords (open)
 

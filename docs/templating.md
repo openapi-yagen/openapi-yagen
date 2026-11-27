@@ -44,7 +44,8 @@ renderTemplate("model.h.j2", { schemas }, "model.h", {
 ```
 
 The OpenAPI-specific functions (`kindOf`, `constraintsOf`, `nameOf`, `collectOperations`,
-`firstSuccessResponse`, `flattenAllOf`, `resolveDiscriminator`) are **not** usable inside templates
+`firstSuccessResponse`, `flattenAllOf`, `propertyDescription`, `resolveDiscriminator`) are **not**
+usable inside templates
 - they rely on JS object identity, which is gone by the time data reaches a template (see
 [`javascript-api.md`](javascript-api.md#openapi-specific-functions-js-only)). Resolve everything
 you need from them in `main.js` first, and pass the plain result into `data`/`renderTemplate`.

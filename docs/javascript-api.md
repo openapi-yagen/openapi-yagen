@@ -290,6 +290,30 @@ for (const op of collectOperations()) {
 }
 ```
 
+#### `propertyDescription`
+
+The text to document an object property with. In OpenAPI 3.1+ a property may describe itself next
+to its `$ref` (`next: {$ref: '#/components/schemas/Action', description: 'Only while pending'}`),
+but `schema.properties.next` is the `Action` schema itself - the same object everywhere it's
+referenced - so its `.description` is `Action`'s. This function returns the `description` written
+next to the `$ref` if there is one, and the property schema's own otherwise.
+
+```javascript
+propertyDescription(schema: object, propName: string): string | null
+```
+
+```javascript
+for (const propName of Object.keys(s.properties || {})) {
+  const comment = propertyDescription(s, propName);
+}
+```
+
+It works on schemas from the document and on the `properties` returned by `flattenAllOf` (also
+when put into an object you build yourself: `{properties: flattenAllOf(s).properties}`). A copy of
+a `properties` object made in JavaScript loses the descriptions written next to `$ref`s. A spec
+in OpenAPI 3.0 or Swagger 2.0 gets the same treatment, although those versions formally ignore keys
+next to `$ref` - unless your generator targets 3.0 and the spec is converted to it, which drops them.
+
 #### `flattenAllOf`
 
 Recursively merges a schema's own `properties`/`required` with every (possibly itself `allOf`-
@@ -364,7 +388,7 @@ const shapeDispatch = resolveUnionDispatch(schema.components.schemas.Shape);
 ```
 
 `kindOf`/`unwrapSchema`/`constraintsOf`/`nameOf`/`firstSuccessResponse`/`flattenAllOf`/
-`resolveDiscriminator`/`resolveUnionDispatch` only
+`propertyDescription`/`resolveDiscriminator`/`resolveUnionDispatch` only
 work while a schema still has its original JS object identity - that is, before it's passed into
 `renderTemplate`/`renderTemplateToString` (which converts `data` via an internal value tree with no
 object identity) or into a function called from inside a template. Call them in `main.js` first,

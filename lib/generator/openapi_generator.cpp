@@ -415,22 +415,57 @@ JSValue firstSuccessResponseBuiltin(JSContext* ctx, JSValueConst thisVal, int ar
     });
 }
 
+// The `description` to document property `propName` of `schema` with: the one written next to the
+// property's $ref if there is one, otherwise the property schema's own - which for a $ref is the
+// target's, since every reference to it is the same object.
+JSValue propertyDescriptionBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic,
+                                   JSValue* data)
+{
+    return runAndCatchExceptions(ctx, [&] {
+        const auto& builder = *jsValueToPtr<const Generator::OpenApiJsGraphBuilder>(*data);
+        if (argc < 2 || !JS_IsString(argv[1]))
+            throw runtime_error(
+                "<7997c580> propertyDescription requires 2 arguments (schema: object, propName: string)");
+        if (!JS_IsObject(argv[0]))
+            return JS_NULL;
+
+        auto name = jsValueToString(ctx, argv[1]);
+        auto properties = JS_GetPropertyStr(ctx, argv[0], "properties");
+        finalize { JS_FreeValue(ctx, properties); };
+        if (!JS_IsObject(properties))
+            return JS_NULL;
+        if (auto description = builder.refDescriptionOf(properties, name))
+            return JS_NewStringLen(ctx, description->data(), description->size());
+
+        auto property = JS_GetPropertyStr(ctx, properties, name.c_str());
+        finalize { JS_FreeValue(ctx, property); };
+        if (!JS_IsObject(property))
+            return JS_NULL;
+        auto description = JS_GetPropertyStr(ctx, property, "description");
+        if (JS_IsString(description))
+            return description;
+        JS_FreeValue(ctx, description);
+        return JS_NULL;
+    });
+}
+
 // Recursively merges `schema`'s own `properties`/`required` with every (possibly itself allOf-
 // bearing) branch of `schema.allOf`, into a single flat `{properties, required}` - every
 // generator handling allOf otherwise hand-rolls a one-level-only version of this same merge.
 // Merged property values keep the exact JS object identity of wherever they were declared (a
 // direct assignment of the branch's own property JSValue, never a copy/round-trip), so nameOf()/
 // kindOf() still work on them afterwards - e.g. a merged-in property that's a $ref to a named
-// schema still resolves via nameOf.
+// schema still resolves via nameOf. With a `builder`, propertyDescription() keeps working on the
+// result: a property's $ref-sibling description moves along with it.
 void flattenAllOfInto(JSContext* ctx, JSValueConst schemaVal, JSValue propertiesObj, vector<string>& required,
-                      set<string>& seenRequired)
+                      set<string>& seenRequired, Generator::OpenApiJsGraphBuilder* builder = nullptr)
 {
     auto allOfVal = JS_GetPropertyStr(ctx, schemaVal, "allOf");
     if (JS_IsArray(ctx, allOfVal)) {
         auto len = jsArrayLength(ctx, allOfVal);
         for (int32_t i = 0; i < len; i++) {
             auto branch = JS_GetPropertyUint32(ctx, allOfVal, (uint32_t)i);
-            flattenAllOfInto(ctx, branch, propertiesObj, required, seenRequired);
+            flattenAllOfInto(ctx, branch, propertiesObj, required, seenRequired, builder);
             JS_FreeValue(ctx, branch);
         }
     }
@@ -440,6 +475,9 @@ void flattenAllOfInto(JSContext* ctx, JSValueConst schemaVal, JSValue properties
     if (JS_IsObject(propsVal)) {
         jsIterateObjectProps(ctx, propsVal, [&](const string& name, const JSValue& value) {
             setObjProperty(ctx, propertiesObj, name, JS_DupValue(ctx, value));
+            // A later declaration replaces the property, and with it any earlier description.
+            if (builder)
+                builder->setRefDescription(propertiesObj, name, builder->refDescriptionOf(propsVal, name));
         });
     }
     JS_FreeValue(ctx, propsVal);
@@ -460,9 +498,11 @@ void flattenAllOfInto(JSContext* ctx, JSValueConst schemaVal, JSValue properties
     JS_FreeValue(ctx, reqVal);
 }
 
-JSValue flattenAllOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv)
+JSValue flattenAllOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSValueConst* argv, int magic,
+                            JSValue* data)
 {
     return runAndCatchExceptions(ctx, [&] {
+        auto& builder = *jsValueToPtr<Generator::OpenApiJsGraphBuilder>(*data);
         if (argc < 1)
             throw runtime_error("<8ed774c8> flattenAllOf requires 1 argument (schema: object)");
 
@@ -470,7 +510,7 @@ JSValue flattenAllOfBuiltin(JSContext* ctx, JSValueConst thisVal, int argc, JSVa
         checkForException(ctx, propertiesObj, "<d3ceb1a8> Cannot create object");
         vector<string> required;
         set<string> seenRequired;
-        flattenAllOfInto(ctx, argv[0], propertiesObj, required, seenRequired);
+        flattenAllOfInto(ctx, argv[0], propertiesObj, required, seenRequired, &builder);
 
         auto requiredArr = JS_NewArray(ctx);
         checkForException(ctx, requiredArr, "<bf5da566> Cannot create array");
@@ -1168,7 +1208,8 @@ void OpenApiGenerator::generate(const string& specPath)
             collectOperationsCtx = { &*builder, &operations };
             setObjFunction(ctx, globalObj, "collectOperations", collectOperationsBuiltin, &collectOperationsCtx);
             setObjFunction(ctx, globalObj, "firstSuccessResponse", firstSuccessResponseBuiltin);
-            setObjFunction(ctx, globalObj, "flattenAllOf", flattenAllOfBuiltin);
+            setObjFunction(ctx, globalObj, "flattenAllOf", flattenAllOfBuiltin, &*builder);
+            setObjFunction(ctx, globalObj, "propertyDescription", propertyDescriptionBuiltin, &*builder);
             setObjFunction(ctx, globalObj, "resolveDiscriminator", resolveDiscriminatorBuiltin, &*builder);
             setObjFunction(ctx, globalObj, "resolveUnionDispatch", resolveUnionDispatchBuiltin);
 

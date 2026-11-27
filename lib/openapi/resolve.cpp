@@ -19,8 +19,12 @@ void resolveSchemaPtr(const SchemaMap& schemas, SchemaPtr& slot, set<const Schem
     if (!visited.insert(slot.get()).second)
         return; // already walked (or currently being walked further up the call stack) - stop
 
-    for (auto& [name, prop] : slot->properties)
+    for (auto& [name, prop] : slot->properties) {
+        // The only per-use keyword kept: what the referencing property says about itself.
+        if (prop && prop->ref && prop->description)
+            slot->propertyDescriptions[name] = *prop->description;
         resolveSchemaPtr(schemas, prop, visited);
+    }
     resolveSchemaPtr(schemas, slot->items, visited);
     resolveSchemaPtr(schemas, slot->additionalPropertiesSchema, visited);
     for (auto& s : slot->allOf)

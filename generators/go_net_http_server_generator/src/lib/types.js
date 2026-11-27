@@ -136,7 +136,7 @@ function registerStruct(registry, name, schema, variantOpts) {
       // A readOnly property is absent from requests and a writeOnly one from responses, so
       // `required` can't be enforced on a model shared by both directions.
       oneWay: !!(propSchema.readOnly || propSchema.writeOnly),
-      description: propSchema.description || null,
+      description: propertyDescription(schema, propName),
       constraints: constraintsOf(propSchema),
       // Only meaningful for a string-typed property (see attachValidationCalls, which recognizes
       // uuid/date) - format: date-time already maps to time.Time via primitiveGoType.
