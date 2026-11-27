@@ -5,7 +5,7 @@ slug: /generators/go-net-http-client
 description: Generate a Go API client on the standard library's net/http and encoding/json, with no third-party dependencies.
 ---
 
-# go_net_http_client_generator
+# go_net_http_client
 
 Generates a Go API client using only the standard library (`net/http`, `encoding/json`): one
 struct per OpenAPI schema in a `models` package, plus one client type per tag in a `client`
@@ -19,16 +19,24 @@ passing it in.
 ## Usage
 
 ```bash
-openapi-yagen g -o out -g go_net_http_client_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:go_net_http_client openapi.yaml \
     -v packageName=github.com/example/petstore
 ```
 
-`-o` must point at the root of a Go module already initialized with the same import path
-(`go mod init github.com/example/petstore`).
+`packageName` is the Go import path of the `-o` directory. That directory can be the root of a Go
+module (`-o out -v packageName=github.com/example/petstore`, after
+`go mod init github.com/example/petstore`) or any subdirectory of an existing module, in which case
+append the subdirectory to the module path:
+
+```bash
+# inside the module github.com/example/petstore
+openapi-yagen g -o internal/api/gen -g builtin:go_net_http_client openapi.yaml \
+    -v packageName=github.com/example/petstore/internal/api/gen
+```
 
 | Variable      | Required | Description |
 |---------------|----------|-------------|
-| `packageName` | yes      | Go import path for the generated code (e.g. `github.com/example/petstore`). Used to build the import statement `client` code needs to reference `models` - the `package` clause of every generated file is always the literal `models`/`client`, never this value. |
+| `packageName` | yes      | Go import path of the `-o` directory (e.g. `github.com/example/petstore`, or `github.com/example/petstore/gen` when generating into `gen/`). Used to build the import statement `client` code needs to reference `models` - the `package` clause of every generated file is always the literal `models`/`client`, never this value. |
 | `strict`      | no (default `true`) | `true`: an unsupported schema/operation aborts generation with an error. `false`: skip it with a printed warning and generate everything else. |
 | `generate`    | no (default `all`) | `all`: models plus the client. `models`: only `models/*.go`. `api`: everything except `models/*.go` - see "Sharing models" below. |
 
@@ -46,7 +54,7 @@ models/union_helpers.go internal helpers used by generated oneOf/anyOf wrapper t
 ## Sharing models with the server generator
 
 `models/*.go` is the same output whether it comes from this generator or from
-[`go_net_http_server_generator`](../go_net_http_server_generator/README.md) - both generate into a
+[`go_net_http_server`](../go_net_http_server_generator/README.md) - both generate into a
 `models` package with the same template for every model kind, and neither's model files reference
 anything client- or server-specific.
 
@@ -54,15 +62,15 @@ To generate models once and share them:
 
 ```bash
 # shared models module
-openapi-yagen g -o shared -g go_net_http_client_generator openapi.yaml \
+openapi-yagen g -o shared -g builtin:go_net_http_client openapi.yaml \
     -v packageName=github.com/example/petstore -v generate=models
 
 # client module - client/ only, no models/
-openapi-yagen g -o client -g go_net_http_client_generator openapi.yaml \
+openapi-yagen g -o client -g builtin:go_net_http_client openapi.yaml \
     -v packageName=github.com/example/petstore -v generate=api
 
 # server module - server/ only, no models/
-openapi-yagen g -o server -g go_net_http_server_generator openapi.yaml \
+openapi-yagen g -o server -g builtin:go_net_http_server openapi.yaml \
     -v packageName=github.com/example/petstore -v generate=api
 ```
 
@@ -252,7 +260,7 @@ Templates emit tab-indented Go directly, readable without a formatter. For canon
 output, pass `-p`/`--post-process`:
 
 ```bash
-openapi-yagen g -o out -g go_net_http_client_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:go_net_http_client openapi.yaml \
     -v packageName=github.com/example/petstore \
     -p "go:gofmt -w %file%"
 ```

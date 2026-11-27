@@ -5,7 +5,7 @@ slug: /generators/python-tornado-server
 description: Generate validated Tornado server routes and handler interfaces from OpenAPI.
 ---
 
-# python_tornado_server_generator
+# python_tornado_server
 
 Generates [Tornado](https://www.tornadoweb.org/) server routing for an OpenAPI spec: one dataclass
 per object schema (`from_wire`/`to_wire`/`validate` included - Python has no compiler to reject a
@@ -25,7 +25,7 @@ complete, self-sufficient server stack on its own.
 ## Usage
 
 ```bash
-openapi-yagen g -o out -g python_tornado_server_generator openapi.yaml -v packageName=petstore_api
+openapi-yagen g -o out -g builtin:python_tornado_server openapi.yaml -v packageName=petstore_api
 ```
 
 | Variable      | Required | Description                                            |
@@ -112,7 +112,7 @@ class BaseHandler(RequestHandler):
 ```
 
 ```bash
-openapi-yagen g -o out -g python_tornado_server_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:python_tornado_server openapi.yaml \
     -v packageName=petstore_api -v handlerBaseClass=your_app.support.BaseHandler
 ```
 
@@ -121,7 +121,7 @@ openapi-yagen g -o out -g python_tornado_server_generator openapi.yaml \
 Set `-v publishOpenApiSpec=true` to have the generated server publish its own spec:
 
 ```bash
-openapi-yagen g -o out -g python_tornado_server_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:python_tornado_server openapi.yaml \
     -v packageName=petstore_api -v publishOpenApiSpec=true
 ```
 

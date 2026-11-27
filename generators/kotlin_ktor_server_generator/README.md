@@ -5,7 +5,7 @@ slug: /generators/kotlin-ktor-server
 description: Generate validated Ktor server routes and handler interfaces from OpenAPI.
 ---
 
-# kotlin_ktor_server_generator
+# kotlin_ktor_server
 
 Generates [Ktor](https://ktor.io) server routing for an OpenAPI spec: one `@Serializable` data
 class per schema, and per tag a routing class plus a handler interface you implement.
@@ -24,7 +24,7 @@ of being duplicated per handler.
 ## Usage
 
 ```bash
-openapi-yagen g -o out -g kotlin_ktor_server_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:kotlin_ktor_server openapi.yaml \
     -v packageName=com.example.petstore
 ```
 
@@ -58,7 +58,7 @@ is generated into `packageName.models`, `apis/` into `packageName.apis`; `Valida
 ## Sharing models with the client generator
 
 `models/*.kt` is byte-for-byte the same output whether it comes from this generator or from
-[`kotlin_ktor_client_generator`](../kotlin_ktor_client_generator/README.md) - both generate into
+[`kotlin_ktor_client`](../kotlin_ktor_client_generator/README.md) - both generate into
 the same `packageName.models` sub-package and use the same template for every model kind.
 `ModelValidation.kt`'s `.validate()` extensions (needed by the generated routes) are
 kept in their own file specifically so `models/*.kt` stays portable: unlike `Validation.kt`, the
@@ -72,15 +72,15 @@ generate=api`:
 ```bash
 # shared module - models only (either generator works; the client's is shown as the more obviously
 # "portable" choice to standardize on)
-openapi-yagen g -o shared -g kotlin_ktor_client_generator openapi.yaml \
+openapi-yagen g -o shared -g builtin:kotlin_ktor_client openapi.yaml \
     -v packageName=com.example.petstore -v generate=models
 
 # server module - routes/handlers/Validation.kt/ModelValidation.kt, no models/
-openapi-yagen g -o server -g kotlin_ktor_server_generator openapi.yaml \
+openapi-yagen g -o server -g builtin:kotlin_ktor_server openapi.yaml \
     -v packageName=com.example.petstore -v generate=api
 
 # client module - API classes/bundle/QueryUtils.kt, no models/
-openapi-yagen g -o client -g kotlin_ktor_client_generator openapi.yaml \
+openapi-yagen g -o client -g builtin:kotlin_ktor_client openapi.yaml \
     -v packageName=com.example.petstore -v generate=api
 ```
 
@@ -265,7 +265,7 @@ single success response keeps the plain `suspend fun op(...): T` signature.
 Set `-v publishOpenApiSpec=true` to have the generated server publish its own spec:
 
 ```bash
-openapi-yagen g -o out -g kotlin_ktor_server_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:kotlin_ktor_server openapi.yaml \
     -v packageName=com.example.petstore -v publishOpenApiSpec=true
 ```
 
@@ -328,7 +328,7 @@ required for readable output. `-p`/`--post-process` is still available for house
 [ktfmt](https://kotlin.github.io/ktfmt/):
 
 ```bash
-openapi-yagen g -o out -g kotlin_ktor_server_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:kotlin_ktor_server openapi.yaml \
     -v packageName=com.example.petstore \
     -p "kt:ktfmt --kotlinlang-style %file%"
 ```
@@ -345,7 +345,7 @@ those cases it's faster to generate first and format afterwards in a single batc
 every file at once:
 
 ```bash
-openapi-yagen g -o out -g kotlin_ktor_server_generator openapi.yaml -v packageName=com.example.petstore
+openapi-yagen g -o out -g builtin:kotlin_ktor_server openapi.yaml -v packageName=com.example.petstore
 find out -name "*.kt" | xargs java -jar ktfmt-<version>-with-dependencies.jar --kotlinlang-style
 ```
 

@@ -20,10 +20,11 @@ openApiVersion: "3.1"
 variables:
   - name: packageName
     description: >-
-      Go import path for the generated code (e.g. github.com/example/petstore). Used to build the
+      Go import path of the -o directory (e.g. github.com/example/petstore). Used to build the
       import statement client code needs to reference the models package - the package clause of
-      every generated file is always the literal "models"/"client", never this value. -o should
-      point at the root of a Go module already initialized with this import path.
+      every generated file is always the literal "models"/"client", never this value. -o may be the
+      root of a Go module or any subdirectory of one - in the latter case this is the module path
+      followed by that subdirectory (e.g. -o gen -v packageName=example.com/m/gen).
     required: true
   - name: strict
     description: >-

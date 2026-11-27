@@ -5,7 +5,7 @@ slug: /generators/go-net-http-server
 description: Generate Go HTTP handlers on the standard library's net/http (Go 1.22+ ServeMux) and encoding/json, with no third-party dependencies.
 ---
 
-# go_net_http_server_generator
+# go_net_http_server
 
 Generates a Go HTTP server using only the standard library (`net/http`'s Go 1.22+ method+wildcard
 routing, `encoding/json`): one struct per OpenAPI schema in a `models` package, plus per OpenAPI
@@ -20,15 +20,24 @@ using shared helper functions in `server/runtime.go` instead of duplicating chec
 ## Usage
 
 ```bash
-openapi-yagen g -o out -g go_net_http_server_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:go_net_http_server openapi.yaml \
     -v packageName=github.com/example/petstore
 ```
 
-`-o` must point at the root of a Go module already initialized with the same import path.
+`packageName` is the Go import path of the `-o` directory. That directory can be the root of a Go
+module (`-o out -v packageName=github.com/example/petstore`, after
+`go mod init github.com/example/petstore`) or any subdirectory of an existing module, in which case
+append the subdirectory to the module path:
+
+```bash
+# inside the module github.com/example/petstore
+openapi-yagen g -o internal/api/gen -g builtin:go_net_http_server openapi.yaml \
+    -v packageName=github.com/example/petstore/internal/api/gen
+```
 
 | Variable      | Required | Description |
 |---------------|----------|-------------|
-| `packageName` | yes      | Go import path for the generated code (e.g. `github.com/example/petstore`). Used to build the import statement `server` code needs to reference `models` - the `package` clause of every generated file is always the literal `models`/`server`, never this value. |
+| `packageName` | yes      | Go import path of the `-o` directory (e.g. `github.com/example/petstore`, or `github.com/example/petstore/gen` when generating into `gen/`). Used to build the import statement `server` code needs to reference `models` - the `package` clause of every generated file is always the literal `models`/`server`, never this value. |
 | `strict`      | no (default `true`) | `true`: an unsupported schema/operation aborts generation with an error. `false`: skip it with a printed warning and generate everything else. |
 | `generate`    | no (default `all`) | `all`: models plus the server. `models`: only `models/*.go`. `api`: everything except `models/*.go` - see "Sharing models" below. |
 | `publishOpenApiSpec` | no (default `false`) | `true`: generates `server/openapi.json` (the effective OpenAPI document - the one actually used to generate this code, after `$ref` resolution, `--tags` filtering, and conversion to this generator's OpenAPI 3.1) plus a `RegisterOpenApiSpecRoute` function serving it as JSON at `openApiSpecPath`, compiled into the binary via `go:embed`. Ignored when `generate` is `models`. |
@@ -53,7 +62,7 @@ models/union_helpers.go   internal helpers used by generated oneOf/anyOf wrapper
 ## Sharing models with the client generator
 
 `models/*.go` is the same output whether it comes from this generator or from
-[`go_net_http_client_generator`](../go_net_http_client_generator/README.md) - both generate into a
+[`go_net_http_client`](../go_net_http_client_generator/README.md) - both generate into a
 `models` package with the same template for every model kind, and neither's model files reference
 anything client- or server-specific. See that generator's README "Sharing models" section for the
 `-v generate=models`/`-v generate=api` workflow.
@@ -124,7 +133,7 @@ server.RegisterPetsRoutes(loggingRouter{mux}, &petsHandler{}, nil)
 Set `-v publishOpenApiSpec=true` to have the generated server publish its own spec:
 
 ```bash
-openapi-yagen g -o out -g go_net_http_server_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:go_net_http_server openapi.yaml \
     -v packageName=github.com/example/petstore -v publishOpenApiSpec=true
 ```
 
@@ -176,7 +185,7 @@ called, mapped to 401 by `DefaultErrorHandler`.
 
 ### Model types
 
-See [`go_net_http_client_generator`](../go_net_http_client_generator/README.md)'s README "Model
+See [`go_net_http_client`](../go_net_http_client_generator/README.md)'s README "Model
 types" section - struct/enum/union/pointer representation is identical, since both generators
 share the same `models` output.
 
@@ -314,7 +323,7 @@ Templates emit tab-indented Go directly, readable without a formatter. For canon
 output, pass `-p`/`--post-process`:
 
 ```bash
-openapi-yagen g -o out -g go_net_http_server_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:go_net_http_server openapi.yaml \
     -v packageName=github.com/example/petstore \
     -p "go:gofmt -w %file%"
 ```

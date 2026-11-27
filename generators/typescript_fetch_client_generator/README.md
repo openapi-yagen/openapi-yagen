@@ -5,7 +5,7 @@ slug: /generators/typescript-fetch-client
 description: Generate a browser-first TypeScript API client with no third-party runtime dependencies.
 ---
 
-# typescript_fetch_client_generator
+# typescript_fetch_client
 
 Generates a browser-first TypeScript API client using native `fetch`, with **zero third-party
 runtime dependencies**: one `interface`/`enum`/`type` alias per OpenAPI schema, plus one client
@@ -22,7 +22,7 @@ credential(s) from a dedicated `auth` config - see "Authentication" below.
 ## Usage
 
 ```bash
-openapi-yagen g -o out -g typescript_fetch_client_generator openapi.yaml
+openapi-yagen g -o out -g builtin:typescript_fetch_client openapi.yaml
 ```
 
 No variable is required - TypeScript has no package/namespace system to parameterize, and the
@@ -282,7 +282,7 @@ polish (quote style, trailing commas, line-wrapping) - pipe through
 [prettier](https://prettier.io):
 
 ```bash
-openapi-yagen g -o out -g typescript_fetch_client_generator openapi.yaml \
+openapi-yagen g -o out -g builtin:typescript_fetch_client openapi.yaml \
     -p "ts:prettier --write %file%"
 ```
 
@@ -290,7 +290,7 @@ openapi-yagen g -o out -g typescript_fetch_client_generator openapi.yaml \
 and format afterwards in a single batch call:
 
 ```bash
-openapi-yagen g -o out -g typescript_fetch_client_generator openapi.yaml
+openapi-yagen g -o out -g builtin:typescript_fetch_client openapi.yaml
 npx prettier --write "out/**/*.ts"
 ```
 
