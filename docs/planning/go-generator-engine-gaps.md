@@ -125,3 +125,42 @@ just don't match any candidate property and fall through to the pre-existing err
 this fix, not a new incorrect result. **Field-type dispatch** (`status: string` in one variant vs.
 `status: integer` in another, with no shared literal) is still unimplemented - nobody's hit a real
 spec needing it yet, so it stays logged here rather than spec-built.
+
+## 4. Keywords next to `$ref` never reach a generator (open)
+
+`OpenApi::resolveAllRefs` (`lib/openapi/resolve.cpp`, `deref` in `lib/openapi/schema.cpp`) replaces
+a `$ref` slot with the target schema, so an OAS 3.1 sibling such as a per-property `description`
+next to `$ref` is gone before the JS graph is built - every generator documents the property with
+the target schema's description instead. A fix has to keep object identity working for `nameOf()`,
+so it belongs in the engine (e.g. a lookup for a slot's own siblings), not in one generator.
+Reported by a Go generator user; the embedded OpenAPI document still carries the sibling.
+
+## 5. Version conversion drops `x-*` keywords (open)
+
+Converting a 3.0 document for a generator that declares `openApiVersion: "3.1"` goes through the
+typed model, whose writer doesn't emit schema vendor extensions. A generator therefore sees
+`x-extensible-enum` (honored by the Go generators as an open enum) only in a 3.1+ document.
+
+## 6. Response headers are not generated (open)
+
+`responses.<code>.headers` have no representation in the Go server's handler signatures; a handler
+sets them through `server.ResponseWriterFromContext`. Returning them as typed fields would change
+every affected signature.
+
+## 7. `additionalProperties` next to `properties` outside Go (open)
+
+Only the Go generators keep the undeclared properties of an object that declares both. The other
+generators emit the declared fields alone.
+
+## 8. Known Go generator defects (open)
+
+Found while type-checking the output for `test/resources/ghes-3.15.yaml` and small probe specs:
+
+- Enum values differing only in characters lost by name conversion (`+1`/`-1`) produce duplicate
+  constant names; the same pair as property names produces two struct fields named `_1`.
+- A schema named `ValidationError` collides with the runtime's own `models.ValidationError`.
+- An optional `multipart/form-data` or urlencoded request body is passed to the handler by value
+  where the signature expects a pointer, which doesn't compile.
+- A urlencoded/multipart field referencing a named scalar schema gets no converter, which doesn't
+  compile; the constraints of form fields are never checked.
+- `minLength`/`maxLength` count bytes, not Unicode characters.
