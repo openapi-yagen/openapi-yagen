@@ -16,6 +16,8 @@ set(SOURCES
   openapi_generator.h
   openapi_js_bridge.cpp
   openapi_js_bridge.h
+  spec_bundle.cpp
+  spec_bundle.h
   spec_file.cpp
   spec_file.h
 )

@@ -24,7 +24,8 @@ Main features:
 - possibility to extend existing generators by overriding some files from a specified directory
 - post-processing of output files using custom tools (code formatters, linters, checkers...)
 - using generators available via HTTP/S (directly from GitHub, or other sources). The `curl` tool is required.
-- multi-file specs: external `$ref`s are bundled into one document
+- multi-file specs: external `$ref`s are bundled into one document, also available on its own via
+  the `bundle` command
 - understands OpenAPI 3.0, 3.1, 3.2, and Swagger 2.0, converting between them automatically so a
   generator only needs to be written against one 3.x version (see `convert` below, and
   [`generator-format.md`](docs/generator-format.md#spec-versions-and-conversion))
@@ -80,7 +81,7 @@ docker run --rm -v "$PWD":/workspace ghcr.io/openapi-yagen/openapi-yagen \
   generate openapi.yaml -g builtin:kotlin_ktor_client -o out
 ```
 
-Every subcommand below (`generate`, `convert`, `list-generators`, `extract`, `info`) works the same
+Every subcommand below (`generate`, `convert`, `bundle`, `list-generators`, `extract`, `info`) works the same
 way - append it and its options after the image name exactly as you would after the
 `openapi-yagen` binary itself. `-g`/`--override-dir`/`-o`/`spec-file` paths are resolved *inside*
 the container, so keep them relative to the directory you mounted. Loading a generator from an
@@ -105,6 +106,7 @@ Options:
 Subcommands:
   generate, g                 Generate sources from openapi specification
   convert, c                  Convert an OpenAPI spec from one version to another
+  bundle, b                   Merge a specification and the files it refers to into one document
   list-generators, l          List built-in generators bundled with this binary (use with -g builtin:<name>)
   extract, e                  Extract a built-in generator's files to a directory, e.g. to customize it further without starting from scratch
   info, i                     Show a generator's metadata: name, description, OpenAPI version, and declared variables
@@ -233,6 +235,37 @@ Options:
 ```bash
 openapi-yagen convert openapi-3.1.yaml --to 3.0 -o openapi-3.0.yaml
 ```
+
+### Bundle subcommand
+
+```
+Merge a specification and the files it refers to into one document
+Usage: ./openapi-yagen bundle [OPTIONS] spec-file
+
+Positionals:
+  spec-file TEXT REQUIRED     Specification file to bundle
+
+Options:
+  -h,--help                   Print this help message and exit
+  -o,--out TEXT REQUIRED      Output file path
+  --format TEXT               Output format: "yaml" or "json" - inferred from --out's extension if omitted
+  --to TEXT                   Also convert to this OpenAPI version (e.g. 2.0, 3.0, 3.1, 3.2)
+  --ref-root TEXT             Directory that files referenced through $ref must lie in (default: the spec file's directory)
+  -t,--tags TEXT ...          Only keep operations/models tagged with one of these tags (default: keep everything)
+```
+
+Writes the document `generate` would work with - external `$ref`s resolved (see
+[External $ref resolution](docs/generator-format.md#external-ref-resolution)), in-document ones kept
+as refs - for Swagger UI, review, or a CI check: it exits with a non-zero code on an unresolvable
+`$ref` or an invalid document.
+
+```bash
+openapi-yagen bundle api/main.yaml -o openapi.json
+openapi-yagen bundle api/main.yaml --to 3.0 -t pets -o pets.yaml
+```
+
+Tag filtering works as for `generate` (see [Filtering by tags](#filtering-by-tags)) and needs an
+OpenAPI 3.x document, so a Swagger 2.0 spec needs `--to` with a 3.x version.
 
 ### List-generators subcommand
 

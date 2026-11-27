@@ -8,6 +8,7 @@
 #include <catch2/catch_all.hpp>
 
 #include <lib/common/node_walker.h>
+#include <lib/generator/spec_bundle.h>
 #include <lib/generator/spec_file.h>
 #include <lib/openapi/resolve.h>
 #include <lib/openapi/schema.h>
@@ -592,4 +593,35 @@ components:
         REQUIRE_THROWS_MATCHES(readSpecFile(dir.path("main.yaml")), runtime_error,
                                MessageMatches(ContainsSubstring("securitySchemes/bearerAuth")));
     }
+
+    SECTION("bundle keeps the result a single document, filtered by tags")
+    {
+        dir.add("main.yaml", spec(R"(paths:
+  /items: {$ref: 'parts/lib.yaml#/paths/~1items'}
+  /ping: {$ref: 'parts/open.yaml#/paths/~1ping'}
+)"));
+        auto all = bundleSpec(dir.path("main.yaml"), { });
+        REQUIRE(all.version == OpenApiVersion::V3_1);
+        REQUIRE(read(all.node).paths.size() == 2);
+
+        auto filtered = bundleSpec(dir.path("main.yaml"), { .tags = { "items" } });
+        REQUIRE(names(read(filtered.node).paths) == vector<string> { "/items" });
+
+        auto converted = bundleSpec(dir.path("main.yaml"), { .targetVersion = OpenApiVersion::V2_0 });
+        REQUIRE(converted.version == OpenApiVersion::V2_0);
+        REQUIRE_NOTHROW(V2::Read(NodeWalker(converted.node)));
+    }
+}
+
+TEST_CASE("bundle validates the document", "[external_ref]")
+{
+    SpecDir dir;
+    dir.add("main.yaml", specReturning("#/components/schemas/Nope"));
+    REQUIRE_THROWS(bundleSpec(dir.path("main.yaml"), { }));
+
+    dir.add("v2.yaml", "swagger: '2.0'\ninfo: {title: t, version: 1.0.0}\npaths: {}\n");
+    REQUIRE_THROWS_MATCHES(bundleSpec(dir.path("v2.yaml"), { .tags = { "a" } }), runtime_error,
+                           MessageMatches(ContainsSubstring("3.x")));
+    auto upgraded = bundleSpec(dir.path("v2.yaml"), { .targetVersion = OpenApiVersion::V3_0, .tags = { "a" } });
+    REQUIRE(upgraded.version == OpenApiVersion::V3_0);
 }

@@ -82,7 +82,9 @@ without having to open its `generator.yml` by hand - see the root
 
 Before your generator ever sees it, the engine bundles a multi-file spec into one document: every
 **external** `$ref` (one pointing at another file, as opposed to an in-document `#/...` pointer) is
-resolved, so your generator always sees a single, already-merged document.
+resolved, so your generator always sees a single, already-merged document. The
+[`bundle` command](../README.md#bundle-subcommand) writes that document out without generating
+anything.
 
 ### Which files can be read
 

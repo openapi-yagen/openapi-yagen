@@ -20,6 +20,8 @@ configure_file(config.h.in config.h)
 set(SOURCES
     main.cpp
     commands/base_command.h
+    commands/bundle_command.h
+    commands/bundle_command.cpp
     commands/convert_command.h
     commands/convert_command.cpp
     commands/extract_command.h
