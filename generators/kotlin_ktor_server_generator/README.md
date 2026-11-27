@@ -296,6 +296,9 @@ client-credentials, an OIDC provider, ...), and - same as `bearer`/`apiKey` - th
 validates a token's signature/scopes/audience itself; that's left entirely to the handler
 implementation.
 
+A bearer token must arrive as `Authorization: Bearer <token>` (scheme name case-insensitive);
+another scheme or an empty token counts as missing.
+
 A secured operation's handler method gets one extra parameter per scheme referenced by its
 `security`. For a single security requirement (`security: [{a: [], b: []}]`, meaning every scheme
 in it is required together), each is a plain non-nullable `String`, already extracted and validated

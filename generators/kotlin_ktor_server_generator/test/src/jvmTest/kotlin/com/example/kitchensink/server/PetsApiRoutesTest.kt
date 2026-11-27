@@ -262,6 +262,17 @@ class PetsApiRoutesTest {
     }
 
     @Test
+    fun `deletePet with a non-Bearer Authorization header returns 401`() = testApplication {
+        installKitchenSinkApp()
+        for (value in listOf("Basic abc", "secret-token", "Bearer", "Bearer ", "Bearerabc")) {
+            val response = client.delete("/pets/1") { header("Authorization", value) }
+            assertEquals(HttpStatusCode.Unauthorized, response.status, value)
+        }
+        val lowercase = client.delete("/pets/1") { header("Authorization", "bearer secret-token") }
+        assertEquals(HttpStatusCode.NoContent, lowercase.status)
+    }
+
+    @Test
     fun `ratePet without the required X-Request-Id header returns 400`() = testApplication {
         installKitchenSinkApp()
         val response = client.post("/pets/1/ratings") {

@@ -185,6 +185,9 @@ latter two treated identically to `http`/`bearer` (RFC 6750: an OAuth2/OIDC acce
 `Authorization: Bearer <token>` regardless of how it was obtained), with no scope/claim validation
 of the token itself (just presence, same as every other scheme).
 
+A bearer token must arrive as `Authorization: Bearer <token>` (scheme name case-insensitive);
+another scheme or an empty token counts as missing.
+
 A `security` requirement naming a single scheme, or several required together (AND -
 `security: [{a: [], b: []}]`), gives the handler method one extra keyword-only, required `str`
 parameter per scheme, already extracted and validated before the handler runs:

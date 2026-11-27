@@ -40,6 +40,17 @@ class MissingAuthenticationError(Exception):
     RequestHandler maps it to a distinct HTTP status (401) rather than ValidationError's 422."""
 
 
+def bearer_token(header: Optional[str]) -> Optional[str]:
+    """The token of an `Authorization: Bearer <token>` header value (the scheme name is
+    case-insensitive) - None if the header is absent, uses another scheme, or carries no token."""
+
+    if header is None:
+        return None
+    scheme, _, token = header.partition(" ")
+    token = token.strip()
+    return token if scheme.lower() == "bearer" and token else None
+
+
 def require_str(value: Any, field: str) -> None:
     if value is not None and not isinstance(value, str):
         raise ValidationError('"{}" has the wrong type: expected str, got {}'.format(field, type(value).__name__))
